@@ -66,14 +66,14 @@ func SetupSteps() []string {
 	return []string{
 		"docker compose up -d --wait --wait-timeout 60",
 		"migrate",
-		"seed (make seed)",
+		"seed (flint seed --demo)",
 		"install plugin (flint-plugin/)",
 	}
 }
 
 // setupNext — (3)(4) guidance. Not execution — guidance for the next manual step (non-interference principle).
 var setupNext = []string{
-	"make seed — seed demo data",
+	"flint seed --demo — seed demo data into the isolated demo database",
 	"install the flint-plugin/ directory into your plugin path",
 }
 

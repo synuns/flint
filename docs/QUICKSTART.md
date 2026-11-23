@@ -19,8 +19,8 @@ automatically.
 
 ```sh
 flint setup     # ①compose up --wait(60s) ②migrate ③seed guide ④plugin guide
-# Demo data: 3 projects + 5 decisions + 1 pending + 1 preference + 2 playbooks
-make seed FLINT_SEED_DSN=postgresql://flint:flint-dev@localhost:5434/flint
+# Demo data (isolated demo database — the DSN's database name + `_demo`):
+flint seed --demo
 ```
 
 `setup` starts Doltgres (host port 5434, ADR-0010), migrates the schema, then
@@ -41,14 +41,18 @@ the `FLINT_DSN` environment variable or a config file (section 4 below).
 Tear down with `flint teardown` (`--purge` also removes volumes).
 
 Seeding is safe to re-run — identical payloads resolve to hash dedup with
-`{"status":"duplicate"}` exit 0 (idempotent). Requiring an explicit target DSN
-is deliberate (a guard against polluting production databases). Verify:
+`{"status":"duplicate"}` exit 0 (idempotent). `flint seed --demo` writes only
+to the derived `_demo` database (never the running one; `FLINT_DEMO_DSN`
+overrides the derivation); `flint seed --demo --reset --yes` deletes only the
+seeded `demo/` rows. From a checkout, `make seed FLINT_SEED_DSN=<dsn>` targets
+an explicit DSN (that explicit-DSN guard is deliberate — a protection against
+polluting production databases). Verify:
 
 ```sh
 flint read dump        # search: active_knowledge view only
 flint hot --session x  # inject at session start (hot_budget default 2,000 chars)
 flint audit --limit 5  # audit: last 5 entries of dolt_log
-flint doctor --check db   # diagnostics: db subset of the 17 checks (fail → exit 1)
+flint doctor --check db   # diagnostics: db subset of the 21 checks (fail → exit 1)
 flint report --days 7     # report: daily intake · zero_pct · p95 · stale (default 7 days)
 flint restore --file <dump> --drill  # recovery drill (source untouched, row-count compare only)
 ```

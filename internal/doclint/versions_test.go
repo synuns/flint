@@ -576,6 +576,13 @@ var versionDocContracts = []struct {
 	{name: "TestVersion01251Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.25.1", "r108", "r109-1",
 	}},
+	// v1.26.0 T4: surface-trust 마일스톤 계약행 — 캐시 3원칙(ETag 304·
+	// 모순 검출기·checked_at report --text)·seed --demo(embed·격리 _demo
+	// DB·--reset)·doctor versions(자가 보고·PATH·mcp-registry — 21종)·
+	// threshold update_cache_age_h.
+	{name: "TestVersion01260Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.26.0", "surface-trust",
+	}},
 	{name: "TestVersion0170Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.7.0", "sync",
 	}},

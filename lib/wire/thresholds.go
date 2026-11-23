@@ -70,6 +70,9 @@ func ApplyThresholdsFallback(th store.Thresholds) store.Thresholds {
 		// "warn at depth 0 / size 0" in doctor, so the fallback is mandatory.
 		{&th.DoltLogDepthWarn, def.DoltLogDepthWarn, false},
 		{&th.DbSizeWarnMB, def.DbSizeWarnMB, false},
+		// the update-check cache age (v1.26.0) — unset 0 would read as
+		// "warn at any age" in doctor versions, so the fallback is mandatory.
+		{&th.UpdateCacheAgeH, def.UpdateCacheAgeH, false},
 	} {
 		if *f.cur == 0 || (!f.allow && *f.cur < 0) {
 			*f.cur = f.def

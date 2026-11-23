@@ -2354,9 +2354,11 @@ func buildMetaKnownKeys() map[string]bool {
 // auto key — the same self-reference class, not an arbitrary auto_* pass-through).
 // auto_rounds_: the v1.23.1 every-stamped-round counters (meta auto_rounds_<key>,
 // one per whitelisted auto key — the r100-1 rounds/fires split, same class).
+// self_version_last: the v1.26.0 session-start version stamp (single key
+// self_version_last:session-start — the same self-reference false-positive class).
 // The threshold override
 // keys are handled by thresholdsKeys — a dynamic lookup).
-var metaKnownPrefixes = []string{"daily:", "pb_", "fired_", "auto_streak_", "auto_rounds_"}
+var metaKnownPrefixes = []string{"daily:", "pb_", "fired_", "auto_streak_", "auto_rounds_", "self_version_last:"}
 
 // KnownMetaKey — the single classification source (prefixes included — preventing hardcoded splits).
 func KnownMetaKey(k string) bool {

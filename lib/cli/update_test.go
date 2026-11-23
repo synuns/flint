@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -283,18 +284,17 @@ func TestUpdateFlowChecksumMismatch(t *testing.T) {
 	}
 }
 
-// TestMaybeUpdateNoticeCache — within the cache TTL the check is decided without network;
+// TestMaybeUpdateNoticeCache — within the cache TTL the check is decided without network
+// (a cache equal to the running version is self-consistent — no contradiction refetch);
 // on expiry it re-checks and refreshes the cache.
 func TestMaybeUpdateNoticeCache(t *testing.T) {
 	withFakeVersion(t, "0.1.0")
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
-	// fresh cache: latest is behind -> no output (must make no calls even with a dead server).
-	fresh, _ := os.ReadFile(updateCacheFile())
-	_ = fresh
-	c := updateCache{Latest: "0.0.1", CheckedAt: time.Now().UTC().Format(time.RFC3339)}
+	// fresh cache: latest == current -> self-consistent, no output, no network call.
+	c := updateCache{Latest: "0.1.0", CheckedAt: time.Now().UTC().Format(time.RFC3339)}
 	b, _ := json.Marshal(c)
 	os.WriteFile(updateCacheFile(), b, 0o600)
-	// dead server — within the TTL there must be no call at all.
+	// live server — within the TTL there must be no call at all.
 	withUpdateServer(t, "9.9.9", nil)
 	if got := maybeUpdateNotice(); got != "" {
 		t.Errorf("캐시 무시·무출력 위반: %q", got)
@@ -319,5 +319,307 @@ func TestMaybeUpdateNoticeCache(t *testing.T) {
 func TestDownloadRejectsNonHTTPS(t *testing.T) {
 	if _, err := download("http://example.com/asset"); err == nil {
 		t.Error("http:// URL 거부 안 됨")
+	}
+}
+
+// --- v1.26.0 T1 cache 3 principles: ETag round trip, contradiction detector,
+// old-cache compat, silent network failure, checked_at in noticeLine. ---
+
+// newETagServer — a fake releases API honoring If-None-Match (304 on exact match)
+// and counting requests. An empty etag never matches, so it always serves 200.
+func newETagServer(t *testing.T, latest, etag string) *int32 {
+	t.Helper()
+	var hits int32
+	mux := http.NewServeMux()
+	mux.HandleFunc("/repos/synuns/flint/releases/latest", func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&hits, 1)
+		if etag != "" && r.Header.Get("If-None-Match") == etag {
+			w.Header().Set("ETag", etag)
+			w.WriteHeader(http.StatusNotModified)
+			return
+		}
+		w.Header().Set("ETag", etag)
+		fmt.Fprintf(w, `{"tag_name":"v%s","assets":[]}`, latest)
+	})
+	srv := httptest.NewTLSServer(mux)
+	prevClient := updateClientFn
+	updateClientFn = func(timeout time.Duration) *http.Client {
+		c := srv.Client()
+		c.Timeout = timeout
+		return c
+	}
+	prev := updateAPIBase
+	updateAPIBase = srv.URL
+	t.Cleanup(func() { updateAPIBase = prev; updateClientFn = prevClient })
+	t.Cleanup(srv.Close)
+	return &hits
+}
+
+func writeUpdateCache(t *testing.T, c updateCache) {
+	t.Helper()
+	b, err := json.Marshal(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(updateCacheFile(), b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func readUpdateCache(t *testing.T) updateCache {
+	t.Helper()
+	var c updateCache
+	b, err := os.ReadFile(updateCacheFile())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(b, &c); err != nil {
+		t.Fatal(err)
+	}
+	return c
+}
+
+// TestUpdateCacheETagRoundTrip — expired cache + ETag: the refresh sends
+// If-None-Match, the 304 keeps the cached latest, and checked_at is refreshed
+// to now. A follow-up call within the TTL makes no further request.
+func TestUpdateCacheETagRoundTrip(t *testing.T) {
+	withFakeVersion(t, "0.1.0")
+	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
+	const etag = `"deadbeef"`
+	hits := newETagServer(t, "9.9.9", etag)
+	writeUpdateCache(t, updateCache{
+		Latest:    "9.9.9",
+		ETag:      etag,
+		CheckedAt: time.Now().UTC().Add(-48 * time.Hour).Format(time.RFC3339),
+	})
+	if got := maybeUpdateNotice(); !strings.Contains(got, "flint update") {
+		t.Fatalf("304 경로 안내 없음: %q", got)
+	}
+	if n := atomic.LoadInt32(hits); n != 1 {
+		t.Fatalf("요청 수 = %d, want 1 (조건부 1회)", n)
+	}
+	after := readUpdateCache(t)
+	if after.Latest != "9.9.9" || after.ETag != etag {
+		t.Errorf("304 캐시 승계 실패: %+v", after)
+	}
+	checked, err := time.Parse(time.RFC3339, after.CheckedAt)
+	if err != nil || time.Since(checked) > time.Minute {
+		t.Errorf("checked_at 미갱신: %q %v", after.CheckedAt, err)
+	}
+	// within the refreshed TTL there must be no further request.
+	maybeUpdateNotice()
+	if n := atomic.LoadInt32(hits); n != 1 {
+		t.Errorf("TTL 내 재요청: %d", n)
+	}
+}
+
+// TestMaybeUpdateNoticeContradictionRefetch — a fresh cache whose latest is
+// OLDER than the running version is a contradiction: the cache is ignored and
+// an immediate re-fetch happens (here the server's 9.9.9 yields a notice).
+func TestMaybeUpdateNoticeContradictionRefetch(t *testing.T) {
+	withFakeVersion(t, "0.1.0")
+	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
+	hits := newETagServer(t, "9.9.9", "")
+	writeUpdateCache(t, updateCache{Latest: "0.0.1", CheckedAt: time.Now().UTC().Format(time.RFC3339)})
+	if got := maybeUpdateNotice(); !strings.Contains(got, "flint update") {
+		t.Fatalf("모순 캐시 재검사 안내 없음: %q", got)
+	}
+	if n := atomic.LoadInt32(hits); n != 1 {
+		t.Errorf("모순 검출기 재 fetch 없음: %d", n)
+	}
+	if after := readUpdateCache(t); after.Latest != "9.9.9" {
+		t.Errorf("모순 경로 캐시 갱신 실패: %+v", after)
+	}
+}
+
+// TestMaybeUpdateNoticeEqualNoFetch — a fresh cache equal to the running
+// version is self-consistent: no re-fetch, no notice.
+func TestMaybeUpdateNoticeEqualNoFetch(t *testing.T) {
+	withFakeVersion(t, "0.1.0")
+	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
+	hits := newETagServer(t, "9.9.9", "")
+	writeUpdateCache(t, updateCache{Latest: "0.1.0", CheckedAt: time.Now().UTC().Format(time.RFC3339)})
+	if got := maybeUpdateNotice(); got != "" {
+		t.Errorf("등호 캐시 출력 위반: %q", got)
+	}
+	if n := atomic.LoadInt32(hits); n != 0 {
+		t.Errorf("등호 캐시에서 fetch 발생: %d", n)
+	}
+}
+
+// TestMaybeUpdateNoticeOldCacheFullFetch — a cache written before the ETag
+// field existed (etag absent = "") gets a full fetch: no If-None-Match sent,
+// and the refreshed cache gains the response ETag.
+func TestMaybeUpdateNoticeOldCacheFullFetch(t *testing.T) {
+	withFakeVersion(t, "0.1.0")
+	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
+	var sawINM bool
+	mux := http.NewServeMux()
+	mux.HandleFunc("/repos/synuns/flint/releases/latest", func(w http.ResponseWriter, r *http.Request) {
+		sawINM = r.Header.Get("If-None-Match") != ""
+		w.Header().Set("ETag", `"v1"`)
+		fmt.Fprint(w, `{"tag_name":"v9.9.9","assets":[]}`)
+	})
+	srv := httptest.NewTLSServer(mux)
+	prevClient := updateClientFn
+	updateClientFn = func(timeout time.Duration) *http.Client {
+		c := srv.Client()
+		c.Timeout = timeout
+		return c
+	}
+	prev := updateAPIBase
+	updateAPIBase = srv.URL
+	t.Cleanup(func() { updateAPIBase = prev; updateClientFn = prevClient })
+	t.Cleanup(srv.Close)
+	// old-format cache: no etag key at all, expired.
+	old := `{"latest":"0.0.1","checked_at":"` + time.Now().UTC().Add(-48*time.Hour).Format(time.RFC3339) + `"}`
+	if err := os.WriteFile(updateCacheFile(), []byte(old), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := maybeUpdateNotice(); !strings.Contains(got, "flint update") {
+		t.Fatalf("구 캐시 풀 fetch 안내 없음: %q", got)
+	}
+	if sawINM {
+		t.Error("ETag 없는 캐시인데 If-None-Match 전송")
+	}
+	if after := readUpdateCache(t); after.Latest != "9.9.9" || after.ETag != `"v1"` {
+		t.Errorf("풀 fetch 캐시 갱신 실패: %+v", after)
+	}
+}
+
+// TestMaybeUpdateNoticeNetFailSilent — a dead endpoint is silent on both the
+// expiry path and the contradiction path, and the cache is left untouched.
+func TestMaybeUpdateNoticeNetFailSilent(t *testing.T) {
+	withFakeVersion(t, "0.1.0")
+	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
+	srv := httptest.NewServer(http.NotFoundHandler())
+	dead := srv.URL
+	srv.Close() // refused endpoint
+	prev := updateAPIBase
+	updateAPIBase = dead
+	t.Cleanup(func() { updateAPIBase = prev })
+	// (a) expired cache -> silent, cache untouched.
+	stale := time.Now().UTC().Add(-48 * time.Hour).Format(time.RFC3339)
+	writeUpdateCache(t, updateCache{Latest: "0.0.1", CheckedAt: stale})
+	if got := maybeUpdateNotice(); got != "" {
+		t.Errorf("만료+네트워크 실패 조용히 위반: %q", got)
+	}
+	if after := readUpdateCache(t); after.CheckedAt != stale {
+		t.Errorf("실패 시 캐시 침범: %+v", after)
+	}
+	// (b) contradiction (fresh cache, latest behind) + failure -> still silent.
+	writeUpdateCache(t, updateCache{Latest: "0.0.1", CheckedAt: time.Now().UTC().Format(time.RFC3339)})
+	if got := maybeUpdateNotice(); got != "" {
+		t.Errorf("모순+네트워크 실패 조용히 위반: %q", got)
+	}
+}
+
+// TestNoticeLineCheckedAt — the notice line exposes checked_at when known;
+// no notice when the running version is not behind.
+func TestNoticeLineCheckedAt(t *testing.T) {
+	ts := "2026-11-23T00:00:00Z"
+	got := noticeLine("9.9.9", "0.1.0", ts)
+	if !strings.Contains(got, "v9.9.9") || !strings.Contains(got, ts) {
+		t.Errorf("checked_at 미표시: %q", got)
+	}
+	if noticeLine("0.1.0", "0.1.0", ts) != "" {
+		t.Error("같은 버전인데 안내 출력")
+	}
+}
+
+// ── v1.26.0 T3 — the mcp-registry published-version fetch (doctor versions)
+// and the updateCacheInfo read for the doctor/report display. ──
+
+// withRegistryServer — a fake raw.githubusercontent plugin.json endpoint
+// honoring If-None-Match (304 on exact match) and counting requests.
+func withRegistryServer(t *testing.T, version, etag string) *int32 {
+	t.Helper()
+	var hits int32
+	mux := http.NewServeMux()
+	mux.HandleFunc("/synuns/flint/main/flint-plugin/.claude-plugin/plugin.json", func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&hits, 1)
+		if etag != "" && r.Header.Get("If-None-Match") == etag {
+			w.Header().Set("ETag", etag)
+			w.WriteHeader(http.StatusNotModified)
+			return
+		}
+		w.Header().Set("ETag", etag)
+		fmt.Fprintf(w, `{"name":"flint","version":%q}`, version)
+	})
+	srv := httptest.NewTLSServer(mux)
+	prevClient := updateClientFn
+	updateClientFn = func(timeout time.Duration) *http.Client {
+		c := srv.Client()
+		c.Timeout = timeout
+		return c
+	}
+	prevURL := updateRegistryURL
+	updateRegistryURL = srv.URL + "/synuns/flint/main/flint-plugin/.claude-plugin/plugin.json"
+	t.Cleanup(func() { updateRegistryURL = prevURL; updateClientFn = prevClient })
+	t.Cleanup(srv.Close)
+	return &hits
+}
+
+// TestFetchRegistryVersionETagRoundTrip — the first call gets the published
+// version (cached with the ETag); the second sends If-None-Match, and the 304
+// keeps the cached version (checked_at refreshed).
+func TestFetchRegistryVersionETagRoundTrip(t *testing.T) {
+	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
+	const etag = `"plug1"`
+	hits := withRegistryServer(t, "1.26.0", etag)
+	v, err := fetchRegistryVersion()
+	if err != nil || v != "1.26.0" {
+		t.Fatalf("1차 fetch = %q %v, want 1.26.0", v, err)
+	}
+	var c registryCache
+	b, _ := os.ReadFile(registryCacheFile())
+	_ = json.Unmarshal(b, &c)
+	if c.Version != "1.26.0" || c.ETag != etag {
+		t.Errorf("레지스트리 캐시 저장 실패: %+v", c)
+	}
+	// 304 — the cached version carries over, checked_at refreshed.
+	v2, err := fetchRegistryVersion()
+	if err != nil || v2 != "1.26.0" {
+		t.Fatalf("304 승계 = %q %v, want 1.26.0", v2, err)
+	}
+	if n := atomic.LoadInt32(hits); n != 2 {
+		t.Errorf("요청 수 = %d, want 2", n)
+	}
+	var after registryCache
+	rb, _ := os.ReadFile(registryCacheFile())
+	_ = json.Unmarshal(rb, &after)
+	checked, terr := time.Parse(time.RFC3339, after.CheckedAt)
+	if terr != nil || time.Since(checked) > time.Minute {
+		t.Errorf("checked_at 미갱신: %q %v", after.CheckedAt, terr)
+	}
+}
+
+// TestFetchRegistryVersionOffline — a refused endpoint is an error (the
+// doctor caller renders "unverified (offline)" — a note, not a warning).
+func TestFetchRegistryVersionOffline(t *testing.T) {
+	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
+	dead := httptest.NewServer(http.NotFoundHandler())
+	url := dead.URL
+	dead.Close()
+	prev := updateRegistryURL
+	updateRegistryURL = url
+	t.Cleanup(func() { updateRegistryURL = prev })
+	if _, err := fetchRegistryVersion(); err == nil {
+		t.Error("오프라인 에러 아님")
+	}
+}
+
+// TestUpdateCacheInfo — the doctor-facing cache read round-trips the update
+// cache (latest + checked_at); no cache yields empty strings.
+func TestUpdateCacheInfo(t *testing.T) {
+	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
+	if latest, checked := updateCacheInfo(); latest != "" || checked != "" {
+		t.Errorf("캐시 부재 시 = %q %q, want 빈값", latest, checked)
+	}
+	ts := time.Now().UTC().Add(-3 * time.Hour).Format(time.RFC3339)
+	writeUpdateCache(t, updateCache{Latest: "1.26.0", CheckedAt: ts})
+	latest, checked := updateCacheInfo()
+	if latest != "1.26.0" || checked != ts {
+		t.Errorf("왕복 = %q %q, want 1.26.0 %s", latest, checked, ts)
 	}
 }

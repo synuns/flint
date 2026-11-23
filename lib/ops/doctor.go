@@ -33,11 +33,19 @@ import (
 // hang here.
 // The real implementations are injected by the cli/root.go composition root init.
 var (
-	// CurrentVersionFn etc. — checkUpdate (the version-lag warning).
+	// CurrentVersionFn etc. — checkUpdate (the version-lag warning) and
+	// checkVersions (the v1.26.0 version-consistency display).
 	CurrentVersionFn     func() string
 	FetchLatestVersionFn func() (string, error)
 	ValidVersionFn       func(v string) bool
 	CompareVersionsFn    func(a, b string) int
+	// UpdateCacheInfoFn — the cached update-check info (latest, checked_at)
+	// of checkVersions and the report --text checked_at line (cli update.go).
+	UpdateCacheInfoFn func() (string, string)
+	// FetchRegistryVersionFn — the mcp-registry published plugin.json version
+	// of checkVersions (cli update.go; offline renders "unverified (offline)"
+	// — a display note, not a warning).
+	FetchRegistryVersionFn func() (string, error)
 	// KnownMetaKeyFn — the unknown-key determination of checkMetaHygiene (maintain.go).
 	KnownMetaKeyFn func(k string) bool
 	// AnyToTimeFn — the valid_at parsing of checkPendingAge (maintain.go).
@@ -67,7 +75,7 @@ type CheckSpec struct {
 	// set only Fn.
 	ThFn func(ctx context.Context, st wire.Store, th store.Thresholds) DoctorCheck
 	// Chain — "core" is the DoctorChecks namespace (6 kinds, port-last contract);
-	// "tail" is the tail chain at the end of the full run chain (14 kinds).
+	// "tail" is the tail chain at the end of the full run chain (15 kinds).
 	Chain string
 	// OnStoreNil — the verdict when st==nil ("fail"|"warn"). If the check does not
 	// use st, "" (hook-file, port, update). The existing behavior of the core 4 (db, schema,
@@ -75,12 +83,12 @@ type CheckSpec struct {
 	OnStoreNil string
 }
 
-// doctorChecks — the check registry (core 6 + tail 14 = 20 kinds). The 14 harness-* kinds and
+// doctorChecks — the check registry (core 6 + tail 15 = 21 kinds). The 14 harness-* kinds and
 // skill-file rely on file-existence detection (dynamic harness/skill detection), so they are a separate
 // chain outside the registry — not an integration target (ruling). Adding a new check is 1 row in this table.
-// The 10 thresholds-consuming checks (last-seen, backup-age, zero-near,
+// The 11 thresholds-consuming checks (last-seen, backup-age, zero-near,
 // pending-age, event-volume, meta-hygiene, secrets, metering-freshness,
-// dolt_log_depth, db_size) are registered in the ThFn injected
+// dolt_log_depth, db_size, versions) are registered in the ThFn injected
 // form — sharing the once-per-run load (doctorThresholds), secrets included.
 func doctorChecks() []CheckSpec {
 	return []CheckSpec{
@@ -110,6 +118,12 @@ func doctorChecks() []CheckSpec {
 		// the v1.25.0 engine container footprint (display only — docker
 		// stats, no threshold, no new storage; failures skip quietly).
 		{Name: "engine-footprint", Chain: "tail", OnStoreNil: "", Fn: checkEngineFootprint},
+		// the v1.26.0 version-consistency display: self, cached latest (+age),
+		// PATH flint, and the mcp-registry published version side by side.
+		// st is optional (thresholds fall back to defaults when nil); ThFn
+		// shares the once-per-run threshold load (F6 — a separate Fn-side
+		// WriteThresholds would issue a second meta IN query per run).
+		{Name: "versions", Chain: "tail", OnStoreNil: "", ThFn: checkVersionsTh},
 	}
 }
 
@@ -217,7 +231,7 @@ func RunDoctor(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 		return 3
 	}
 	if res.Given("--list-checks") {
-		// the whole registry (core 6 + tail 14).
+		// the whole registry (core 6 + tail 15).
 		names := make([]string, 0, len(doctorChecks()))
 		for _, s := range doctorChecks() {
 			names = append(names, s.Name)
@@ -251,7 +265,7 @@ func RunDoctor(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 	}
 
 	// the full run chain — registry-derived (core 6; harness and skill are separate chains,
-	// the tail 14 keep the existing append order).
+	// the tail 15 keep the existing append order).
 	// F6 (performance): thresholds are loaded once per run (the doctorThresholds lazy
 	// memo) and shared by the 6 ThFn checks — each check's own meta IN query is gone.
 	th := doctorThresholds(ctx, st)
@@ -286,8 +300,8 @@ func RunDoctor(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 // bumpDoctorWarnCounters — fired counters: per check that verdicts warn,
 // increments the `fired_doctor_<check>` meta cumulative counter (spec §2.5 — the diagnostic-D source;
 // counts only, no personal data). At most 1 increment per check kind per run. The kind cap
-// is the check namespace as-is — 20 registry kinds + 14 harness-* kinds + 1 skill-file
-// = 35 kinds (engine-footprint joined in v1.25.0; its verdicts are ok/skip, never warn). fail, ok, and skip are not warning firings, so not counted; since it is based on the
+// is the check namespace as-is — 21 registry kinds + 14 harness-* kinds + 1 skill-file
+// = 36 kinds (engine-footprint joined in v1.25.0, versions in v1.26.0; their verdicts are ok/skip, never warn). fail, ok, and skip are not warning firings, so not counted; since it is based on the
 // final checks slice, the pre---fix-re-evaluation verdicts are not double-counted either. Failures are silent (§13).
 func bumpDoctorWarnCounters(ctx context.Context, st wire.Store, checks []DoctorCheck) {
 	if st == nil {
@@ -1673,6 +1687,63 @@ func checkUpdate(ctx context.Context, st wire.Store) DoctorCheck {
 	}
 	c.Status = "ok"
 	c.Detail = "v" + cur + " up to date"
+	return c
+}
+
+// checkVersionsTh — the v1.26.0 version-consistency display (thresholds
+// injected — update_cache_age_h): the running build, the cached update-check
+// latest (with its age), the PATH flint (exec.LookPath — which copy a bare
+// `flint` would run), and the mcp-registry PUBLISHED plugin.json version,
+// side by side. Verdicts: a cache older than update_cache_age_h (default
+// 72h) is a warn (the displayed latest may lag reality); a registry fetch
+// failure renders "unverified (offline)" — a display-level note, not a warn
+// (PLAN §4 principle 3 — a failed probe is not evidence). st is unused
+// directly (OnStoreNil "" — the thresholds arrive already loaded).
+func checkVersionsTh(ctx context.Context, st wire.Store, th store.Thresholds) DoctorCheck {
+	c := DoctorCheck{Name: "versions"}
+	cur := CurrentVersionFn()
+	self := cur
+	if !ValidVersionFn(cur) {
+		self = cur + " (dev — not finalized)"
+	}
+	var parts []string
+	parts = append(parts, "self v"+self)
+	// the cached update-check latest + age ("" cache info → unknown).
+	cachePart := "cache latest unknown"
+	ageH := -1
+	if UpdateCacheInfoFn != nil {
+		if latest, checkedAt := UpdateCacheInfoFn(); latest != "" {
+			cachePart = "cache latest v" + latest
+			if t, terr := time.Parse(time.RFC3339, checkedAt); terr == nil {
+				ageH = int(time.Since(t).Hours())
+				cachePart += fmt.Sprintf(" (%dh old)", ageH)
+			}
+		}
+	}
+	parts = append(parts, cachePart)
+	// the PATH copy a bare `flint` resolves to.
+	pathPart := "PATH flint not found"
+	if p, lerr := exec.LookPath("flint"); lerr == nil {
+		pathPart = "PATH " + p
+	}
+	parts = append(parts, pathPart)
+	// the mcp-registry published version (remote copy — drift detection).
+	regPart := "registry unverified (offline)"
+	if FetchRegistryVersionFn != nil {
+		if v, rerr := FetchRegistryVersionFn(); rerr == nil && v != "" {
+			regPart = "registry v" + v
+		}
+	}
+	parts = append(parts, regPart)
+	c.Detail = strings.Join(parts, " · ")
+	// the stale-cache warn line — update_cache_age_h.
+	if warnH := th.UpdateCacheAgeH; ageH >= 0 && warnH > 0 && ageH > warnH {
+		c.Status = "warn"
+		c.Detail += fmt.Sprintf(" — cache age %dh exceeds update_cache_age_h %dh", ageH, warnH)
+		c.Fix = "fix: flint doctor --check update (refresh the version cache)"
+		return c
+	}
+	c.Status = "ok"
 	return c
 }
 

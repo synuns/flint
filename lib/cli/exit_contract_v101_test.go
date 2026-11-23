@@ -49,6 +49,8 @@ var exitContractProbes = []exitProbe{
 	{"export", []string{"--bogus"}, 3, "v1.3.0 T7 unknown flag"},
 	{"index", []string{"--bogus"}, 3, "v1.21.0 T3 unknown flag"},
 	{"distill", []string{"--bogus"}, 3, "v1.22.0 T6 unknown flag"},
+	{"seed", []string{"--bogus"}, 3, "v1.26.0 T2 unknown flag"},
+	{"seed", []string{}, 3, "v1.26.0 T2 --demo 필수 bare usage"},
 	// missing flag value — invalid-arg exit 3
 	{"approve", []string{"--id"}, 3, "F3 값 누락"},
 	{"audit", []string{"--limit"}, 3, "F3 값 누락"},

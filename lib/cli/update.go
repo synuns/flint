@@ -76,9 +76,12 @@ func updateCacheFile() string {
 	return dataFile("update-check.json")
 }
 
-// updateCache — one line of update-check cache.
+// updateCache — one line of update-check cache. ETag (v1.26.0) rides refresh
+// requests as If-None-Match; caches written before the field existed parse
+// with ETag="" and simply take the full-fetch path (backward compatible).
 type updateCache struct {
 	Latest    string `json:"latest"`
+	ETag      string `json:"etag,omitempty"`
 	CheckedAt string `json:"checked_at"`
 }
 
@@ -166,27 +169,51 @@ func fetchLatestVersion() (string, error) {
 	return strings.TrimPrefix(meta.TagName, "v"), nil
 }
 
-// fetchReleaseMeta — releases/latest lookup (official API only).
+// fetchReleaseMeta — releases/latest lookup (official API only, unconditional).
 func fetchReleaseMeta() (*releaseMeta, error) {
+	meta, _, err := fetchReleaseMetaETag("")
+	return meta, err
+}
+
+// fetchReleaseMetaETag — conditional releases/latest lookup (v1.26.0): with a
+// non-empty etag it sends If-None-Match. A 304 is success — (nil, etag, nil):
+// the caller carries over its cached latest and refreshes only checked_at. A
+// 200 returns the parsed meta plus the response ETag ("" when absent).
+func fetchReleaseMetaETag(etag string) (*releaseMeta, string, error) {
 	client := updateClientFn(updateAPITimeout)
-	resp, err := client.Get(updateAPIBase + "/repos/synuns/flint/releases/latest")
+	req, err := http.NewRequest(http.MethodGet, updateAPIBase+"/repos/synuns/flint/releases/latest", nil)
 	if err != nil {
-		return nil, err
+		return nil, "", err
+	}
+	if etag != "" {
+		req.Header.Set("If-None-Match", etag)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, "", err
 	}
 	defer resp.Body.Close()
+	newEtag := resp.Header.Get("ETag")
+	if resp.StatusCode == http.StatusNotModified {
+		// a 304 may omit the header (RFC 9110: it equals the sent validator).
+		if newEtag == "" {
+			newEtag = etag
+		}
+		return nil, newEtag, nil
+	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("api status %d", resp.StatusCode)
+		return nil, "", fmt.Errorf("api status %d", resp.StatusCode)
 	}
 	var meta releaseMeta
 	// the API response is also read with a cap (defense against unbounded JSON accumulation — release
 	// metadata is a few KB, so 8MiB is plenty).
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 8<<20)).Decode(&meta); err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	if meta.TagName == "" {
-		return nil, errors.New("missing tag_name")
+		return nil, "", errors.New("missing tag_name")
 	}
-	return &meta, nil
+	return &meta, newEtag, nil
 }
 
 // applyUpdate — asset download, sha256 verification (checksums.txt), binary extraction,
@@ -414,7 +441,12 @@ func versionParts(v string) [3]int {
 
 // maybeUpdateNotice — session-start update notice: check only when the cache (24h TTL) has
 // expired (one round trip per day); if latest > current, one line inside the [flint] banner.
-// Network failure or missing cache is silent (§13 — no notice is harmless by definition).
+// Cache 3 principles (v1.26.0):
+//   - ETag: the refresh sends If-None-Match with the cached ETag — a 304 keeps the cached
+//     latest and refreshes only checked_at.
+//   - contradiction detector: a fresh cache whose latest is OLDER than the running version
+//     (stale cache or a rollback) is ignored — an immediate re-fetch happens even within the TTL.
+//   - silence: network failure or a missing cache emits nothing (§13 — no notice is harmless).
 func maybeUpdateNotice() string {
 	cur := CurrentVersion()
 	if !validVersion(cur) {
@@ -425,28 +457,143 @@ func maybeUpdateNotice() string {
 		return ""
 	}
 	var c updateCache
-	if b, err := os.ReadFile(path); err == nil {
-		_ = json.Unmarshal(b, &c)
-		if checked, err := time.Parse(time.RFC3339, c.CheckedAt); err == nil &&
-			time.Since(checked) < updateNoticeTTL {
-			return noticeLine(c.Latest, cur)
+	if b, err := os.ReadFile(path); err == nil && json.Unmarshal(b, &c) == nil {
+		if checked, terr := time.Parse(time.RFC3339, c.CheckedAt); terr == nil &&
+			time.Since(checked) < updateNoticeTTL &&
+			compareVersions(c.Latest, cur) >= 0 {
+			// fresh and self-consistent — decided without any network call.
+			return noticeLine(c.Latest, cur, c.CheckedAt)
 		}
+		// expired or contradictory — fall through to a conditional re-fetch
+		// (the cached ETag is still reusable either way).
 	}
-	latest, err := fetchLatestVersion()
+	meta, etag, err := fetchReleaseMetaETag(c.ETag)
 	if err != nil {
 		return "" // silent — the cache is not refreshed either (retry next session)
 	}
-	c = updateCache{Latest: latest, CheckedAt: time.Now().UTC().Format(time.RFC3339)}
-	if b, err := json.Marshal(c); err == nil {
+	latest := c.Latest
+	if meta != nil {
+		latest = strings.TrimPrefix(meta.TagName, "v")
+	}
+	if latest == "" {
+		return "" // 304 with no usable cached latest — nothing honest to report
+	}
+	c = updateCache{Latest: latest, ETag: etag, CheckedAt: time.Now().UTC().Format(time.RFC3339)}
+	if b, merr := json.Marshal(c); merr == nil {
 		_ = os.WriteFile(path, b, 0o600)
 	}
-	return noticeLine(latest, cur)
+	return noticeLine(latest, cur, c.CheckedAt)
 }
 
 // noticeLine — one notice line if a newer release is ahead, else the empty string.
-func noticeLine(latest, cur string) string {
+// checkedAt (when known) is appended so the banner states when the check happened.
+func noticeLine(latest, cur, checkedAt string) string {
 	if latest != "" && validVersion(latest) && compareVersions(latest, cur) > 0 {
-		return "[flint] new version v" + latest + " — flint update"
+		line := "[flint] new version v" + latest + " — flint update"
+		if checkedAt != "" {
+			line += " (checked " + checkedAt + ")"
+		}
+		return line
 	}
 	return ""
+}
+
+// ── v1.26.0 T3 — the mcp-registry published-version fetch and the cache
+// read backing the doctor versions check and the report --text checked_at. ──
+
+// updateRegistryURL — the mcp-registry published plugin.json (raw GitHub).
+// doctor versions compares this REMOTE published copy against the local
+// build (not the installed plugin copy — the point is drift detection).
+var updateRegistryURL = "https://raw.githubusercontent.com/synuns/flint/main/flint-plugin/.claude-plugin/plugin.json"
+
+// registryCacheFile — the registry-check cache path (the update-cache
+// pattern with its own file).
+func registryCacheFile() string {
+	return dataFile("registry-check.json")
+}
+
+// registryCache — one line of the registry-check cache. The ETag rides the
+// refresh as If-None-Match exactly like updateCache (a 304 keeps the version).
+type registryCache struct {
+	Version   string `json:"version"`
+	ETag      string `json:"etag,omitempty"`
+	CheckedAt string `json:"checked_at"`
+}
+
+// fetchRegistryVersion — the mcp-registry published plugin.json version via
+// the same conditional-GET path: the cached ETag rides as If-None-Match, a
+// 304 keeps the cached version (refreshing only checked_at), a 200 parses
+// and replaces. Errors propagate to the caller (doctor renders them as the
+// display-level "unverified (offline)" — a note, not a warning).
+func fetchRegistryVersion() (string, error) {
+	var c registryCache
+	path := registryCacheFile()
+	if path != "" {
+		if b, err := os.ReadFile(path); err == nil {
+			_ = json.Unmarshal(b, &c)
+		}
+	}
+	client := updateClientFn(updateAPITimeout)
+	req, err := http.NewRequest(http.MethodGet, updateRegistryURL, nil)
+	if err != nil {
+		return "", err
+	}
+	if c.ETag != "" {
+		req.Header.Set("If-None-Match", c.ETag)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	etag := resp.Header.Get("ETag")
+	switch resp.StatusCode {
+	case http.StatusNotModified:
+		// a 304 may omit the header (RFC 9110: it equals the sent validator).
+		if etag == "" {
+			etag = c.ETag
+		}
+		if c.Version == "" {
+			return "", errors.New("304 with no cached registry version")
+		}
+	case http.StatusOK:
+		body, rerr := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		if rerr != nil {
+			return "", rerr
+		}
+		var pj struct {
+			Version string `json:"version"`
+		}
+		if jerr := json.Unmarshal(body, &pj); jerr != nil {
+			return "", jerr
+		}
+		if pj.Version == "" {
+			return "", errors.New("registry plugin.json missing version")
+		}
+		c.Version = pj.Version
+	default:
+		return "", fmt.Errorf("registry status %d", resp.StatusCode)
+	}
+	c.ETag, c.CheckedAt = etag, time.Now().UTC().Format(time.RFC3339)
+	if path != "" {
+		if b, merr := json.Marshal(c); merr == nil {
+			_ = os.WriteFile(path, b, 0o600)
+		}
+	}
+	return c.Version, nil
+}
+
+// updateCacheInfo — the cached update-check info for the doctor versions
+// display and the report --text checked_at line: the cached latest and when
+// it was checked ("" ,"" when there is no usable cache).
+func updateCacheInfo() (latest, checkedAt string) {
+	path := updateCacheFile()
+	if path == "" {
+		return "", ""
+	}
+	var c updateCache
+	if b, err := os.ReadFile(path); err == nil && json.Unmarshal(b, &c) == nil {
+		return c.Latest, c.CheckedAt
+	}
+	return "", ""
 }

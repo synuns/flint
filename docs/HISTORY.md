@@ -6,6 +6,45 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.26.0 minor (2026-11-23) — surface-trust: cache three principles (ETag · contradiction detector · checked_at) · seed --demo · doctor versions
+
+(spec: docs/plans/2026-11-23-flint-v1260.md · design:
+docs/plans/2026-11-21-flint-surface-trust.md). The update-check
+cache gains the three trust principles, the demo dataset gains a
+binary-user route, and doctor learns to report version coherence:
+
+- **update cache three principles (T1)**: (1) the cache line carries
+  an `ETag` — a refresh sends it as `If-None-Match` and a 304 keeps
+  the cached latest (only `checked_at` is refreshed; caches written
+  before the field parse with ETag="" and take the full-fetch path —
+  backward compatible). (2) a contradiction detector: a cache whose
+  latest is OLDER than the running version (stale cache or a
+  rollback) is ignored — an immediate re-fetch happens even within
+  the TTL. (3) `checked_at` rides the cache and surfaces in
+  `report --text` ("update check: <RFC3339>" — no cache, no line).
+- **`flint seed --demo [--reset] [--yes]` (T2)**: the synthetic demo
+  dataset is embedded in the binary (go:embed, the data package) and
+  loaded through the single RunWrite path into an **isolated demo
+  database** — the running DSN's database name + `_demo`
+  (`FLINT_DEMO_DSN` overrides verbatim); a re-run is all-duplicate
+  exit 0. Every seeded row carries the fixed `demo/` identifier
+  prefix; `--reset` deletes ONLY those rows and only when the
+  `demo_owner` marker matches (mismatch → exit 3; `--yes` required,
+  without it a dry run). The Makefile `seed` target (disk file,
+  explicit production DSN) is unaffected.
+- **doctor `versions` (T3)**: the check registry gains its 21st kind
+  — the self version, the cached update-check latest with its age,
+  the PATH copy a bare `flint` resolves to, and the mcp-registry
+  published version, side by side. A cache older than the new
+  `update_cache_age_h` threshold (default 72h) warns; a registry
+  fetch failure renders "unverified (offline)" — a display note, not
+  a warn (a failed probe is not evidence). Session-start upserts the
+  `self_version_last:session-start` meta key (registered in
+  metaKnownPrefixes; failures are silent).
+- **docs (T4)**: README EN/KO badge + highlight, the command table
+  `seed` row, TUNING §2 `update_cache_age_h`, QUICKSTART `seed
+  --demo` wording, and the release-scope §5 status.
+
 ### v1.25.1 patch (2026-11-23) — r108-r109: gc-pending json fix · dialect probe relocation · depth numeric fix · doc corrections
 
 The engine-ops audit follow-ups (R108 + R109) — 9 distinct findings

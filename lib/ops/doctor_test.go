@@ -203,7 +203,7 @@ func TestDoctorRegistered(t *testing.T) {
 	}
 }
 
-// --list-checks — one-line JSON with all 20 registry kinds.
+// --list-checks — one-line JSON with all 21 registry kinds.
 // The core 6 keep the existing order (hook-file... port) at the front.
 func TestDoctorListChecks(t *testing.T) {
 	f := &fakeStore{queryFn: freshDoctorFn()}
@@ -217,8 +217,8 @@ func TestDoctorListChecks(t *testing.T) {
 	if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &m); err != nil {
 		t.Fatalf("JSON 아님: %q", out)
 	}
-	if len(m.Checks) != 20 {
-		t.Errorf("checks %d종, want 20종(코어6+tail14): %v", len(m.Checks), m.Checks)
+	if len(m.Checks) != 21 {
+		t.Errorf("checks %d종, want 21종(코어6+tail15): %v", len(m.Checks), m.Checks)
 	}
 	if m.Checks[0] != "hook-file" || m.Checks[4] != "last-seen" || m.Checks[5] != "port" {
 		t.Errorf("코어 6종 순서 회귀: %v", m.Checks)
@@ -1366,6 +1366,178 @@ func TestDoctorEngineFootprintOK(t *testing.T) {
 	}
 	if !strings.Contains(c.Detail, "50MB") {
 		t.Fatalf("detail=%q, want 50MB 포함", c.Detail)
+	}
+}
+
+// ── v1.26.0 T3 doctor versions — registration, the side-by-side version
+// display, the stale-cache warn, threshold homogeneity, and the report --text
+// checked_at line. ──
+
+// withVersionSeams — swaps the version-family seams for the versions check
+// (restored after the test — the withEngineStats convention). cacheFn nil
+// simulates "no cache info" (an uninjected seam), regFn nil the offline path.
+func withVersionSeams(t *testing.T, cur string, cacheFn func() (string, string), regFn func() (string, error)) {
+	t.Helper()
+	prevCur, prevVal, prevCache, prevReg := CurrentVersionFn, ValidVersionFn, UpdateCacheInfoFn, FetchRegistryVersionFn
+	CurrentVersionFn = func() string { return cur }
+	ValidVersionFn = func(v string) bool { return v == cur && validSemverish(v) }
+	UpdateCacheInfoFn = cacheFn
+	FetchRegistryVersionFn = regFn
+	t.Cleanup(func() {
+		CurrentVersionFn, ValidVersionFn, UpdateCacheInfoFn, FetchRegistryVersionFn = prevCur, prevVal, prevCache, prevReg
+	})
+}
+
+// validSemverish — a local x.y.z stand-in (the ops test binary has no cli validVersion).
+func validSemverish(v string) bool {
+	n := strings.Split(v, ".")
+	if len(n) != 3 {
+		return false
+	}
+	for _, p := range n {
+		if p == "" {
+			return false
+		}
+		for _, r := range p {
+			if r < '0' || r > '9' {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// TestDoctorVersionsSpec — the v1.26.0 M3 registration guard: exactly 1
+// registry row "versions" in the tail chain, the ThFn form (update_cache_age_h
+// — F6: sharing the once-per-run threshold load), st optional (OnStoreNil ""
+// — the check reads the cache file, PATH, and the registry).
+func TestDoctorVersionsSpec(t *testing.T) {
+	s, ok := doctorSpec("versions")
+	if !ok {
+		t.Fatal("등록표에 versions 부재 — M3 계약 위반")
+	}
+	if s.Chain != "tail" {
+		t.Errorf("chain=%q, want tail", s.Chain)
+	}
+	if s.ThFn == nil || s.Fn != nil {
+		t.Errorf("ThFn=%v Fn=%v — ThFn 등록이어야 함(F6 공유 로드)", s.ThFn != nil, s.Fn != nil)
+	}
+	if s.OnStoreNil != "" {
+		t.Errorf("onStoreNil=%q, want 빈값(st 선택적)", s.OnStoreNil)
+	}
+}
+
+// TestDoctorVersionsSideBySide — the detail shows the 4 version surfaces side
+// by side: the running build, the cached latest (+age), the PATH flint
+// (exec.LookPath), and the mcp-registry published version.
+func TestDoctorVersionsSideBySide(t *testing.T) {
+	// a temp PATH holding an executable flint — LookPath resolves it.
+	binDir := t.TempDir()
+	flint := filepath.Join(binDir, "flint")
+	if err := os.WriteFile(flint, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir)
+	checked := time.Now().UTC().Add(-2 * time.Hour).Format(time.RFC3339)
+	withVersionSeams(t, "1.26.0",
+		func() (string, string) { return "1.26.0", checked },
+		func() (string, error) { return "1.26.0", nil })
+	c := checkVersionsTh(context.Background(), &fakeStore{}, store.DefaultThresholds())
+	if c.Status != "ok" {
+		t.Fatalf("status=%q, want ok: %+v", c.Status, c)
+	}
+	for _, want := range []string{"self v1.26.0", "cache latest v1.26.0", flint, "registry v1.26.0"} {
+		if !strings.Contains(c.Detail, want) {
+			t.Errorf("detail=%q, want %q 포함", c.Detail, want)
+		}
+	}
+	if !strings.Contains(c.Detail, "2h old") {
+		t.Errorf("detail=%q, want 캐시 나이 표시", c.Detail)
+	}
+}
+
+// TestDoctorVersionsOfflineRegistry — a registry fetch failure renders
+// "unverified (offline)" as a display-level note, not a warn (PLAN §4
+// principle 3 — a failed probe is not evidence).
+func TestDoctorVersionsOfflineRegistry(t *testing.T) {
+	withVersionSeams(t, "1.26.0",
+		func() (string, string) { return "1.26.0", time.Now().UTC().Format(time.RFC3339) },
+		func() (string, error) { return "", errors.New("offline") })
+	c := checkVersionsTh(context.Background(), &fakeStore{}, store.DefaultThresholds())
+	if c.Status != "ok" {
+		t.Fatalf("오프라인 status=%q, want ok(경고 아님): %+v", c.Status, c)
+	}
+	if !strings.Contains(c.Detail, "unverified (offline)") {
+		t.Errorf("detail=%q, want unverified (offline)", c.Detail)
+	}
+}
+
+// TestDoctorVersionsStaleCacheWarn — a cache older than update_cache_age_h
+// (default 72h) is a warn; an injected meta override moves the line.
+func TestDoctorVersionsStaleCacheWarn(t *testing.T) {
+	stale := time.Now().UTC().Add(-100 * time.Hour).Format(time.RFC3339)
+	withVersionSeams(t, "1.26.0",
+		func() (string, string) { return "1.26.0", stale },
+		func() (string, error) { return "1.26.0", nil })
+	c := checkVersionsTh(context.Background(), &fakeStore{}, store.DefaultThresholds())
+	if c.Status != "warn" {
+		t.Fatalf("캐시 100h status=%q, want warn(기본 72h 초과): %+v", c.Status, c)
+	}
+	if !strings.Contains(c.Detail, "update_cache_age_h") {
+		t.Errorf("detail=%q, want update_cache_age_h 근거 표시", c.Detail)
+	}
+	// an override (update_cache_age_h=200) keeps the same cache ok — the
+	// threshold round trip through ParseThresholds + fallback.
+	th, err := store.ParseThresholds([][2]any{{"update_cache_age_h", "200"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c2 := checkVersionsTh(context.Background(), &fakeStore{}, wire.ApplyThresholdsFallback(th))
+	if c2.Status != "ok" {
+		t.Fatalf("오버라이드 200h 상태=%q, want ok: %+v", c2.Status, c2)
+	}
+}
+
+// TestUpdateCacheAgeHThreshold — threshold homogeneity: the field default 72,
+// the meta override parse, and the registry key presence (single source).
+func TestUpdateCacheAgeHThreshold(t *testing.T) {
+	if def := store.DefaultThresholds(); def.UpdateCacheAgeH != 72 {
+		t.Errorf("UpdateCacheAgeH 기본값=%d, want 72", def.UpdateCacheAgeH)
+	}
+	th, err := store.ParseThresholds([][2]any{{"update_cache_age_h", "10"}})
+	if err != nil || th.UpdateCacheAgeH != 10 {
+		t.Errorf("오버라이드 파싱=%d err=%v, want 10", th.UpdateCacheAgeH, err)
+	}
+	found := false
+	for _, k := range wire.ThresholdsKeys() {
+		if k == "update_cache_age_h" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("ThresholdsKeys에 update_cache_age_h 부재")
+	}
+}
+
+// TestReportTextUpdateCheckedAt — the report --text view surfaces when the
+// update check last happened (the T1 noticeLine checked_at extension); an
+// uninjected seam or an empty cache omits the line.
+func TestReportTextUpdateCheckedAt(t *testing.T) {
+	ts := "2026-11-23T00:00:00Z"
+	prev := UpdateCacheInfoFn
+	UpdateCacheInfoFn = func() (string, string) { return "1.26.0", ts }
+	t.Cleanup(func() { UpdateCacheInfoFn = prev })
+	var b bytes.Buffer
+	printReportText(&b, ReportOutput{}, 7)
+	if !strings.Contains(b.String(), "update check: "+ts) {
+		t.Errorf("checked_at 미표시: %q", b.String())
+	}
+	// no cache info (seam nil or checked_at empty) — the line is omitted.
+	UpdateCacheInfoFn = nil
+	b.Reset()
+	printReportText(&b, ReportOutput{}, 7)
+	if strings.Contains(b.String(), "update check:") {
+		t.Errorf("캐시 부재 시 라인 잔존: %q", b.String())
 	}
 }
 

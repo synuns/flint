@@ -420,6 +420,14 @@ func printReportText(w io.Writer, out ReportOutput, days int) {
 		write, read, dup, out.DupPct, out.ZeroPct, out.FallbackPct)
 	fmt.Fprintf(w, "knowledge: active %d · pending %d · invalidated %d · never-read %d · hot p95 %d\n",
 		out.Counts.Active, out.Counts.Pending, out.Counts.Invalidated, out.Stale.Days90, out.HotP95)
+	// the update-check freshness (v1.26.0 T3): when the version cache states
+	// when it was last checked, the text view surfaces it (the T1 noticeLine
+	// checked_at extension's report leg). No cache — no line (normal silence).
+	if UpdateCacheInfoFn != nil {
+		if _, checkedAt := UpdateCacheInfoFn(); checkedAt != "" {
+			fmt.Fprintf(w, "update check: %s\n", checkedAt)
+		}
+	}
 	if len(out.Diagnosis) == 0 {
 		return // normal silence — no diagnostics section
 	}

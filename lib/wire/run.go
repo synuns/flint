@@ -58,7 +58,7 @@ func Run(args []string, stdin io.Reader, stdout io.Writer, newStore func(ctx con
 	// via cli.Run). nudge goes through the store — nudgeProfile looks up
 	// exposure_profile to honor the minimal contract (a legacy store-free version
 	// could not auto-conclude minimal).
-	if cmd == "version" || cmd == "teardown" || cmd == "mcp" || cmd == "update" {
+	if cmd == "version" || cmd == "teardown" || cmd == "mcp" || cmd == "update" || cmd == "seed" {
 		return run(ctx, nil, rest, stdin, stdout)
 	}
 	// setup also responds without a store, since DB-down is its main scenario —
@@ -105,7 +105,7 @@ func RunHelp(w io.Writer) int {
 // HelpSummary — the per-command 1-line summaries (including the keywords of
 // every usageOrder item — the TestHelpSummaryCoversUsageOrder completeness guard).
 func HelpSummary() string {
-	return "write capture · read search · hot injection · brief external-AI briefing · status state · profile exposure · pending review · doctor diagnostics · report observability · export extraction (4 formats · pam standard · --out sha256 sidecar) · distill insight extraction (recall-scored markdown · --out local folder · row-level idempotence) · import migration (jsonl·pam) · backup/restore backups · sync remote knowledge sync (push/pull · operator command) · maintain upkeep (--supersede handover · --decay-audit archive candidates · --merge-audit duplicate pair report · --recall-audit bad-recall feedback report · --reaffirm validity refresh · --recheck conditions review · --gc engine garbage collection [--shallow] --yes — disconnects sessions) · approve promotion · tuning thresholds (auto mode off|shadow — shadow predict-only) · update self-update · done/compact/nudge hooks · setup/teardown install · audit/diff time travel · mcp server · version · index vault indexing (markdown vault snapshot diff · --vault/--limit)"
+	return "write capture · read search · hot injection · brief external-AI briefing · status state · profile exposure · pending review · doctor diagnostics · report observability · export extraction (4 formats · pam standard · --out sha256 sidecar) · distill insight extraction (recall-scored markdown · --out local folder · row-level idempotence) · import migration (jsonl·pam) · backup/restore backups · sync remote knowledge sync (push/pull · operator command) · maintain upkeep (--supersede handover · --decay-audit archive candidates · --merge-audit duplicate pair report · --recall-audit bad-recall feedback report · --reaffirm validity refresh · --recheck conditions review · --gc engine garbage collection [--shallow] --yes — disconnects sessions) · approve promotion · tuning thresholds (auto mode off|shadow — shadow predict-only) · update self-update · seed demo data (--demo · isolated _demo database · --reset --yes) · done/compact/nudge hooks · setup/teardown install · audit/diff time travel · mcp server · version · index vault indexing (markdown vault snapshot diff · --vault/--limit)"
 }
 
 // UsageError — the invalid-argument (unknown flag, missing value, etc.)

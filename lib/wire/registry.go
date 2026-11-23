@@ -46,7 +46,7 @@ var usageOrder = []string{
 	"sync",
 	"approve", "pending", "maintain", "doctor", "report", "export",
 	"distill",
-	"done", "compact", "nudge", "setup", "teardown", "version", "mcp",
+	"done", "compact", "nudge", "seed", "setup", "teardown", "version", "mcp",
 	"index",
 	"audit", "diff", "update", "tuning", "import",
 }

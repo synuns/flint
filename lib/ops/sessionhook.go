@@ -81,6 +81,16 @@ func RunSessionStart(ctx context.Context, st wire.Store, args []string, stdin io
 	if rec, ok := st.(SessionStartRecorder); ok {
 		_ = rec.RecordSessionStart(ctx, label)
 	}
+	// self-report (v1.26.0) — the last session-start version stamp, a single
+	// meta upsert `self_version_last:session-start` = "version|RFC3339"
+	// (single surface — session-start only; per-surface expansion waits for
+	// observation). Failure is silent (§13 — the RecordSessionStart pattern).
+	if st != nil && CurrentVersionFn != nil && ValidVersionFn != nil {
+		if v := CurrentVersionFn(); ValidVersionFn(v) {
+			_ = wire.SetMetaKV(ctx, st, "self_version_last:session-start",
+				v+"|"+time.Now().UTC().Format(time.RFC3339))
+		}
+	}
 	// leave the current session label in the config path so read adopts it automatically —
 	// G4 label automation. Failure is silent (§13 — the label is auxiliary).
 	// a per-session file + expiry cleanup (settling residues that never meet

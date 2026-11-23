@@ -1,7 +1,10 @@
 // seed_test.go — 시딩 데이터 검증(fast)과 make seed 멱등(slow, 실 Doltgres).
 // 멱등 계약: 해시는 휘발성 필드(valid_at·ts)를 제외한 HashCanonical 경로라
 // 동일 payload 재전송은 duplicate·exit 0이어야 한다(spec §7 쓰기 2단계).
-package data
+// v1.26.0 T2 — 외부 테스트 패키지(data_test)로 이동: lib/cli seed.go가
+// data(Embedded seed)를 임포트하면서 내부 테스트의 cli 임포트가 순환이 됐다.
+// 파일 읽기(seed.jsonl)만 쓰므로 내부 패키지 식별자는 필요 없다.
+package data_test
 
 import (
 	"bufio"
