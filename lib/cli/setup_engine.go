@@ -40,21 +40,6 @@ func isLoopbackHost(h string) bool {
 	return false
 }
 
-func engineURLArg(args []string) (string, bool) {
-	for i, a := range args {
-		if a == "--engine-url" {
-			if i+1 < len(args) {
-				return args[i+1], true
-			}
-			return "", true
-		}
-		if strings.HasPrefix(a, "--engine-url=") {
-			return strings.TrimPrefix(a, "--engine-url="), true
-		}
-	}
-	return "", false
-}
-
 type engineURLSummary struct {
 	Status    string `json:"status"`
 	EngineURL string `json:"engine_url"`
