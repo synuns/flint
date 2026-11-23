@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -103,6 +104,10 @@ func EnsureEngine(ctx context.Context) error {
 	if engineStarted {
 		return nil
 	}
+	if dsnReachableFn(ctx) {
+		engineStarted = true
+		return nil
+	}
 	lock, err := acquireEngineLock()
 	if err != nil {
 		return fmt.Errorf("엔진 잠금 획득 실패: %w", err)
@@ -164,4 +169,18 @@ func RunCleanup(ctx context.Context) {
 			}
 		}
 	})
+}
+
+var dsnReachableFn = func(ctx context.Context) bool {
+	cfg, err := pgx.ParseConfig(ResolveDSN())
+	if err != nil {
+		return false
+	}
+	d := net.Dialer{Timeout: 2 * time.Second}
+	conn, err := d.DialContext(ctx, "tcp", net.JoinHostPort(cfg.Host, fmt.Sprintf("%d", cfg.Port)))
+	if err != nil {
+		return false
+	}
+	conn.Close()
+	return true
 }

@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/synuns/flint/lib/db"
+	"github.com/synuns/flint/lib/engine"
 	"github.com/synuns/flint/lib/knowledge"
 	"github.com/synuns/flint/lib/ops"
 	"github.com/synuns/flint/lib/tui"
@@ -76,6 +77,7 @@ func init() {
 	ops.FetchRegistryVersionFn = fetchRegistryVersion
 
 	ops.RegistryCacheInfoFn = registryCacheInfo
+	ops.EngineModeFn = func() (string, error) { return engine.CurrentMode(), nil }
 	ops.PctOfFn = pctOf
 
 	ops.ComposePsFn = func(ctx context.Context) ([]byte, error) { return composePsFn(ctx) }

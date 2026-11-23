@@ -38,6 +38,7 @@ var (
 	FetchRegistryVersionFn func() (string, error)
 
 	RegistryCacheInfoFn func() (string, string)
+	EngineModeFn        func() (string, error)
 
 	KnownMetaKeyFn func(k string) bool
 
@@ -1166,6 +1167,13 @@ func checkPort(ctx context.Context) DoctorCheck {
 		}
 	}
 
+	if EngineModeFn != nil {
+		if mode, merr := EngineModeFn(); merr == nil && mode == "native" {
+			c.Status = "skip"
+			c.Detail = "native engine mode — container port check not applicable"
+			return c
+		}
+	}
 	c.Status = "fail"
 	c.Detail = fmt.Sprintf("no flint-managed container (label %s=flint) publishes %d — unknown", flintProjectLabel, port)
 	c.Fix = "fix: flint setup (starts the pinned embedded-compose engine)"
