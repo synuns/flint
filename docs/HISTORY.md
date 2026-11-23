@@ -6,6 +6,21 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.31.2 patch (2026-11-24) — native-rollback-guard
+
+R125 findings (3): the medium nil-seam panic fixed, both lows fixed.
+
+- **[medium] UpgradeRoundTrip rollback nil-seam panic**: the rollback
+  closure called `nativeService.Start()` unguarded — a partial wiring
+  (library consumers, tests) panicked instead of returning the error.
+  The rollback now joins `ErrNotWired` when either seam is nil (nil-seam
+  regression test added). Production CLI wiring was always non-nil.
+- **[low] failure-path regression test added**: `setup --engine native`
+  keeps the prior mode when the pipeline fails (overlay probe now a
+  committed test).
+- **[low] unused `testEnginePort` constant removed** (left behind by the
+  inferMode simplification).
+
 ### v1.31.1 patch (2026-11-24) — native-service: 엔진 서비스 수명주기 정정
 
 R124 감사 패치 — v1.31.0 네이티브 엔진 모드의 서비스 와이어링·수명주기 회귀 수정:
