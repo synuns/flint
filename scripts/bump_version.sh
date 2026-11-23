@@ -1,13 +1,4 @@
 #!/bin/bash
-# bump_version.sh — 버전 일괄 범프 (배지 누락 사고 3회 방지, v0.17.0 R1).
-#
-# 사용법: ./scripts/bump_version.sh <version>   (예: 0.17.1)
-#
-# 갱신 대상(단일 버전 소스 동기):
-#   1. VERSION                  — 단일 버전 소스(v0.16.7 autotag 잡이 감지)
-#   2. README.md·README.ko.md   — release-v<x.y.z> 배지·인용 하이라이트 버전
-#   3. flint-plugin/.claude-plugin/plugin.json — version 필드
-# 마지막에 git diff --stat으로 변경 요약 표시.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -30,14 +21,8 @@ fi
 echo "$NEW" > VERSION
 
 for f in README.md README.ko.md; do
-  # 배지 URL의 release-v<x.y.z>과 같은 줄의 alt="v<x.y.z>"를 함께 교체
-  # (v0.18.1 — alt가 구버전으로 남아 스크린리더가 잘못 읽던 갭).
   perl -pi -e "s{release-v[0-9]+(?:\.[0-9]+)+-blue}{release-v${NEW}-blue}g" "$f"
   perl -ni -e 'if (/release-v/) { s{alt="v[0-9]+(?:\.[0-9]+)+"}{alt="v'"${NEW}"'"}g } print' "$f"
-  # v1.26.2(r113-1): 하이라이트 라인 재라벨링 삭제 — v1.26.0 README 재편으로
-  # 하이라이트가 다중 이력 블록이 되면서 전 라인 치환이 37줄 전량을 왜곡했다.
-  # 각 엔트리는 고유 라벨을 가지며 새 릴리스는 엔트리를 직접 추가한다.
-  # 라벨 유일·단조 검사는 release_gate.sh가 담당한다.
 done
 
 perl -pi -e "s{\"version\": \"[0-9]+(?:\.[0-9]+)+\"}{\"version\": \"${NEW}\"}" \

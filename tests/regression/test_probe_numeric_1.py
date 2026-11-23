@@ -77,7 +77,7 @@ def test_probe_numeric_1():
     def go():
         try:
             box["p"] = _problem(ad)
-        except BaseException as e:  # noqa: BLE001
+        except BaseException as e:                
             box["p"] = f"{type(e).__name__}: {e}"
 
     t = threading.Thread(target=go, daemon=True)

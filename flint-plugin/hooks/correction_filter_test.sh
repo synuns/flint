@@ -1,12 +1,4 @@
 #!/usr/bin/env bash
-# correction_filter_test.sh — contract tests for the UserPromptSubmit
-# correction filter hook (v1.14.0 T2, plan A). Default seam: a fake
-# `flint` recorder prepended to PATH records argv + stdin payload and
-# never touches a DB. SUPERLITE_REAL=1 swaps the real CLI build in (the
-# same cases run against the actual write path; requires FLINT_DSN or
-# FLINT_TEST_DSN, otherwise the real pass is skipped).
-# Gates (the plan go/no-go bar): recall >= 8/10 on synthetic correction
-# prompts and 0 false positives on 10 non-correction prompts.
 set -u
 
 HOOK_DIR=$(cd "$(dirname "$0")" && pwd)
@@ -23,8 +15,6 @@ FAIL=0
 ok() { PASS=$((PASS + 1)); printf 'ok   %s\n' "$1"; }
 bad() { FAIL=$((FAIL + 1)); printf 'FAIL %s — %s\n' "$1" "$2"; }
 
-# fake flint — records one invocation as two lines: "CALL args:<argv>"
-# then the stdin payload. The real seam replaces this binary below.
 mkdir -p "$TMP/bin"
 cat > "$TMP/bin/flint" <<'EOF'
 #!/usr/bin/env bash
@@ -35,8 +25,6 @@ chmod +x "$TMP/bin/flint"
 PATH="$TMP/bin:$PATH"
 export PATH
 
-# run_hook PROMPT_JSON — pipes the hook stdin JSON, prints hook exit.
-# "$BASH" (absolute) so a PATH-stripped case still finds the interpreter.
 run_hook() {
 	printf '%s' "$1" | "$BASH" "$HOOK" >/dev/null 2>&1
 	echo $?
@@ -51,7 +39,6 @@ payload_of() {
 	awk '/^CALL /{getline; print; exit}' "$FLINT_LOG" 2>/dev/null
 }
 
-# ── 1. kill switch: FLINT_CORRECTION_HOOK=off exits 0, zero flint calls ──
 rm -f "$FLINT_LOG"
 st=$(FLINT_CORRECTION_HOOK=off run_hook '{"prompt":"그게 아니라 배포는 금요일이야"}')
 if [ "$st" = 0 ] && [ "$(call_count)" = 0 ]; then
@@ -60,7 +47,6 @@ else
 	bad "off switch" "exit=$st calls=$(call_count), want 0/0"
 fi
 
-# ── 2. non-correction prompt: exit 0, no output, zero DB writes ──
 rm -f "$FLINT_LOG"
 out=$(printf '%s' '{"prompt":"Add a unit test for the parser edge case"}' | bash "$HOOK" 2>/dev/null)
 st=$?
@@ -70,7 +56,6 @@ else
 	bad "non-match" "exit=$st out=<$out> calls=$(call_count), want 0/empty/0"
 fi
 
-# ── 3. Korean marker: one call, correction source, confidence 0.4 ──
 rm -f "$FLINT_LOG"
 st=$(run_hook '{"prompt":"발표 자료 정리해줘. 그게 아니라 배포는 금요일이야, 지난주에 정했잖아. 그리고 로고도 새걸로 바꿨어."}')
 n=$(call_count)
@@ -86,7 +71,6 @@ else
 	bad "ko marker" "exit=$st n=$n args=<$args> conf=$conf marker=$has_marker"
 fi
 
-# ── 4. English marker "Actually," ──
 rm -f "$FLINT_LOG"
 st=$(run_hook '{"prompt":"Deploy notes: check the badge first. Actually the port is 5434, not 5432. Update the README table too."}')
 n=$(call_count)
@@ -97,7 +81,6 @@ else
 	bad "en marker" "exit=$st n=$n conf=$conf"
 fi
 
-# ── 5. explicit "correction:" marker ──
 rm -f "$FLINT_LOG"
 st=$(run_hook '{"prompt":"correction: the review starts at 3pm, not 2pm"}')
 n=$(call_count)
@@ -107,19 +90,16 @@ else
 	bad "correction: marker" "exit=$st n=$n, want 0/1"
 fi
 
-# ── 6. context window: snippet bounded to marker +/- 80 codepoints ──
 rm -f "$FLINT_LOG"
 long_ko=$(printf '가%.0s' $(seq 1 200))"그게 아니라 값은 5야"$(printf '나%.0s' $(seq 1 200))
 st=$(run_hook "{\"prompt\":\"$long_ko\"}")
 len=$(printf '%s' "$(payload_of)" | jq -r '.summary | length' 2>/dev/null)
-# marker "그게 아니라 값은 5야" = 10 codepoints; bound = 80+10+80 (+2 slack).
 if [ "$st" = 0 ] && [ "$len" -le 172 ] && [ "$len" -ge 90 ] 2>/dev/null; then
 	ok "context window: summary length $len within marker+/-80"
 else
 	bad "context window" "exit=$st summary length=$len, want 90..172"
 fi
 
-# ── 7. flint failure is non-fatal (non-interference) ──
 rm -f "$FLINT_LOG"
 cat > "$TMP/bin/flint" <<'EOF'
 #!/usr/bin/env bash
@@ -132,7 +112,6 @@ if [ "$st" = 0 ]; then
 else
 	bad "flint failure" "exit=$st, want 0"
 fi
-# restore the recording fake for the measurement below.
 cat > "$TMP/bin/flint" <<'EOF'
 #!/usr/bin/env bash
 { printf 'CALL args:%s\n' "$*"; cat; printf '\n'; } >> "$FLINT_LOG"
@@ -140,7 +119,6 @@ exit 0
 EOF
 chmod +x "$TMP/bin/flint"
 
-# ── 8. invalid stdin JSON: exit 0, zero calls ──
 rm -f "$FLINT_LOG"
 st=$(printf 'not json at all' | bash "$HOOK" >/dev/null 2>&1; echo $?)
 if [ "$st" = 0 ] && [ "$(call_count)" = 0 ]; then
@@ -149,7 +127,6 @@ else
 	bad "invalid stdin" "exit=$st calls=$(call_count), want 0/0"
 fi
 
-# ── 9. flint missing from PATH: exit 0 (never blocks the prompt) ──
 rm -f "$FLINT_LOG"
 st=$(PATH="$TMP/emptybin" run_hook '{"prompt":"그게 아니라 값은 5야"}')
 if [ "$st" = 0 ]; then
@@ -158,7 +135,6 @@ else
 	bad "no flint on PATH" "exit=$st, want 0"
 fi
 
-# ── 10. hooks.json registration (pattern: timeout, || true) ──
 reg=$(jq -r '.hooks.UserPromptSubmit[0].hooks[0] |
 	if .command and (.command | contains("correction_filter.sh"))
 		and (.command | contains("|| true"))
@@ -169,7 +145,6 @@ else
 	bad "hooks.json registration" "got <$reg>"
 fi
 
-# ── 11. reproduction-rate gate (plan go/no-go): 10+10 synthetic prompts ──
 CORRECTIONS=(
 	'그게 아니라 배포는 금요일에 하기로 했어'
 	'아니야, 그 값은 3이 아니라 5야'
@@ -213,7 +188,6 @@ else
 	bad "go/no-go gate" "recall=$recall/10 FP=$false_pos/10, want >=8 and 0"
 fi
 
-# ── 12. bare "다시" false positive (R57): casual reuse must not match ──
 rm -f "$FLINT_LOG"
 st=$(run_hook '{"prompt":"내일 다시 얘기하자 — 오늘은 여기까지 하자"}')
 n=$(call_count)
@@ -223,7 +197,6 @@ else
 	bad "bare 다시" "exit=$st calls=$n, want 0/0"
 fi
 
-# ── 13. contextualized "다시" still matches (recall kept) ──
 rm -f "$FLINT_LOG"
 st=$(run_hook '{"prompt":"다시 알려줘, 올바른 포트는 5434야"}')
 n=$(call_count)
@@ -233,7 +206,6 @@ else
 	bad "다시 + follow-up verb" "exit=$st calls=$n, want 0/1"
 fi
 
-# ── 14. two matched lines accrue ONE fragment (first-match contract) ──
 rm -f "$FLINT_LOG"
 fill_a=$(printf '가%.0s' $(seq 1 100))
 fill_b=$(printf '나%.0s' $(seq 1 100))
@@ -249,7 +221,6 @@ else
 	bad "two matched lines" "exit=$st n=$n first=$has_first second=$has_second, want 0/1/true/false"
 fi
 
-# ── 15. newline-spanning context: +/-80 window crosses line breaks ──
 rm -f "$FLINT_LOG"
 p15=$(printf '%s\n%s' '짧은 서론. 그게 아니라 포트는 5434야' '둘째 줄 내용도 맥락에 포함된다')
 st=$(run_hook "$(jq -cn --arg p "$p15" '{prompt:$p}')")
@@ -261,8 +232,6 @@ else
 	bad "newline-spanning context" "exit=$st spans=$spans, want 0/true"
 fi
 
-# ── real-producer pass (SUPERLITE_REAL=1): the same hook runs against
-# the built CLI on the real write path. Skipped without a DSN. ──
 if [ "${SUPERLITE_REAL:-0}" = "1" ]; then
 	if [ -n "${FLINT_TEST_DSN:-}" ]; then
 		export FLINT_DSN="$FLINT_TEST_DSN"

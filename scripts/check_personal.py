@@ -28,8 +28,8 @@ LOCAL_MARKERS = Path.home() / ".config" / "flint" / "personal-markers.txt"
 BINARY_SUFFIX = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".pdf", ".zip",
                  ".gz", ".tar", ".tgz", ".ico", ".icns", ".woff", ".woff2"}
 
-# 이메일: 일반 형식 전면 검출(TLD 제한 없음 — F2). 예외는 GitHub noreply
-# 식별과 RFC 2606/5737 예약 도메인(테스트 전용 — 개인일 수 없음).
+                                                      
+                                              
 EMAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 NOREPLY = re.compile(r"^\d+\+[\w.-]+@users\.noreply\.github\.com$")
 RESERVED = re.compile(
@@ -51,8 +51,8 @@ def local_markers():
             if l.strip() and not l.startswith("#")]
 
 
-# v0.28.2: flint 백업 덤프 형상 — 이름 패턴(자동 명명)·매직 헤더.
-# 덤프는 개인 DB 전문이라 마커 문자열과 무관하게 반입 금지.
+                                               
+                                    
 DUMP_NAME = re.compile(r"flint-\d{8}-\d{6}.*\.sql(\.age)?(\.sha256)?$")
 DUMP_HEADER = "-- flint backup (ADR-0002)"
 
@@ -92,7 +92,7 @@ def scan_working_tree(files, markers):
     hits = []
     for f in files:
         p = ROOT / f
-        # v0.28.2: 덤프 형상 — 자동 명명 파일명 또는 매직 헤더 첫 줄.
+                                                  
         if DUMP_NAME.search(f):
             print(f"FAIL {f}: 백업 덤프 형상(개인 DB 전문) — repo 반입 금지")
             hits.append(f)
@@ -124,9 +124,9 @@ def scan_index_blobs(markers):
         for line in r.stdout.splitlines():
             if not line:
                 continue
-            # 이메일 패턴 행은 워킹트리 검사(scan_text)와 같은 noreply
-            # 예외를 적용한다 — 행 내 이메일 전부가 GitHub noreply면
-            # 합법(작성자 식별 표준)으로 통과시킨다.
+                                                      
+                                                    
+                                    
             if pat is EMAIL and EMAIL.search(line) and all(
                     email_allowed(a) for a in EMAIL.findall(line)):
                 continue
@@ -139,7 +139,7 @@ def main() -> int:
     markers = local_markers()
     files = ls_files()
     if "--untracked" in sys.argv:
-        files += untracked_files()  # v0.29.1: 도입 예정 신규 파일 포함
+        files += untracked_files()                           
     failed = bool(scan_working_tree(files, markers))
     if "--cached" in sys.argv:
         failed = bool(scan_index_blobs(markers)) or failed

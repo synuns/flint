@@ -26,3 +26,5 @@ flint-*.sql*
 # 릴리스 서명 키 — repo 안 두지 않는다(백업은 ~/.config/flint/)
 release.key
 release.pub
+
+__pycache__/

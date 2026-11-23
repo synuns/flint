@@ -32,6 +32,7 @@ GO_TEST_FLAGS ?=
 ci:
 	python3 scripts/validate_yaml.py
 	python3 scripts/check_personal.py
+	python3 scripts/check_comments.py
 	@test -z "$$(gofmt -l lib cmd)" || { echo 'gofmt 미적용 파일:'; gofmt -l lib cmd; exit 1; }
 # v1.14.0 T2: correction filter hook contract tests (shell, fake flint seam).
 	bash flint-plugin/hooks/correction_filter_test.sh

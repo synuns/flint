@@ -22,7 +22,7 @@ GIT_STATE = re.compile(
     r"\s+(commit|push|add|cherry-pick|merge|update-index|restore|stage|stash|rebase|am|apply)\b"
 )
 
-# 따옴표 구간(커밋 메시지 등 산문) 제거 — 플래그 판정은 명령 부분만.
+                                          
 QUOTED = re.compile(r"\"[^\"]*\"|'[^']*'")
 
 
@@ -32,9 +32,9 @@ def fail(msg: str) -> None:
 
 
 def main() -> None:
-    # 관리자 명시 우회 — 유출 치유 등 가드가 자기 자신을 교착시키는
-    # 작업용. 훅 프로세스엔 커맨드라인 환경변수가 상속되지 않아 파일
-    # 기반: touch .superlite/GUARD_BYPASS 후 git 작업, 끝나면 반드시 삭제.
+                                          
+                                         
+                                                             
     if os.environ.get("GUARD_BYPASS") == "1" or os.path.exists(
         os.path.join(HERE, "..", ".superlite", "GUARD_BYPASS")
     ):
@@ -51,9 +51,9 @@ def main() -> None:
         return
     if "--author" in bare:
         fail("BLOCK --author 주입 금지 — 커밋 작성자는 로컬 git config(noreply)로 고정.")
-    # v0.29.1: 도입류 조작은 미추적 신규 파일도 스캔 — add 전 ls_files이
-    # 신규 파일을 놓치던 갭(커밋 시점 우회 경로) 폐쇄. push는 스테이지
-    # 전량 스캔 유지(게시 경계 강도 불변).
+                                                      
+                                              
+                            
     introducing = m.group(1) in ("add", "commit", "stage", "update-index")
     args = [sys.executable, os.path.join(HERE, "check_personal.py"), "--cached"]
     if introducing:
