@@ -1287,7 +1287,7 @@ func TestDoctorEngineChecksFullRun(t *testing.T) {
 	}}
 	// Only run the 2 engine checks — the full chain includes environment-
 	// dependent checks (hook-file, port) that fail on CI runners.
-	out, code := runDoctorArgs(t, f, "--check", "dolt_log_depth")
+	out, code := runDoctorArgs(t, f, "--check", doltLogDepthName)
 	if code != 0 {
 		t.Fatalf("depth warn 실행 exit=%d, want 0: %s", code, out)
 	}
