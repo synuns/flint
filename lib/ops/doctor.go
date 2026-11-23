@@ -1392,7 +1392,6 @@ func checkVersionsTh(ctx context.Context, st wire.Store, th store.Thresholds) Do
 		if v, rerr := FetchRegistryVersionFn(); rerr == nil && v != "" {
 			regPart = "registry v" + v
 		} else if RegistryCacheInfoFn != nil {
-
 			if cv, checkedAt := RegistryCacheInfoFn(); cv != "" {
 				regPart = "registry v" + cv + " (cached, unverified — offline"
 				if t, terr := time.Parse(time.RFC3339, checkedAt); terr == nil {
