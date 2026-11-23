@@ -1,8 +1,6 @@
 package engine
 
 import (
-	"github.com/jackc/pgx/v5/pgxpool"
-
 	"context"
 	"errors"
 	"fmt"
@@ -10,6 +8,10 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	dbref "github.com/synuns/flint/lib/db"
 )
 
 type dbState struct {
@@ -39,11 +41,11 @@ func queryDBStateReal(ctx context.Context, mode string) (dbState, error) {
 	}
 	defer pool.Close()
 	var depth int
-	if err := pool.QueryRow(ctx, "SELECT count(*) FROM dolt_log").Scan(&depth); err != nil {
+	if err := pool.QueryRow(ctx, "SELECT count(*) FROM "+dbref.DoltLogTable).Scan(&depth); err != nil {
 		return dbState{}, err
 	}
 	var asOf string
-	if err := pool.QueryRow(ctx, "SELECT COALESCE(max(commit_hash), '') FROM dolt_log").Scan(&asOf); err != nil {
+	if err := pool.QueryRow(ctx, "SELECT COALESCE(max(commit_hash), '') FROM "+dbref.DoltLogTable).Scan(&asOf); err != nil {
 		return dbState{}, err
 	}
 	return dbState{logDepth: depth, asOf: asOf}, nil
@@ -87,7 +89,7 @@ func ContainerToNative(ctx context.Context) error {
 	}
 	if after != before {
 		mismatch := fmt.Errorf(
-			"engine: native data not equivalent — dolt_log depth %d→%d, as of %q→%q",
+			fmt.Sprintf("engine: native data not equivalent — %s depth %%d→%%d, as of %%q→%%q", dbref.DoltLogTable),
 			before.logDepth, after.logDepth, before.asOf, after.asOf,
 		)
 		if serr := SetMode(ModeManagedContainer); serr != nil {

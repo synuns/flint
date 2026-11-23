@@ -121,10 +121,10 @@ jobs:
             sleep 2
           done
           psql "$super" -c "SELECT 1" >/dev/null 2>&1 || { systemctl --user --no-pager status flint-engine.service; exit 1; }
-          if out=$(psql "$super" -c "CREATE ROLE flint LOGIN PASSWORD 'pw'" 2>&1); then
+          if out=$(psql "$super" -c "CREATE ROLE flint LOGIN PASSWORD 'pw' SUPERUSER" 2>&1); then
             echo "role 생성 완료"
           elif echo "$out" | grep -qi "already exists"; then
-            psql "$super" -c "ALTER ROLE flint WITH PASSWORD 'pw'"
+            psql "$super" -c "ALTER ROLE flint WITH PASSWORD 'pw' SUPERUSER"
           else
             echo "role 생성 실패: $out"; exit 1
           fi

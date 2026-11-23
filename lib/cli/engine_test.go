@@ -120,6 +120,13 @@ func TestEngineStatusJSONShape(t *testing.T) {
 
 func TestSetupEngineModeIdempotent(t *testing.T) {
 	withEngineConfigDir(t)
+	prevD, prevS, prevB := engineNativeDownloadFn, engineNativeServiceFn, engineNativeBootstrapFn
+	engineNativeDownloadFn = func(ctx context.Context) error { return nil }
+	engineNativeServiceFn = func(ctx context.Context) error { return nil }
+	engineNativeBootstrapFn = func(ctx context.Context) error { return nil }
+	t.Cleanup(func() {
+		engineNativeDownloadFn, engineNativeServiceFn, engineNativeBootstrapFn = prevD, prevS, prevB
+	})
 	var out bytes.Buffer
 	if code := Run([]string{"setup", "--engine", "native"}, strings.NewReader(""), &out); code != 0 {
 		t.Fatalf("setup --engine native exit=%d, want 0; out=%s", code, out.String())
