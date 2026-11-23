@@ -82,8 +82,8 @@ func TestCurrentModeInferUnknown(t *testing.T) {
 		t.Fatalf("CurrentMode=%q want %q", got, ModeUnknown)
 	}
 	withConfigDir(t, `{"dsn":"postgresql://flint:flint-dev@localhost:5555/flint"}`)
-	if got := CurrentMode(); got != ModeUnknown {
-		t.Fatalf("CurrentMode=%q want %q", got, ModeUnknown)
+	if got := CurrentMode(); got != ModeManagedContainer {
+		t.Fatalf("CurrentMode=%q want %q (비표준 루프백 포트는 관리형 추론 — v1.31.1)", got, ModeManagedContainer)
 	}
 }
 
