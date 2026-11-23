@@ -137,6 +137,9 @@ jobs:
               echo "$db 생성 실패: $out"; exit 1
             fi
           done
+          mkdir -p "$RUNNER_TEMP/flint-config"
+          printf '{"engine":{"mode":"native"}}' > "$RUNNER_TEMP/flint-config/config.json"
+          echo "FLINT_CONFIG_DIR=$RUNNER_TEMP/flint-config" >> "$GITHUB_ENV"
       - name: DB 준비 대기 (단일 게이트)
         if: matrix.engine == 'container'
         run: |

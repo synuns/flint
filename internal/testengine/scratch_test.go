@@ -72,6 +72,7 @@ func TestScratchUniqueNamesPerCall(t *testing.T) {
 }
 
 func TestScratchEngineFailureSkipsLocally(t *testing.T) {
+	withDSNUnreachable(t)
 	resetLifecycle(t)
 	unset(t, "FLINT_TEST_DSN")
 	fakeSeams(t, func() error { return errors.New("compose 부재") }, nil, nil)
