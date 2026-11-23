@@ -69,7 +69,7 @@ func plistContent(bin, dataDir, outLog, errLog string) string {
 	<key>Label</key>
 	<string>` + launchdLabel + `</string>
 	<key>WorkingDirectory</key>
-	<string>` + filepath.Dir(bin) + `</string>
+	<string>` + engineDirOf(bin) + `</string>
 	<key>ProgramArguments</key>
 	<array>
 		<string>` + bin + `</string>
@@ -92,7 +92,7 @@ func unitContent(bin, dataDir, outLog, errLog string) string {
 Description=flint native engine
 
 [Service]
-WorkingDirectory=` + filepath.Dir(bin) + `
+WorkingDirectory=` + engineDirOf(bin) + `
 ExecStart=` + bin + ` -data-dir ` + dataDir + `
 Restart=always
 StandardOutput=append:` + outLog + `
@@ -129,9 +129,9 @@ func Register() error {
 	}
 	var content string
 	if serviceOS() == "darwin" {
-		content = plistContent(bin, filepath.Join(filepath.Dir(bin), "data"), outLog, errLog)
+		content = plistContent(bin, filepath.Join(engineDirOf(bin), "data"), outLog, errLog)
 	} else {
-		content = unitContent(bin, filepath.Join(filepath.Dir(bin), "data"), outLog, errLog)
+		content = unitContent(bin, filepath.Join(engineDirOf(bin), "data"), outLog, errLog)
 	}
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		return err
@@ -245,7 +245,6 @@ func WaitForEngine(ctx context.Context, dsn string, attempts int, delay time.Dur
 	return fmt.Errorf("engine: not reachable at %s after %d attempts", addr, attempts)
 }
 
-
 func TailEngineLogs(n int) (string, error) {
 	_, errLog := logFilePaths()
 	b, err := os.ReadFile(errLog)
@@ -257,4 +256,8 @@ func TailEngineLogs(n int) (string, error) {
 		lines = lines[len(lines)-n:]
 	}
 	return strings.Join(lines, "\n"), nil
+}
+
+func engineDirOf(bin string) string {
+	return filepath.Dir(filepath.Dir(bin))
 }
