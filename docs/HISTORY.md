@@ -9,7 +9,7 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 ### v1.25.1 patch (2026-11-23) — r108-r109: gc-pending json fix · dialect probe relocation · depth numeric fix · doc corrections
 
 The engine-ops audit follow-ups (R108 + R109) — 9 distinct findings
-(R109's 10 minus 2 that overlapped R108's scope). Schema v19 stands:
+(R108's 5 + R109's 8 — 4 overlapping). Schema v19 stands:
 
 - **gc-pending JSON fix (r108-1)**: the `maintain --gc` pre-run notice
   line ended at ` pings)` — the closing quote and brace were missing, so
