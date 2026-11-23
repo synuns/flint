@@ -134,14 +134,16 @@ func ClassifyMergeAuditPairs(rows []MergeAuditRow, dupThreshold float64) ([]Merg
 		calib = mergeAuditCalibPairs
 	}
 	if calib > 0 {
+		var calibSink float64
 		start := time.Now()
 		n := 0
 		for i := 0; i < m && n < calib; i++ {
 			for j := i + 1; j < m && n < calib; j++ {
-				query.BigramDiceMultiset(combined[i], combined[j])
+				calibSink = query.BigramDiceMultiset(combined[i], combined[j])
 				n++
 			}
 		}
+		_ = calibSink // timing calibration sink (staticcheck SA4017)
 		perPairNs := float64(time.Since(start).Nanoseconds()) / float64(n)
 		cost.MicrosPerPair = int(math.Ceil(perPairNs / 1000.0))
 	}
