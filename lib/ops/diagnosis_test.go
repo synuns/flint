@@ -272,21 +272,26 @@ func TestDiagnosisReportExposure(t *testing.T) {
 }
 
 // frozenMeteringKindGroups — the observation-key registry baseline (A5):
-// the 3 groups' kind sets, order included, byte-invariant (24 keys —
-// 10 intake usage + 11 curation + 3 byte surfaces). Group separation is
-// the contract: a flat merge is forbidden (the curation key space is
-// dedicated — approve.go's review-outcome namespace).
+// the 3 groups' kind sets, order included, byte-invariant (29 keys —
+// 10 intake usage + 16 curation + 3 byte surfaces; v1.24.0 D2 added the
+// correction classification funnel pair correction_preference·
+// correction_fact, T4 the recall-audit feedback pair recall_audit_listed·
+// recall_audit_disposed). Group separation is the contract: a flat merge is
+// forbidden (the curation key space is dedicated — approve.go's
+// review-outcome namespace).
 var frozenMeteringKindGroups = map[string][]string{
 	"usage": {"write", "hot", "read", "dup", "dup_hook", "dup_manual", "dup_mcp", "dup_correction", "dup_gap", "brief"},
 	"curation": {"approve_done", "approve_not_found", "approve_supersede_err",
 		"maintain_supersede", "maintain_expire", "maintain_prune_rows",
-		"import_added", "import_skipped", "correction_approved", "gap_approved", "survived_sessions"},
+		"import_added", "import_skipped", "correction_approved", "correction_preference", "correction_fact",
+		"gap_approved", "survived_sessions", "merge_audit_pairs",
+		"recall_audit_listed", "recall_audit_disposed"},
 	"bytes": {"read", "hot", "brief"},
 }
 
 // TestMeteringKindRegistryHomogeneity — the unified registry keeps the 3
 // groups' exact kind sets (byte-invariant vs the pre-unification
-// whitelists) and the union at 24 keys. The same kind name in 2 groups
+// whitelists) and the union at 29 keys. The same kind name in 2 groups
 // (bytes "read"/"hot"/"brief") is legal — the group is the key space.
 func TestMeteringKindRegistryHomogeneity(t *testing.T) {
 	total := 0
@@ -297,8 +302,8 @@ func TestMeteringKindRegistryHomogeneity(t *testing.T) {
 		}
 		total += len(want)
 	}
-	if total != 24 {
-		t.Errorf("합집합 %d키, want 24키", total)
+	if total != 29 {
+		t.Errorf("합집합 %d키, want 29키", total)
 	}
 	if db.MeteringKinds("bogus") != nil {
 		t.Error("미지 그룹에 비nil 반환 — 그룹 구분 붕괴 소지")

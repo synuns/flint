@@ -26,7 +26,7 @@
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 harnesses">
   <a href="https://github.com/synuns/flint/actions/workflows/ci.yml"><img src="https://github.com/synuns/flint/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
-  <img src="https://img.shields.io/badge/release-v1.23.2-blue" alt="v1.23.2">
+  <img src="https://img.shields.io/badge/release-v1.24.0-blue" alt="v1.24.0">
 </p>
 <p align="center">
   <sub>8 counts the auto-registration (tier A) harnesses — the full support list is in the <a href="#agents--adapters">adapter table</a> below.</sub>
@@ -48,6 +48,7 @@ It adds up. Week one, it learns the stack. By week four, it remembers why you ch
 
 Humans take notes in Obsidian. Agents take notes in flint — the stone you strike to make fire and tools.
 
+> v1.24.0 · curation residual — schema v19 (`kind`·`source_path`, `echo_candidates`) · `maintain --merge-audit` (duplicate pair report, cost-estimated) · `--recall-audit` (bad-recall feedback report) · `read --related` (undirected neighbor links) / `--why` (token tier · RRF signal · zero-hit evidence) · [full changelog](docs/HISTORY.md)
 > v1.23.2 · r102 patch — counter digit bound (18-digit guard on the shadow counter upsert) · v1.23.0 spec alignment (boundary fires, off-mode cost) · what-if p50/p90 domain filter · [full changelog](docs/HISTORY.md)
 > v1.23.0 · autotune shadow — schema v18 `tuning_predictions` (predictions recorded, nothing applied) · `auto_mode` policy switch (default off, whitelist: `suggest_min_score`) · shadow rounds on the read tail (24h gate, streak rules) · `flint tuning what-if` / `status` (reclassification · p50/p90 · drift card) · [full changelog](docs/HISTORY.md)
 > v1.22.1 · r96-r98 patch — rematch stamp preservation (`content_changed_at` kept on hash-identical re-applies) · `maintain --recheck --conditions` backfill · `flint distill` file cap (`distill_max_runes`) + no same-minute overwrite · id/min-score input guards · [full changelog](docs/HISTORY.md)
@@ -233,12 +234,12 @@ flint sits inside your coding sessions, so its constraints are part of the produ
 | `flint import [path]` | Convert rule files (CLAUDE.md etc.) to pending knowledge (`--commit`); `--format jsonl\|pam` migrates knowledge back in (round-trip re-import · PAM v1.0 intake) |
 | `flint export [--format f]` | Export knowledge as jsonl·md·txt·csv·pam (PAM v1.0 portable memory-store; `--status`·`--tag`·`--since` filters, `--out` file with `.sha256` sidecar; PAM `--sign` Ed25519 signature, spec §18) |
 | `flint index [--vault p]` | Index a markdown vault into `vault_files` (snapshot-diff, one batch commit per diff; `--vault` persists the path, `--limit` caps the scan) |
-| `flint read <query>` | Search active knowledge (vault rows appended after the knowledge block when indexed) |
+| `flint read <query>` | Search active knowledge (vault rows appended after the knowledge block when indexed); opt-in `--related N` appends undirected knowledge-link neighbors (cap 5) and `--why` appends per-row evidence (token tier · RRF signals · zero-hit rationale) — the default output is unchanged |
 | `flint hot --session <id>` | Inject context at session start |
 | `flint brief [query]` | Masked, read-only brief to paste into any external AI (the bridge) |
 | `flint done --session <id>` | Wrap up a session |
 | `flint approve --id n` | Promote pending to active |
-| `flint maintain` | Curate: check thresholds, invalidate, merge, `--age-audit` staleness report with `suggested_vol`, `--reaffirm` validity refresh, `--recheck` conditions review (`--tui` interactive review, opt-in) |
+| `flint maintain` | Curate: check thresholds, invalidate, merge, `--merge-audit` duplicate pair report (multiset Dice, cost-estimated, listing only), `--recall-audit` bad-recall feedback report (listing only — disposition always via the approval-required subcommands), `--age-audit` staleness report with `suggested_vol`, `--reaffirm` validity refresh, `--recheck` conditions review (`--tui` interactive review, opt-in) |
 | `flint distill --out DIR` | Emit recall-scored unstamped insights as one aggregate markdown file (`--min-score` overrides `distill_min_score`; emitted rows stamp `distilled_at`, reruns yield the remainder — ADR-0018) |
 | `flint audit --limit n` | Show last n commits |
 | `flint backup` | Dump to SQL with sha256 checksum (`--encrypt` age at-rest, `--mask` redacted diagnostics) |

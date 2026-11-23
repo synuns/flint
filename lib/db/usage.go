@@ -83,14 +83,17 @@ type MeteringKindGroup struct {
 	Kinds []string
 }
 
-// MeteringKindRegistry — the registry original (24 keys — usage 10·
-// curation 11·bytes 3). Order is deterministic (the homogeneity guard
-// pins the exact sets).
+// MeteringKindRegistry — the registry original (29 keys — usage 10·
+// curation 16·bytes 3; v1.24.0 T4 added the recall-audit feedback pair
+// recall_audit_listed·recall_audit_disposed). Order is deterministic (the
+// homogeneity guard pins the exact sets).
 var MeteringKindRegistry = []MeteringKindGroup{
 	{"usage", []string{"write", "hot", "read", "dup", "dup_hook", "dup_manual", "dup_mcp", "dup_correction", "dup_gap", "brief"}},
 	{"curation", []string{"approve_done", "approve_not_found", "approve_supersede_err",
 		"maintain_supersede", "maintain_expire", "maintain_prune_rows",
-		"import_added", "import_skipped", "correction_approved", "gap_approved", "survived_sessions"}},
+		"import_added", "import_skipped", "correction_approved", "correction_preference", "correction_fact",
+		"gap_approved", "survived_sessions", "merge_audit_pairs",
+		"recall_audit_listed", "recall_audit_disposed"}},
 	{"bytes", []string{"read", "hot", "brief"}},
 }
 
@@ -251,6 +254,29 @@ func BumpDailyFlatKey(ctx context.Context, q Querier, kind, day string, n int) e
 		        ELSE EXCLUDED.value END`, key, strconv.Itoa(n))
 	if err != nil {
 		return fmt.Errorf("bump daily flat key: %w", err)
+	}
+	return nil
+}
+
+// StampKnowledgeKind — the knowledge.kind classification column stamp
+// (v1.24.0 T2, schema v19): the write-path record key "kind" is the
+// table discriminator (buildInsertStmt skips it), so the classification
+// column cannot ride the INSERT column list — the knowledge write path
+// consumes the stdin knowledge_kind input and stamps the column
+// post-insert through this helper over a Querier (the BumpDailyFlatKey
+// convention: the write SQL literal lives in the db layer, callers pass
+// their wire.Store). kind is vocabulary-validated by the caller (the
+// write-path code constants — preference|fact); an empty kind·an empty
+// id list is a no-op. The caller runs it BEFORE the batch Commit so the
+// stamp rides the same dolt commit as the rows.
+func StampKnowledgeKind(ctx context.Context, q Querier, ids []int, kind string) error {
+	if len(ids) == 0 || kind == "" {
+		return nil
+	}
+	_, err := q.Query(ctx,
+		`UPDATE knowledge SET kind = $1 WHERE id = ANY($2)`, kind, ids)
+	if err != nil {
+		return fmt.Errorf("stamp knowledge kind: %w", err)
 	}
 	return nil
 }

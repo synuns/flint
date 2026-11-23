@@ -52,6 +52,14 @@
 -- trigger·rationale 3열(NULL 허용 — v1.23.0은 적용 0건이라 origin=auto
 -- 행 없음, 스키마·스탬프 경로만). 기존 v17 DB는 EnsureSchemaV18 게이트가
 -- 적용(additive — DEFAULT 없는 ALTER·CREATE, v11/v13 선례).
+-- v19(v1.24.0): curation residual — knowledge에 kind(preference|fact,
+-- 어휘 검증은 쓰기 경로 상수·미분류 NULL 허용)·source_path(--recheck
+-- vault 연결 축, 선택 입력) 2열(NULL — DEFAULT 없음, 이전 바이너리 호환),
+-- echo_candidates 테이블(D1 echo 후보 적립 — echo_id=신규 write 행·
+-- candidate_id=근사 이웃 행, 응답 top-k와 동일 방향. 소급 산출 쿼리는
+-- 관측 데이터 축적 후 차기 이월, 이 버전은 적립만)+ (candidate_id)·(ts)
+-- 인덱스. 기존 v18 DB는 EnsureSchemaV19 게이트가 적용(additive — DEFAULT
+-- 없는 ALTER·CREATE, v18 선례).
 -- 포트 5433 Doltgres 전용(ADR-0001). write는 INSERT 전용(projects 제외 UPDATE 금지).
 
 CREATE TABLE IF NOT EXISTS projects (
@@ -89,7 +97,9 @@ CREATE TABLE IF NOT EXISTS knowledge (
     last_read_at timestamptz,                 -- v4: 최근 참조 시각
     superseded_by int,                        -- v5: 대체 지식 id(기본 NULL)
     distilled_at  timestamptz,                -- v17: distill 출력 완료 스탬프(기본 NULL — 미출력)
-    conditions    text NOT NULL DEFAULT ''    -- v17: 수동 재검토 조건 태그(해시 제외 — hashVolatile)
+    conditions    text NOT NULL DEFAULT '',   -- v17: 수동 재검토 조건 태그(해시 제외 — hashVolatile)
+    kind          text,                       -- v19: 분류 preference|fact(어휘 검증은 쓰기 경로 — 미분류 NULL)
+    source_path   text                        -- v19: 출발 vault 경로(선택 입력 — 해시 제외·recheck 연결 축)
 );
 
 CREATE TABLE IF NOT EXISTS maintenance_runs (
@@ -261,3 +271,22 @@ CREATE TABLE IF NOT EXISTS tuning_predictions (
 
 -- v18: shadow-round time-window scan axis.
 CREATE INDEX IF NOT EXISTS idx_tuning_predictions_ts ON tuning_predictions (ts);
+
+-- v19 (v1.24.0): write-time echo candidate — one append-only row per
+-- echo candidate (echo_id = the new write row, candidate_id = the
+-- approximate neighbor row — the same direction as the echo response
+-- top-k, the D1 retrospective query is deferred until observation data
+-- accrues, this version only persists). An audit staging target
+-- (auditStageTables — the recall_events precedent).
+CREATE TABLE IF NOT EXISTS echo_candidates (
+    id           bigserial PRIMARY KEY,
+    ts           timestamptz NOT NULL DEFAULT now(),
+    candidate_id int NOT NULL,
+    echo_id      int NOT NULL,
+    relation     text NOT NULL,
+    score        double precision NOT NULL
+);
+
+-- v19: candidate join axis + time-window scan axis.
+CREATE INDEX IF NOT EXISTS idx_echo_candidates_candidate_id ON echo_candidates (candidate_id);
+CREATE INDEX IF NOT EXISTS idx_echo_candidates_ts ON echo_candidates (ts);

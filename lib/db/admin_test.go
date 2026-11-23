@@ -943,7 +943,8 @@ func TestV14GateUpgradeFromV13(t *testing.T) {
 // real schema.sql + running the gate chain v2→LatestSchemaVersion in
 // order reaches the latest terminus (knowledge_links + its indexes + the
 // superseded_by index + the v15 unique triple seal + the v16 vault_files
-// table + the v17 staleness/distill columns present without any gate
+// table + the v17 staleness/distill columns + the v19 echo_candidates
+// table·knowledge kind/source_path columns present without any gate
 // DDL — the fresh-creation terminus contract).
 func TestV14FreshSchemaDirect(t *testing.T) {
 	r := newTestRepo(t)
@@ -954,7 +955,7 @@ func TestV14FreshSchemaDirect(t *testing.T) {
 	ctx := context.Background()
 	for _, stmt := range []string{
 		`DROP VIEW IF EXISTS active_knowledge, hot_view`,
-		`DROP TABLE IF EXISTS read_events, session_starts, hot_events, knowledge_reads, recall_events, threshold_snapshots, weekly_rollups, knowledge_links, vault_files, tuning_predictions`,
+		`DROP TABLE IF EXISTS read_events, session_starts, hot_events, knowledge_reads, recall_events, threshold_snapshots, weekly_rollups, knowledge_links, vault_files, tuning_predictions, echo_candidates`,
 		`DELETE FROM meta WHERE key = 'schema_version'`,
 	} {
 		if _, err := r.pool.Exec(ctx, stmt); err != nil {
@@ -969,8 +970,8 @@ func TestV14FreshSchemaDirect(t *testing.T) {
 			t.Fatalf("게이트 체인 v%d: %v", gate.Version, err)
 		}
 	}
-	if v := readVersion(t, r); v != "18" {
-		t.Fatalf("게이트 체인 후 schema_version = %q, want 18 (v1.23.0 상향)", v)
+	if v := readVersion(t, r); v != "19" {
+		t.Fatalf("게이트 체인 후 schema_version = %q, want 19 (v1.24.0 상향)", v)
 	}
 	v14GateArtifacts(t, r, ctx)
 	// v1.20.1: the fresh terminus carries the unique triple seal — a
@@ -1001,6 +1002,9 @@ func TestV14FreshSchemaDirect(t *testing.T) {
 	// v1.23.0: the fresh terminus carries tuning_predictions + the 3
 	// threshold_snapshots columns without any gate DDL.
 	v18GateArtifacts(t, r, ctx)
+	// v1.24.0: the fresh terminus carries echo_candidates + the knowledge
+	// kind/source_path columns without any gate DDL.
+	v19GateArtifacts(t, r, ctx)
 }
 
 // TestAuditStageTablesV16 — vault_files joins the audit staging list
@@ -1353,6 +1357,164 @@ func TestAuditStageTablesV18(t *testing.T) {
 	for _, cur := range telemetryStageSeqs {
 		if cur == "tuning_predictions_id_seq" {
 			t.Error("tuning_predictions_id_seq가 telemetry 스테이징에 포함 — 잔류-무해 룰링 위반")
+		}
+	}
+}
+
+// v19GateArtifacts — the schema v19 artifact assertions shared by the
+// upgrade (v18→v19) and fresh-direct paths: the knowledge kind·source_path
+// columns (both text NULL — no DEFAULT, older binaries read NULL), and the
+// echo_candidates table (the D1 echo-candidate persistence base: echo_id =
+// the new write row, candidate_id = the approximate neighbor row — the
+// same direction as the echo response top-k) with its 2 indexes
+// ((candidate_id)·(ts)). All declared columns except the bigserial id PK
+// are NOT NULL (ts via DEFAULT now(), not NULLability).
+func v19GateArtifacts(t *testing.T, r *Repo, ctx context.Context) {
+	t.Helper()
+	assertObject(t, r, ctx, "echo_candidates")
+	// the 2 v19 indexes — the candidate_id join axis and the ts scan axis.
+	for _, idxName := range []string{"idx_echo_candidates_candidate_id", "idx_echo_candidates_ts"} {
+		var idx int
+		if err := r.pool.QueryRow(ctx,
+			`SELECT count(*) FROM pg_indexes
+			 WHERE tablename = 'echo_candidates' AND indexname = $1`, idxName).
+			Scan(&idx); err != nil {
+			t.Fatalf("echo_candidates 인덱스 조회 %s: %v", idxName, err)
+		}
+		if idx < 1 {
+			t.Fatalf("%s 부재 — v19 인덱스 계약 위반", idxName)
+		}
+	}
+	// every declared column except the bigserial id PK is NOT NULL.
+	for _, col := range []string{"ts", "candidate_id", "echo_id", "relation", "score"} {
+		var nullable string
+		if err := r.pool.QueryRow(ctx,
+			`SELECT is_nullable FROM information_schema.columns
+			 WHERE table_name = 'echo_candidates' AND column_name = $1`, col).
+			Scan(&nullable); err != nil {
+			t.Fatalf("echo_candidates.%s 조회: %v", col, err)
+		}
+		if nullable != "NO" {
+			t.Fatalf("echo_candidates.%s is_nullable=%q, want NO", col, nullable)
+		}
+	}
+	// Functional spot — a synthetic demo candidate row reading back with
+	// the DEFAULT ts surfacing (ids only, no personal data).
+	if _, err := r.pool.Exec(ctx,
+		`INSERT INTO echo_candidates (candidate_id, echo_id, relation, score)
+		 VALUES (11, 7, 'echo', 0.55)`); err != nil {
+		t.Fatalf("echo_candidates 적립: %v", err)
+	}
+	var ts time.Time
+	var relation string
+	var score float64
+	if err := r.pool.QueryRow(ctx,
+		`SELECT ts, relation, score FROM echo_candidates
+		 WHERE candidate_id = 11 AND echo_id = 7`).
+		Scan(&ts, &relation, &score); err != nil {
+		t.Fatalf("echo_candidates 조회: %v", err)
+	}
+	if ts.IsZero() || relation != "echo" || score != 0.55 {
+		t.Fatalf("echo_candidates 행 = (%v,%q,%v), want DEFAULT ts·적립값 그대로", ts, relation, score)
+	}
+	// the 2 knowledge columns are NULL-able (kind: unclassified allowed —
+	// the value set preference|fact is write-path validated, not schema
+	// constrained; source_path: optional write input).
+	for _, col := range []string{"kind", "source_path"} {
+		var nullable string
+		if err := r.pool.QueryRow(ctx,
+			`SELECT is_nullable FROM information_schema.columns
+			 WHERE table_name = 'knowledge' AND column_name = $1`, col).
+			Scan(&nullable); err != nil {
+			t.Fatalf("knowledge.%s 조회: %v", col, err)
+		}
+		if nullable != "YES" {
+			t.Fatalf("knowledge.%s is_nullable=%q, want YES", col, nullable)
+		}
+	}
+}
+
+// TestV19GateUpgradeFromV18 — promotes a reproduced v18 DB to v19: the 2
+// knowledge columns (kind·source_path, NULL-able — pre-promotion rows read
+// NULL) added·the echo_candidates table + its 2 indexes created·version
+// 19·the rerun idempotent (the additive protocol — existing tables·data
+// unchanged).
+func TestV19GateUpgradeFromV18(t *testing.T) {
+	r := newTestRepo(t)
+	ctx := context.Background()
+	// Reproduce a faithful v18 DB — remove the v19 artifacts the fresh
+	// schema.sql terminus already carries (DROP COLUMN has no IF EXISTS on
+	// Doltgres — the columnExists guard convention).
+	if _, err := r.pool.Exec(ctx, `DROP TABLE IF EXISTS echo_candidates`); err != nil {
+		t.Fatalf("v18 재현 echo_candidates 삭제: %v", err)
+	}
+	for _, col := range []string{"kind", "source_path"} {
+		if columnExists(t, r, "knowledge", col) {
+			if _, err := r.pool.Exec(ctx, `ALTER TABLE knowledge DROP COLUMN `+col); err != nil {
+				t.Fatalf("v18 재현 knowledge.%s 삭제: %v", col, err)
+			}
+		}
+	}
+	setVersion(t, r, "18")
+	// Pre-promotion knowledge row — the NULL backfill target (synthetic
+	// demo fixture only).
+	ids, err := r.InsertBatch(ctx, []map[string]any{knowledgeRec("v19-pre")})
+	if err != nil {
+		t.Fatalf("v18 시대 knowledge 적립: %v", err)
+	}
+
+	if err := r.EnsureSchemaV19(ctx); err != nil {
+		t.Fatalf("first EnsureSchemaV19: %v", err)
+	}
+	if v := readVersion(t, r); v != "19" {
+		t.Fatalf("schema_version = %q, want 19", v)
+	}
+	v19GateArtifacts(t, r, ctx)
+	// The pre-promotion row reads NULL on both new columns — no DEFAULT
+	// backfill (older-binary compatibility: v1.23.x reads the v19 DB).
+	var kind, sourcePath *string
+	if err := r.pool.QueryRow(ctx,
+		`SELECT kind, source_path FROM knowledge WHERE id = $1`, ids[0]).
+		Scan(&kind, &sourcePath); err != nil {
+		t.Fatalf("기존 knowledge 행 v19 열 조회: %v", err)
+	}
+	if kind != nil || sourcePath != nil {
+		t.Fatalf("기존 knowledge 행 kind=%v source_path=%v, want NULL·NULL", kind, sourcePath)
+	}
+	// The rerun is idempotent — version 19 kept·no error.
+	if err := r.EnsureSchemaV19(ctx); err != nil {
+		t.Fatalf("second EnsureSchemaV19 (want idempotent): %v", err)
+	}
+	if v := readVersion(t, r); v != "19" {
+		t.Fatalf("재호출 후 schema_version = %q, want 19", v)
+	}
+}
+
+// TestAuditStageTablesV19 — echo_candidates joins the audit staging list
+// (the write-time echo candidates are audit data — the recall_events
+// precedent: the D1 retrospective measurement premise requires them to
+// propagate across devices via push/pull). Table-only ruling: the
+// bigserial's echo_candidates_id_seq stays unstaged everywhere (the
+// auditStageTables sequence ruling — display-only·harmless residue).
+func TestAuditStageTablesV19(t *testing.T) {
+	found := false
+	for _, cur := range auditStageTables {
+		if cur == "echo_candidates" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("auditStageTables에 echo_candidates 부재 — v19 감사 테이블 미스테이징")
+	}
+	for _, cur := range telemetryStageTables {
+		if cur == "echo_candidates" {
+			t.Error("echo_candidates가 telemetry 스테이징에 포함 — 감사 테이블 아님")
+		}
+	}
+	for _, cur := range telemetryStageSeqs {
+		if cur == "echo_candidates_id_seq" {
+			t.Error("echo_candidates_id_seq가 telemetry 스테이징에 포함 — 잔류-무해 룰링 위반")
 		}
 	}
 }

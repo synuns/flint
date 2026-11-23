@@ -26,7 +26,7 @@
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 하네스">
   <a href="https://github.com/synuns/flint/actions/workflows/ci.yml"><img src="https://github.com/synuns/flint/actions/workflows/ci.yml/badge.svg" alt="CI 상태"></a>
-  <img src="https://img.shields.io/badge/release-v1.23.2-blue" alt="v1.23.2">
+  <img src="https://img.shields.io/badge/release-v1.24.0-blue" alt="v1.24.0">
 </p>
 <p align="center">
   <sub>8종은 자동 등록(A급) 하니스 기준 — 전체 지원 목록은 아래 <a href="#에이전트--어댑터">어댑터 표</a>에 있습니다.</sub>
@@ -48,6 +48,7 @@ flint는 이걸 바꿉니다. 에이전트가 무언가 배우면 — 결정, �
 
 사람은 Obsidian에 노트를 남깁니다. 에이전트는 flint에 기억을 남깁니다 — 불과 도구를 얻기 위해 두드리는 부싯돌처럼.
 
+> v1.24.0 · 지식 관리 잔여 — 스키마 v19(`kind`·`source_path`·`echo_candidates`)·`maintain --merge-audit`(중복 쌍 보고, 비용 추정 동반)·`--recall-audit`(나쁜 회상 환류 보고)·`read --related`(무방향 이웃 링크)/`--why`(토큰 tier·RRF 신호·제로히트 근거) · [전체 변경 이력](docs/HISTORY.md)
 > v1.23.2 · r102 패치 — 카운터 자릿수 상한(shadow 카운터 업서트 18자리 가드)·v1.23.0 스펙 정렬(경계 발화·미옵 비용)·what-if p50/p90 도메인 필터 · [전체 변경 이력](docs/HISTORY.md)
 > v1.23.0 · 자율 튜닝 shadow — 스키마 v18 `tuning_predictions`(예측 기록만, 적용 0건)·`auto_mode` 정책 스위치(기본 off, 화이트리스트: `suggest_min_score`)·read 꼬리 shadow 라운드(24h 게이트·streak 규칙)·`flint tuning what-if`/`status`(재분류·p50/p90·드리프트 카드) · [전체 변경 이력](docs/HISTORY.md)
 > v1.22.1 · r96-r98 패치 — 병렬 재매치 스탬프 보존(해시 동일 재적용 시 유지)·maintain --recheck --conditions 갱신·flint distill 파일 상한(distill_max_runes)·동분 덮어쓰기 금지·id/min-score 입력 가드 · [전체 변경 이력](docs/HISTORY.md)
@@ -242,12 +243,12 @@ flint는 여러분의 코딩 세션 안에서 동작하므로, 제약 조건은 
 | `flint import [path]` | 규칙 파일(CLAUDE.md 등)을 pending 지식으로 변환(`--commit`); `--format jsonl\|pam` 지식 재이식·수입(jsonl 왕복·PAM v1.0) |
 | `flint export [--format f]` | 지식 export jsonl·md·txt·csv·pam(PAM v1.0 표준 memory-store; `--status`·`--tag`·`--since` 필터, `--out` 파일 + `.sha256` 사이드카, PAM `--sign` Ed25519 서명 — 스펙 §18) |
 | `flint index [--vault p]` | 마크다운 볼트를 `vault_files`에 색인(스냅숏-디프, 디프마다 배치 1커밋; `--vault` 경로 저장, `--limit` 스캔 상한) |
-| `flint read <query>` | 활성 지식 검색 (색인된 볼트 행은 지식 블록 뒤에 추가) |
+| `flint read <query>` | 활성 지식 검색 (색인된 볼트 행은 지식 블록 뒤에 추가); 옵트인 `--related N`은 무방향 지식 링크 이웃을 뒤에 추가(상한 5)·`--why`는 행별 근거 부록(토큰 tier·RRF 신호·제로히트 사유) — 기본 출력은 불변 |
 | `flint hot --session <id>` | 세션 시작 맥락 주입 |
 | `flint brief [query]` | 외부 AI에 붙여넣는 마스킹 브리프(읽기 전용) |
 | `flint done --session <id>` | 세션 마무리 기록 |
 | `flint approve --id n` | 대기 중 지식을 활성으로 승격 |
-| `flint maintain` | 관리: 임계값 확인 · 무효화 · 병합 · `--age-audit` 낡음 보고(suggested_vol 제안 동반) · `--reaffirm` 유효기간 갱신 · `--recheck` 조건 재검토 (`--tui` 대화형 검수, 옵트인) |
+| `flint maintain` | 관리: 임계값 확인 · 무효화 · 병합 · `--merge-audit` 중복 쌍 보고(multiset Dice·비용 추정 동반·리스팅만) · `--recall-audit` 나쁜 회상 환류 보고(리스팅만 — 처분은 항상 승인제 서브커맨드로) · `--age-audit` 낡음 보고(suggested_vol 제안 동반) · `--reaffirm` 유효기간 갱신 · `--recheck` 조건 재검토 (`--tui` 대화형 검수, 옵트인) |
 | `flint distill --out DIR` | 회상 점수가 임계 이상인 미출력 활성 지식을 마크다운 파일 1개로 출력(`--min-score`는 distill_min_score 대체; 출력 행은 distilled_at 스탬프 — 재실행은 잔여분만 — ADR-0018) |
 | `flint audit --limit n` | 최근 n개 커밋 조회 |
 | `flint backup` | SQL 덤프 + sha256 체크섬 (`--encrypt` age 저장 암호화·`--mask` 치환 진단 덤프) |

@@ -16,7 +16,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -56,6 +58,17 @@ type fakeStore struct {
 	commits     []string
 	queries     []string
 	linkInserts [][3]any
+	// queryLog — one entry per Query call with its full arguments
+	// (v1.24.0 T2: the counter-key arguments of the BumpDailyFlatKey
+	// calls are asserted by the D2 tests; queries keeps the SQL-only
+	// convention for the existing tests).
+	queryLog []writeQueryCall
+}
+
+// writeQueryCall — one recorded Query invocation (SQL + args).
+type writeQueryCall struct {
+	SQL  string
+	Args []any
 }
 
 func (f *fakeStore) Migrate(ctx context.Context) error { return nil }
@@ -95,6 +108,7 @@ func (f *fakeStore) InsertKnowledgeLink(ctx context.Context, fromID, toID int, r
 
 func (f *fakeStore) Query(ctx context.Context, sql string, args ...any) ([][]any, error) {
 	f.queries = append(f.queries, sql)
+	f.queryLog = append(f.queryLog, writeQueryCall{SQL: sql, Args: args})
 	if f.queryErr != nil {
 		return nil, f.queryErr
 	}
@@ -2210,5 +2224,316 @@ func TestWriteConditionsRealSlow(t *testing.T) {
 	}
 	if n, _ := st.Query(ctx, `SELECT id FROM knowledge WHERE topic = '합성 조건 실DB 초과'`); len(n) != 0 {
 		t.Fatalf("거부 시 적립되면 안 됨")
+	}
+}
+
+// ── v1.24.0 T2 — knowledge_kind·source_path (schema v19) ──
+
+// v124Body — one synthetic knowledge payload body shared by the v1.24.0
+// T2 tests (identical content ±the two new optional fields — the hash
+// invariance fixture).
+func v124Body(topic string) string {
+	return `{"topic":"` + topic + `","summary":"v124 T2 합성 데모 본문","tags":["demo"],"confidence":0.9}`
+}
+
+// stampCalls — the recorded knowledge.kind stamp UPDATE calls (the
+// db.StampKnowledgeKind surface over Query).
+func stampCalls(f *fakeStore) []writeQueryCall {
+	var out []writeQueryCall
+	for _, q := range f.queryLog {
+		if strings.Contains(q.SQL, "UPDATE knowledge SET kind") {
+			out = append(out, q)
+		}
+	}
+	return out
+}
+
+// TestWriteKnowledgeKindSourcePathRoundtrip — the optional input keys ride
+// the write: source_path lands on the record as its own column (sanitized),
+// knowledge_kind is consumed (never a record key — the discriminator
+// rec["kind"] stays "knowledge") and stamps the knowledge.kind column via
+// the post-insert UPDATE, and neither field moves the content hash (the
+// same body ±the two fields is one dedup identity — hashVolatile v19).
+func TestWriteKnowledgeKindSourcePathRoundtrip(t *testing.T) {
+	f := &fakeStore{}
+	payload := `{"topic":"v124-t2-왕복-데모","summary":"v124 T2 합성 데모 본문","tags":["demo"],"confidence":0.9,` +
+		`"knowledge_kind":"Preference","source_path":"demo/notes/v124-t2-a.md"}`
+	out, code := run(t, f, []string{"knowledge"}, payload)
+	if code != 0 {
+		t.Fatalf("exit=%d out=%s", code, out)
+	}
+	if len(f.inserted) != 1 {
+		t.Fatalf("적립 행=%d, want 1", len(f.inserted))
+	}
+	rec := f.inserted[0]
+	if rec["kind"] != "knowledge" {
+		t.Fatalf("판별자 rec[kind]=%v, want knowledge(불변)", rec["kind"])
+	}
+	if sp, _ := rec["source_path"].(string); sp != "demo/notes/v124-t2-a.md" {
+		t.Fatalf("source_path 열 왕복=%q", sp)
+	}
+	if _, ok := rec["knowledge_kind"]; ok {
+		t.Fatalf("knowledge_kind이 레코드에 잔류 — 소비 키 규칙 위반: %v", rec)
+	}
+	// the kind column stamp: one UPDATE per distinct value, the value
+	// normalized to the lowercase vocabulary.
+	stamps := stampCalls(f)
+	if len(stamps) != 1 {
+		t.Fatalf("kind 스탬프 질의=%d회, want 1: %+v", len(stamps), f.queryLog)
+	}
+	if len(stamps[0].Args) < 2 || stamps[0].Args[0] != "preference" {
+		t.Fatalf("스탬프 인자=%v, want [preference <ids>]", stamps[0].Args)
+	}
+	// hash invariance end-to-end: the same body without the two fields
+	// hashes identically (hashVolatile — duplicate identity preserved).
+	g := &fakeStore{}
+	if out, code = run(t, g, []string{"knowledge"}, v124Body("v124-t2-왕복-데모")); code != 0 {
+		t.Fatalf("무필드 재전송 exit=%d out=%s", code, out)
+	}
+	if g.inserted[0]["content_hash"] != rec["content_hash"] {
+		t.Fatalf("content_hash 불변 위반: %v vs %v",
+			rec["content_hash"], g.inserted[0]["content_hash"])
+	}
+}
+
+// TestWriteKnowledgeKindVocabularyGuard — the classification input is
+// vocabulary-validated (preference|fact, code constants): an unregistered
+// value·a non-string refuse at exit 3 BEFORE any staging; an unspecified
+// (absent·null·blank) value stores NULL (no stamp call at all).
+func TestWriteKnowledgeKindVocabularyGuard(t *testing.T) {
+	for name, val := range map[string]string{
+		"미등록 값":     `"knowledge_kind":"hypothesis"`,
+		"비문자열":      `"knowledge_kind":3`,
+		"source 초과": `"source_path":"` + strings.Repeat("a", 1025) + `"`,
+	} {
+		f := &fakeStore{}
+		payload := `{"topic":"v124-t2-거부-데모","summary":"v124 T2 합성 데모 본문","tags":["demo"],"confidence":0.9,` + val + `}`
+		out, code := run(t, f, []string{"knowledge"}, payload)
+		if code != 3 {
+			t.Fatalf("%s: exit=%d out=%s, want 3", name, code, out)
+		}
+		if len(f.inserted) != 0 || len(stampCalls(f)) != 0 {
+			t.Fatalf("%s: 거부 전 적립/스탬프 잔류", name)
+		}
+	}
+	// unspecified — absent·null·blank all mean NULL: no stamp, no error.
+	for name, extra := range map[string]string{
+		"부재":   ``,
+		"null": `,"knowledge_kind":null`,
+		"공백":   `,"knowledge_kind":"  "`,
+	} {
+		f := &fakeStore{}
+		payload := `{"topic":"v124-t2-미지정-데모","summary":"v124 T2 합성 데모 본문","tags":["demo"],"confidence":0.9` + extra + `}`
+		out, code := run(t, f, []string{"knowledge"}, payload)
+		if code != 0 {
+			t.Fatalf("%s: exit=%d out=%s, want 0", name, code, out)
+		}
+		if n := len(stampCalls(f)); n != 0 {
+			t.Fatalf("%s: 미지정(NUll)에 스탬프 %d회", name, n)
+		}
+		if _, ok := f.inserted[0]["knowledge_kind"]; ok {
+			t.Fatalf("%s: 미지정이 레코드 키로 잔류", name)
+		}
+	}
+}
+
+// TestWriteKnowledgeKindDuplicateNoStamp — a duplicate resend is
+// idempotent: the hash-excluded fields never rewrite the stored columns
+// (the conditions precedent — no stamp call on the duplicate path).
+func TestWriteKnowledgeKindDuplicateNoStamp(t *testing.T) {
+	f := &fakeStore{exists: true}
+	payload := `{"topic":"v124-t2-멱등-데모","summary":"v124 T2 합성 데모 본문","tags":["demo"],"confidence":0.9,` +
+		`"knowledge_kind":"fact","source_path":"demo/notes/v124-t2-b.md"}`
+	out, code := run(t, f, []string{"knowledge"}, payload)
+	if code != 0 || !strings.Contains(out, `"duplicate"`) {
+		t.Fatalf("재전송 exit=%d out=%s, want 0+duplicate", code, out)
+	}
+	if len(f.inserted) != 0 || len(stampCalls(f)) != 0 {
+		t.Fatalf("멱등 위반: 적립=%d 스탬프=%d", len(f.inserted), len(stampCalls(f)))
+	}
+}
+
+// TestWriteSourcePathSanitized — the path is sanitized before storage
+// (ADR-0006): control characters are neutralized on the stored column.
+func TestWriteSourcePathSanitized(t *testing.T) {
+	f := &fakeStore{}
+	payload := `{"topic":"v124-t2-살균-데모","summary":"v124 T2 합성 데모 본문","tags":["demo"],"confidence":0.9,` +
+		`"source_path":"demo/no` + `\u0000` + `tes[flint]/a.md"}`
+	out, code := run(t, f, []string{"knowledge"}, payload)
+	if code != 0 {
+		t.Fatalf("exit=%d out=%s", code, out)
+	}
+	sp, _ := f.inserted[0]["source_path"].(string)
+	if strings.ContainsAny(sp, "\x00") || strings.Contains(sp, "[flint]") {
+		t.Fatalf("source_path 살균 실패: %q", sp)
+	}
+}
+
+// TestWriteCorrectionKindCounters — the D2 curation counters accrue only
+// on --source correction writes, branched by the committed lines'
+// knowledge_kind values (preference·fact separately; lines without a
+// kind count nowhere — the branch axis is the kind value, not the write
+// distribution).
+func TestWriteCorrectionKindCounters(t *testing.T) {
+	line := func(topic, kind string) string {
+		if kind == "" {
+			return v124Body(topic)
+		}
+		return `{"topic":"` + topic + `","summary":"v124 T2 합성 데모 본문","tags":["demo"],"confidence":0.4,` +
+			`"knowledge_kind":"` + kind + `"}`
+	}
+	correction := func(f *fakeStore, lines string) (string, int) {
+		return run(t, f, []string{"knowledge", "--source", "correction"}, lines)
+	}
+	counter := func(f *fakeStore, key string) (int, bool) {
+		day := time.Now().UTC().Format("2006-01-02")
+		full := "daily:" + key + ":" + day
+		for _, q := range f.queryLog {
+			if len(q.Args) >= 2 {
+				if k, ok := q.Args[0].(string); ok && k == full {
+					n := 0
+					if s, ok := q.Args[1].(string); ok {
+						n, _ = strconv.Atoi(s)
+					}
+					return n, true
+				}
+			}
+		}
+		return 0, false
+	}
+
+	// 2 preference lines + 1 fact line + 1 kindless line.
+	f := &fakeStore{}
+	body := strings.Join([]string{
+		line("v124-d2-데모-p1", "preference"),
+		line("v124-d2-데모-p2", "preference"),
+		line("v124-d2-데모-f1", "fact"),
+		line("v124-d2-데모-x1", ""),
+	}, "\n")
+	out, code := correction(f, body)
+	if code != 0 {
+		t.Fatalf("correction exit=%d out=%s", code, out)
+	}
+	if n, ok := counter(f, "correction_preference"); !ok || n != 2 {
+		t.Fatalf("correction_preference=%d(ok=%v), want 2", n, ok)
+	}
+	if n, ok := counter(f, "correction_fact"); !ok || n != 1 {
+		t.Fatalf("correction_fact=%d(ok=%v), want 1", n, ok)
+	}
+	// the manual channel never accrues the D2 counters.
+	g := &fakeStore{}
+	if out, code = run(t, g, []string{"knowledge"}, line("v124-d2-데모-m1", "preference")); code != 0 {
+		t.Fatalf("manual exit=%d out=%s", code, out)
+	}
+	if _, ok := counter(g, "correction_preference"); ok {
+		t.Fatalf("manual 채널에 correction_preference 적립 — 분기 조건 위반")
+	}
+	// a correction write with no kind value at all accrues neither.
+	h := &fakeStore{}
+	if out, code = correction(h, line("v124-d2-데모-c1", "")); code != 0 {
+		t.Fatalf("무kind correction exit=%d out=%s", code, out)
+	}
+	if _, ok := counter(h, "correction_preference"); ok {
+		t.Fatalf("무kind correction에 적립 — kind값별 분기 위반")
+	}
+	if _, ok := counter(h, "correction_fact"); ok {
+		t.Fatalf("무kind correction에 fact 적립 — kind값별 분기 위반")
+	}
+}
+
+// TestWriteKindSourcePathRealSlow — slow (SUPERLITE_REAL=1 +
+// FLINT_TEST_DSN, dedicated scratch DB created and dropped here — never
+// a shared or production DB): the v1.24.0 T2 write round-trip on the
+// real Doltgres path — knowledge_kind lands in the knowledge.kind column
+// (the post-insert stamp), source_path round-trips as its own column,
+// the hash invariance holds end-to-end (a resend without the two fields
+// is a duplicate), and the D2 correction funnel counter accrues on the
+// --source correction write branched by the kind value.
+func TestWriteKindSourcePathRealSlow(t *testing.T) {
+	dsn, ok := writeRealDSN()
+	if !ok {
+		t.Skip("SUPERLITE_REAL=1 + FLINT_TEST_DSN required")
+	}
+	ctx := context.Background()
+	base, err := db.Connect(ctx, dsn)
+	if err != nil {
+		t.Skipf("real store unavailable: %v", err)
+	}
+	t.Cleanup(base.Close)
+	name := fmt.Sprintf("flint_v1240t2w_%d", time.Now().UnixNano()%1e9)
+	if _, err := base.Exec(ctx, "CREATE DATABASE "+name); err != nil {
+		t.Fatalf("CREATE DATABASE: %v", err)
+	}
+	t.Cleanup(func() { _, _ = base.Exec(ctx, "DROP DATABASE IF EXISTS "+name) })
+	u, err := url.Parse(dsn)
+	if err != nil {
+		t.Fatalf("DSN parse: %v", err)
+	}
+	u.Path = "/" + name
+	repo, err := db.NewRepo(ctx, u.String())
+	if err != nil {
+		t.Fatalf("NewRepo: %v", err)
+	}
+	pool, err := db.Connect(ctx, u.String())
+	if err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	st := &writeRealStore{Repo: repo, pool: pool}
+	t.Cleanup(st.Close)
+	if err := st.Migrate(ctx); err != nil {
+		t.Fatalf("migrate 실패: %v", err)
+	}
+
+	// 1. the round-trip: the input fields land in the v19 columns.
+	const path = "demo/notes/v124-t2-real.md"
+	body := `{"topic":"v124-t2-실DB-데모","summary":"v124 T2 합성 데모 본문","tags":["demo"],"confidence":0.9,` +
+		`"knowledge_kind":"preference","source_path":"` + path + `"}`
+	out, code := run(t, st, []string{"knowledge"}, body)
+	if code != 0 {
+		t.Fatalf("적립 exit=%d out=%s", code, out)
+	}
+	rows, err := st.Query(ctx,
+		`SELECT kind, source_path FROM knowledge WHERE topic = 'v124-t2-실DB-데모'`)
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("행 조회: %v %v", rows, err)
+	}
+	if k := fmt.Sprint(rows[0][0]); k != "preference" {
+		t.Fatalf("kind 열 왕복=%q, want preference", k)
+	}
+	if sp := fmt.Sprint(rows[0][1]); sp != path {
+		t.Fatalf("source_path 열 왕복=%q, want %q", sp, path)
+	}
+
+	// 2. hash invariance end-to-end: the same body WITHOUT the two
+	// fields is judged duplicate (they never enter the content identity).
+	plain := `{"topic":"v124-t2-실DB-데모","summary":"v124 T2 합성 데모 본문","tags":["demo"],"confidence":0.9}`
+	out, code = run(t, st, []string{"knowledge"}, plain)
+	if code != 0 || !strings.Contains(out, `"duplicate"`) {
+		t.Fatalf("무필드 재전송 exit=%d out=%s, want 0+duplicate", code, out)
+	}
+	rows, err = st.Query(ctx,
+		`SELECT kind, source_path FROM knowledge WHERE topic = 'v124-t2-실DB-데모'`)
+	if err != nil || len(rows) != 1 || fmt.Sprint(rows[0][0]) != "preference" {
+		t.Fatalf("duplicate 재전송이 행을 바꾸면 안 됨: %v %v", rows, err)
+	}
+
+	// 3. the D2 funnel: a --source correction write with knowledge_kind
+	// accrues the kind-branched curation counter in meta.
+	corr := `{"topic":"v124-t2-실DB-교정","summary":"v124 T2 합성 교정 본문","tags":["demo"],"confidence":0.4,` +
+		`"knowledge_kind":"fact"}`
+	out, code = run(t, st, []string{"knowledge", "--source", "correction"}, corr)
+	if code != 0 {
+		t.Fatalf("correction exit=%d out=%s", code, out)
+	}
+	rows, err = st.Query(ctx,
+		`SELECT kind FROM knowledge WHERE topic = 'v124-t2-실DB-교정'`)
+	if err != nil || len(rows) != 1 || fmt.Sprint(rows[0][0]) != "fact" {
+		t.Fatalf("correction kind 왕복: %v %v", rows, err)
+	}
+	day := time.Now().UTC().Format("2006-01-02")
+	meta, err := st.Query(ctx,
+		`SELECT value FROM meta WHERE key = $1`, "daily:correction_fact:"+day)
+	if err != nil || len(meta) != 1 || fmt.Sprint(meta[0][0]) != "1" {
+		t.Fatalf("daily:correction_fact 계수: %v %v (want 1)", meta, err)
 	}
 }

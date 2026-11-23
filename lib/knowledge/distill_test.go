@@ -32,6 +32,9 @@ func TestDistillRowsSelectionContract(t *testing.T) {
 	var gotArgs []any
 	var gotSQL string
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		if strings.Contains(sql, "knowledge_reads") {
+			return nil, nil // the survived merge lookup (v1.24.0 T2) — no repeated sessions
+		}
 		gotSQL, gotArgs = sql, args
 		return distillFixtureRows(), nil
 	}}
@@ -72,7 +75,8 @@ func TestDistillRowsSelectionContract(t *testing.T) {
 
 // RF2 — FormatInsights: header (title, created, row count) + one section
 // per row in the given (id-stable) order, each carrying id, topic,
-// summary, conditions, tags, and recall_score.
+// summary, conditions, tags, recall_score, and (v1.24.0 T2 — the
+// survived minimum fulfillment) the survived_sessions count.
 func TestFormatInsightsFieldsAndOrder(t *testing.T) {
 	rows := []DistillRow{
 		{ID: 2, Topic: "demo-b", Summary: "beta body", Conditions: "", Tags: []string{"demo"}, RecallScore: 1},
@@ -234,9 +238,38 @@ func TestDistillRowsSlowRealDB(t *testing.T) {
 		}
 	}
 	// floor 1.0 (the default): a (score 0) excluded, b·c selected in id order.
+	// Warm-up listing before the reads are seeded (the value is not
+	// consumed yet; the post-seed listing below is the assertion target).
+	if _, err := DistillRows(ctx, st, 1.0); err != nil {
+		t.Fatalf("DistillRows warm-up: %v", err)
+	}
+	// v1.24.0 T2 — the survived merge on the real path: row b gets 2
+	// knowledge_reads in one session (one survived point); its listing
+	// row carries survived_sessions 1 (c stays 0). The reads are cleaned
+	// up front (an interrupted prior run left none behind).
+	bID := byTopic[prefix+"b"]
+	if _, err := st.pool.Exec(ctx,
+		`DELETE FROM knowledge_reads WHERE knowledge_id = ANY($1)`, ids); err != nil {
+		t.Fatalf("reads 선행 정리: %v", err)
+	}
+	for j := 0; j < 2; j++ {
+		if _, err := st.pool.Exec(ctx,
+			`INSERT INTO knowledge_reads (knowledge_id, session, kind) VALUES ($1, 'v124-t2-demo-sess', 'read')`, bID); err != nil {
+			t.Fatalf("seed knowledge_reads: %v", err)
+		}
+	}
+	t.Cleanup(func() {
+		_, _ = st.pool.Exec(context.Background(),
+			`DELETE FROM knowledge_reads WHERE knowledge_id = ANY($1)`, ids)
+	})
 	rows, err := DistillRows(ctx, st, 1.0)
 	if err != nil {
-		t.Fatalf("DistillRows: %v", err)
+		t.Fatalf("DistillRows(survived): %v", err)
+	}
+	for _, r := range rows {
+		if r.ID == bID && r.SurvivedSessions != 1 {
+			t.Fatalf("row b survived_sessions = %d, want 1(같은 세션 2회 회상)", r.SurvivedSessions)
+		}
 	}
 	var gotIDs []int
 	for _, r := range rows {
@@ -293,5 +326,61 @@ func distillRec(topic, hash string) map[string]any {
 		"confidence":   0.9,
 		"content_hash": hash,
 		"status":       "active",
+	}
+}
+
+// RF5 — v1.24.0 T2 (the survived minimum fulfillment): DistillRows merges
+// the SurvivedCounts signal (reused verbatim — the number of sessions
+// with 2+ knowledge_reads of the row) into the listing; a lookup failure
+// degrades quietly to 0 per row (§13 — a missing signal never breaks
+// the distill run); FormatInsights carries the count on the output row's
+// meta line.
+func TestDistillRowsSurvivedMergeFake(t *testing.T) {
+	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		if strings.Contains(sql, "knowledge_reads") {
+			// id 1 has 2 survived sessions; id 2 absent (0).
+			return [][]any{{int32(1), int32(2)}}, nil
+		}
+		return distillFixtureRows(), nil
+	}}
+	rows, err := DistillRows(context.Background(), st, 1.0)
+	if err != nil {
+		t.Fatalf("DistillRows err: %v", err)
+	}
+	if rows[0].SurvivedSessions != 2 {
+		t.Fatalf("row[0] survived_sessions = %d, want 2", rows[0].SurvivedSessions)
+	}
+	if rows[1].SurvivedSessions != 0 {
+		t.Fatalf("row[1] survived_sessions = %d, want 0(부재=0)", rows[1].SurvivedSessions)
+	}
+	// a lookup failure degrades quietly — the rows still come back.
+	fail := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		if strings.Contains(sql, "knowledge_reads") {
+			return nil, context.DeadlineExceeded
+		}
+		return distillFixtureRows(), nil
+	}}
+	rows, err = DistillRows(context.Background(), fail, 1.0)
+	if err != nil || len(rows) != 2 || rows[0].SurvivedSessions != 0 {
+		t.Fatalf("조용한 열화 위반: err=%v rows=%+v", err, rows)
+	}
+}
+
+// TestFormatInsightsSurvivedLine — the output row's meta line carries
+// the survived_sessions count after conditions (the v1.22.0 line shape
+// stays a prefix — the field appends).
+func TestFormatInsightsSurvivedLine(t *testing.T) {
+	rows := []DistillRow{{ID: 3, Topic: "demo-c", Summary: "body", Tags: []string{"demo"},
+		RecallScore: 2, SurvivedSessions: 4}}
+	got, emitted := FormatInsights(rows, time.Date(2026, 11, 23, 9, 41, 0, 0, time.UTC), 0)
+	if emitted != 1 {
+		t.Fatalf("emitted = %d, want 1", emitted)
+	}
+	s := string(got)
+	if !strings.Contains(s, "survived_sessions: 4") {
+		t.Fatalf("meta 줄에 survived_sessions 부재:\n%s", s)
+	}
+	if i := strings.Index(s, "conditions:"); i < 0 || strings.Index(s, "survived_sessions:") < i {
+		t.Fatalf("survived_sessions가 conditions 뒤에 와야 함:\n%s", s)
 	}
 }

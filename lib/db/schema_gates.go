@@ -13,7 +13,7 @@ import "context"
 // LatestSchemaVersion — the latest schema version this CLI knows (the
 // ceiling of the status·doctor schema compatibility check. Must equal
 // the registry's last element).
-const LatestSchemaVersion = 18
+const LatestSchemaVersion = 19
 
 // SchemaGate — one version-promotion gate. Version is the target
 // schema_version; Ensure is the admin.go gate promoting losslessly to
@@ -47,5 +47,6 @@ func SchemaGates() []SchemaGate {
 		{16, func(ctx context.Context, r *Repo) error { return r.EnsureSchemaV16(ctx) }}, // vault bridge: vault_files pointer-snapshot table + (content_hash) index
 		{17, func(ctx context.Context, r *Repo) error { return r.EnsureSchemaV17(ctx) }}, // vault staleness II: vault_files.content_changed_at + knowledge.distilled_at·conditions (3 ALTER ADDs)
 		{18, func(ctx context.Context, r *Repo) error { return r.EnsureSchemaV18(ctx) }}, // autotune shadow: tuning_predictions table + (ts) index + threshold_snapshots origin·trigger·rationale (3 ALTER ADDs)
+		{19, func(ctx context.Context, r *Repo) error { return r.EnsureSchemaV19(ctx) }}, // curation residual: knowledge kind·source_path (2 ALTER ADDs) + echo_candidates table + (candidate_id)·(ts) indexes
 	}
 }

@@ -17,11 +17,14 @@ import (
 )
 
 // compile-time guarantee — realStore carries the reaffirm write extension
-// (ops.ReaffirmStore — v1.22.0 T3) and the recheck conditions write
-// extension (ops.RecheckConditionsStore — v1.22.1 r96).
+// (ops.ReaffirmStore — v1.22.0 T3), the recheck conditions write
+// extension (ops.RecheckConditionsStore — v1.22.1 r96), and the vault
+// source-change clear extension (ops.RecheckSourceClearStore — v1.24.0
+// T2).
 var (
-	_ ops.ReaffirmStore          = (*realStore)(nil)
-	_ ops.RecheckConditionsStore = (*realStore)(nil)
+	_ ops.ReaffirmStore           = (*realStore)(nil)
+	_ ops.RecheckConditionsStore  = (*realStore)(nil)
+	_ ops.RecheckSourceClearStore = (*realStore)(nil)
 )
 
 // maintainTuiFn — TUI entry seam. Real implementation by default; tests swap in a fake.
@@ -115,4 +118,23 @@ func (s *realStore) SetRecheckConditions(ctx context.Context, id int, conditions
 		}
 	}
 	return n, nil
+}
+
+// realStore.ClearVaultSourceChanged — real implementation of the
+// ops.RecheckSourceClearStore extension (v1.24.0 T2): clears the
+// content_changed_at stamp of the vault_files rows whose path equals the
+// rechecked knowledge row's source_path (the recheck queue consumption —
+// every --recheck invocation clears, the --conditions argument is
+// optional). The stamp-clearing guard keeps the UPDATE idempotent (only
+// NOT NULL rows match, so the rows-affected count names the actually
+// cleared files). The dolt commit is the caller's (ops) responsibility —
+// the Invalidate-class convention.
+func (s *realStore) ClearVaultSourceChanged(ctx context.Context, path string) (int64, error) {
+	ct, err := s.pool.Exec(ctx,
+		`UPDATE vault_files SET content_changed_at = NULL
+		 WHERE path = $1 AND content_changed_at IS NOT NULL`, path)
+	if err != nil {
+		return 0, fmt.Errorf("recheck source clear: %w", err)
+	}
+	return ct.RowsAffected(), nil
 }

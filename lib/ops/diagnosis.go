@@ -199,10 +199,15 @@ func meteringRegistryTotal() int {
 // usage kinds, so the group is part of the identity). Only the
 // report-observable kinds are judged: the usage group via the Days count
 // sums, the bytes group via the Days byte sums, and the 8 curation kinds
-// ReportOutput.Curation carries; the 3 curation kinds report does not
-// carry (correction_approved·gap_approved·survived_sessions) have no
-// observation source in ReportOutput and are excluded (unjudgeable
-// here). A window shorter than diagSilentMinDays defers (nil).
+// ReportOutput.Curation carries; the 8 curation kinds report does not
+// carry (correction_approved·correction_preference·correction_fact·
+// gap_approved·survived_sessions·merge_audit_pairs·recall_audit_listed·
+// recall_audit_disposed — the promotion·D2-funnel·snapshot·merge-audit·
+// recall-audit feedback counters have no ReportOutput
+// observation source, v1.24.0 D2 added the preference·fact pair, T3 the
+// merge-audit pair count, and T4 the recall-audit pair to this
+// unjudgeable set) are excluded
+// (unjudgeable here). A window shorter than diagSilentMinDays defers (nil).
 func silentMeteringKinds(out ReportOutput) []string {
 	if len(out.Days) < diagSilentMinDays {
 		return nil

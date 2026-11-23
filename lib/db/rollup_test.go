@@ -151,8 +151,11 @@ func rollupFixture(t *testing.T, r *Repo) time.Time {
 	}
 	// Out-of-window guards — the current week and 2 weeks ago never
 	// enter the aggregation (the target is last week only, no backfill).
+	// The current-week point is derived from the week boundary (ws+7d+1h):
+	// a naive "now-1h" lands in LAST week just after midnight UTC on
+	// Monday, corrupting the fixture (observed 2026-11-23 CI).
 	for _, ts := range []time.Time{
-		time.Now().UTC().Add(-1 * time.Hour),
+		ws.Add(7*24*time.Hour + 1*time.Hour),
 		ws.Add(-1 * time.Hour),
 	} {
 		if _, err := r.pool.Exec(ctx,

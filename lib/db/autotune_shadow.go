@@ -5,7 +5,7 @@
 // RecordReadEvent tail: it evaluates the rule's verdict query (the T3
 // registry — never a re-implementation), and on a fire records ONE
 // prediction row into tuning_predictions (append-only — nothing is ever
-// applied; the apply path is the v1.24.0 gate) and updates the
+// applied; the apply path is the v1.25.0 gate) and updates the
 // accumulation counters (meta auto_streak_<key>, fired_auto_<signal>).
 // Every stamped round — fired or not — also bumps the round counter
 // (meta auto_rounds_<key>, r100-1): rounds and fires are independent

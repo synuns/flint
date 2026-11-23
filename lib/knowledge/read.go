@@ -368,8 +368,16 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 			// inheriting the write --source convention).
 			{Name: "--session", Value: true},
 			{Name: "--source", Value: true},
+			// v1.24.0 T5 — the neighbor link fusion (opt-in): the
+			// knowledge_links neighbors of the given knowledge id are
+			// appended after the knowledge rows (bidirectional UNION).
+			{Name: "--related", Value: true},
+			// v1.24.0 T6 — the evidence appendix (opt-in): the rerank
+			// internals (token tiers / RRF signals) and the zero-hit
+			// decomposition are appended after the result rows.
+			{Name: "--why"},
 		},
-		Usage: "usage: flint read [query] [--json] [--fields F] [--limit N] [--status S] [--as-of T] [--session ID] [--source X] [--tag T] [--entity E] [--domain D] [--min-confidence N] [--origin agent|human]",
+		Usage: "usage: flint read [query] [--json] [--fields F] [--limit N] [--status S] [--as-of T] [--session ID] [--source X] [--tag T] [--entity E] [--domain D] [--min-confidence N] [--origin agent|human] [--related N] [--why]",
 		// N9: everything after "--" is positional — even if a query from
 		// external input such as MCP looks like "--json", it is not parsed
 		// as a flag.
@@ -429,6 +437,20 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 		}
 	}
 	q := strings.Join(res.Positional(), " ")
+	// --related N — the neighbor link fusion target: a knowledge row id.
+	// A non-integer or valueless trailing value is invalid-value exit 3
+	// (the --limit convention); an id absent from knowledge fails fast at
+	// exit 3 below (before any result output — no FK on knowledge_links,
+	// the v14 write-path convention).
+	relatedID := 0
+	if res.Given("--related") {
+		n, err := strconv.Atoi(res.Value("--related"))
+		if err != nil {
+			fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{Field: "related", Expect: "integer"}))
+			return 3
+		}
+		relatedID = n
+	}
 	// A valueless trailing --tag/--entity/--domain/--fields (N10) also gets
 	// exit 3 under the same rule as a valueless --status/--as-of (F1) — if
 	// empty values were quietly ignored, results would come back filtered
@@ -533,6 +555,20 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 			return 3
 		}
 	}
+	// --related target existence — fail fast before any result query or
+	// output (a missing id is the invalid-arg exit 3, the spec contract).
+	// The probe is the write-path relations convention (an existence
+	// SELECT — no FK on knowledge_links); a probe FAILURE is quiet (§13):
+	// the fusion below then simply accrues nothing on its own failure.
+	if res.Given("--related") {
+		if erows, eerr := wire.QueryOnce(ctx, st,
+			`SELECT id FROM knowledge WHERE id = $1`, []any{relatedID}); eerr == nil && len(erows) == 0 {
+			fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{
+				Field:  "related",
+				Expect: fmt.Sprintf("existing knowledge id (id=%d not found)", relatedID)}))
+			return 3
+		}
+	}
 	var sql string
 	var qargs []any
 	if f.Status != "" {
@@ -632,6 +668,27 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 	if !fallbackTried {
 		rows = query.ReorderByTokenScore(rows, q, query.ReadColumnIndexMap())
 	}
+	// v1.24.0 T6 — the --why evidence (opt-in): recomputed from the same
+	// sources as the reranks above (the internal accumulated values
+	// exposed — rrfSignalValues/rrfRanks for fallback rows,
+	// tokenRowBreakdown for phrase rows), computed BEFORE render.Cells so
+	// the evidence sees exactly the rerank's input rows. Mutually
+	// exclusive per run: fallback rows carry the RRF evidence, phrase
+	// rows the token tiers. The appendix cap is applied app-side as well
+	// (defense in depth over the formatter's own cap, the vault
+	// convention).
+	whyGiven := res.Given("--why")
+	var whyRows []query.WhyEvidence
+	if whyGiven {
+		if fallbackTried {
+			whyRows = query.RRFWhyEvidence(rows, query.TokenizeQuery(q))
+		} else {
+			whyRows = query.TokenWhyEvidence(rows, q, query.ReadColumnIndexMap())
+		}
+		if len(whyRows) > query.WhyMaxRows {
+			whyRows = whyRows[:query.WhyMaxRows]
+		}
+	}
 	// zero_near classification: only when both phrase·fallback are zero-hit
 	// && at the present point, a full scan of active_knowledge (filter-free)
 	// computes near candidates. The suggestion scan is inherited without
@@ -662,6 +719,22 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 			suggestions, scanMax = query.SuggestSimilarWithScanMax(suggestQuery(q), srows, 3)
 		}
 	}
+	// v1.24.0 T6 — the zero-hit decomposition, computed lazily once: the
+	// --why zero line below and the read_events record further down share
+	// one cached value (no duplicate active-count decomposition queries).
+	// Without --why and on a non-ReadEventStore Store it is never invoked
+	// (the pre-T6 behavior is fully unchanged).
+	var zeroReasonVal string
+	zeroReasonDone := false
+	zeroReasonOf := func() string {
+		if !zeroReasonDone {
+			zeroReasonDone = true
+			if len(rows) == 0 {
+				zeroReasonVal = ZeroReason(true, activeKnowledgeCount(ctx, st), zeroOwnedFloor(ctx, st))
+			}
+		}
+		return zeroReasonVal
+	}
 	// Output neutralization (ADR-0006): re-applies the storage-stage
 	// sanitization to reads as well — so control characters·[flint] markers
 	// introduced after storage or along the path cannot forge the output
@@ -689,6 +762,28 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 			}
 		}
 	}
+	// v1.24.0 T5 — the neighbor link fusion (--related): a separate
+	// bidirectional knowledge_links query appends up to RelatedMaxRows
+	// neighbor rows AFTER the knowledge rows (a pure append — the
+	// knowledge row set·mutual ranking·serialization are fully unchanged,
+	// the vault fusion convention). Every metering below (read_events
+	// hits·zero·BumpReads·recall·gap) stays on the knowledge domain — a
+	// related hit never flips the zero verdict. Under --as-of the
+	// knowledge rows time travel but the links reflect the CURRENT
+	// knowledge_links state (link point-in-time travel is unsupported —
+	// the vault current-state precedent). Query failure is quiet (§13):
+	// the knowledge result never depends on the fusion.
+	var relatedRows [][]any
+	if res.Given("--related") {
+		rsql, rargs := query.BuildRelatedRead(relatedID)
+		if rrows, rerr := wire.QueryOnce(ctx, st, rsql, rargs); rerr == nil {
+			relatedRows = render.Cells(rrows)
+			// App-side cap — defense in depth over the SQL LIMIT.
+			if len(relatedRows) > query.RelatedMaxRows {
+				relatedRows = relatedRows[:query.RelatedMaxRows]
+			}
+		}
+	}
 	// Silence contract: an eligible (present-point·stateless-filter)
 	// zero-hit is fully silent — FormatRows returns "" for empty rows
 	// anyway, so no separate branch is needed. Suggestion lines are
@@ -701,10 +796,13 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 	// invariance contract — the knowledge serialization stays
 	// byte-identical with and without vault data).
 	vaultOut := query.FormatVaultRows(vaultRows, jsonMode)
-	fmt.Fprint(stdout, out+vaultOut)
+	// Related rows are appended strictly after the vault block (the same
+	// pure-append invariance — never interleaved with knowledge rows).
+	relatedOut := query.FormatRelatedRows(relatedRows, jsonMode)
+	fmt.Fprint(stdout, out+vaultOut+relatedOut)
 	// With --as-of, append a one-line as_of{hash,commit_date} (JSON) after
 	// the results. Without it, only the existing fields.
-	byteLen := len(out) + len(vaultOut) // G5: total written to io.Writer (UTF-8 bytes)
+	byteLen := len(out) + len(vaultOut) + len(relatedOut) // G5: total written to io.Writer (UTF-8 bytes)
 	// A --json zero-hit is a one-line {"hits":0} — the caller
 	// machine-reads the hit count (text mode keeps the existing full
 	// silence). Byte metering inherits the as_of line convention (included
@@ -723,6 +821,35 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 		b, _ := json.Marshal(VaultHitsLine{VaultHits: len(vaultRows)})
 		fmt.Fprintln(stdout, string(b))
 		byteLen += len(b) + 1 // the vault_hits line (+newline) is also part of the total written
+	}
+	// v1.24.0 T5 — the related row count disclosure (--json): the same
+	// additive one-line attachment convention as vault_hits — never folded
+	// into hits (the knowledge hits invariance principle). Text mode keeps
+	// the row lines only.
+	if jsonMode && len(relatedRows) > 0 {
+		b, _ := json.Marshal(RelatedHitsLine{RelatedHits: len(relatedRows)})
+		fmt.Fprintln(stdout, string(b))
+		byteLen += len(b) + 1 // the related_hits line (+newline) is also part of the total written
+	}
+	// v1.24.0 T6 — the --why evidence appendix (opt-in): appended strictly
+	// after the result rows and the additive count lines (the same
+	// pure-append invariance — the knowledge serialization stays
+	// byte-identical with and without --why; without the flag nothing is
+	// written here at all). A zero-hit carries the zero decomposition
+	// (zero_reason·near_score) instead of per-row evidence. Byte metering
+	// inherits the additive-line convention (included in the total
+	// written).
+	whyOut := ""
+	if whyGiven {
+		if len(rows) == 0 {
+			whyOut = query.FormatWhyZero(zeroReasonOf(), scanMax, jsonMode)
+		} else {
+			whyOut = query.FormatWhyRows(whyRows, jsonMode)
+		}
+		if whyOut != "" {
+			fmt.Fprint(stdout, whyOut)
+			byteLen += len(whyOut)
+		}
 	}
 	// --limit cap clamp notice — when the request exceeds ClampLimit (50),
 	// disclose it as one additive-field line (limit_requested·
@@ -770,12 +897,11 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 			rank = FirstExactRank(rows, q)
 		}
 		// Zero-hit rows are recorded split into unowned/owned_miss by
-		// active-knowledge ownership (spec §2.2 — a zero=0 row is ''). Quiet
-		// (§13).
-		zeroReason := ""
-		if len(rows) == 0 {
-			zeroReason = ZeroReason(true, activeKnowledgeCount(ctx, st), zeroOwnedFloor(ctx, st))
-		}
+		// active-knowledge ownership (spec §2.2 — a zero=0 row is '').
+		// The decomposition is the lazily-cached value above (v1.24.0 T6:
+		// a --why zero-hit shares the same computation — one query pair).
+		// Quiet (§13).
+		zeroReason := zeroReasonOf()
 		_ = res.RecordReadEvent(ctx, db.ReadEvent{
 			Hits:       len(rows),
 			Zero:       len(rows) == 0,
@@ -924,6 +1050,14 @@ type LimitClampLine struct {
 // field (printed only when vault rows exist).
 type VaultHitsLine struct {
 	VaultHits int `json:"vault_hits"`
+}
+
+// RelatedHitsLine — the one-line --json related row count (v1.24.0 T5):
+// the same additive attachment convention as VaultHitsLine — the appended
+// neighbor row count is a separate field, never folded into hits
+// (printed only when related rows exist).
+type RelatedHitsLine struct {
+	RelatedHits int `json:"related_hits"`
 }
 
 // asOfErrLine — assembles the one-line {error,message} JSON (a local

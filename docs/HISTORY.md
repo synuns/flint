@@ -6,6 +6,69 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.24.0 minor (2026-11-23) — curation-residual: schema v19 (kind · source_path · echo_candidates) · merge-audit · recall-audit · read --related · --why
+
+(spec: docs/plans/2026-11-23-flint-v1240.md). The knowledge-curation
+residual milestone — listing-only audits, opt-in read surfaces, and the
+`kind` column landing together with its consumers (the v1.20.0
+carry-over condition "consumer secured" met by the D2 counters and the
+write vocabulary validation). Additive schema v19:
+
+- **schema v19**: knowledge `kind`·`source_path` (text NULL, no default
+  — old-binary compatible) and the new `echo_candidates` table
+  (write-time echo candidates persisted: candidate_id·echo_id·relation·
+  score·ts, indexes on candidate_id and ts — the D1 retrospective-
+  measurement premise; this version accrues only, the id→supersede-
+  target query is a later carry-over ruling).
+- **`maintain --merge-audit [--limit M]`**: lists active-row PAIRS
+  whose combined-text multiset Dice is at or above
+  `conflict_dup_threshold` (the EchoScan measure, row-to-row),
+  score-ordered, scan capped by `suggest_scan_cap`. A pre-run cost
+  estimate is published first — pairs = min(cap,n)×(min(cap,n)−1)/2 at
+  the measured µs/pair — and an over-budget estimate truncates the
+  scan to the largest affordable row prefix with a reduce-the-cap
+  advice (the O(n²) defense, A6 p95 observed). Listing only: disposal
+  is delegated to `maintain --merge`/`--supersede` (approval required)
+  — the decay-audit convention. Counter `merge_audit_pairs`.
+- **`maintain --recall-audit [--limit M]`**: an ACTIVE row lists when
+  its same-topic bad-recall count — invalidated·superseded rows with
+  recall history (`recall_events` EXISTS, the age-audit precedent) —
+  is at or above the new threshold `recall_audit_min_bad` (default 2),
+  ordered bad-recall-descending. Listing only, disposal delegated to
+  the approval circuit; a qualified target disposed by
+  --invalidate/--supersede/--reaffirm feeds `recall_audit_disposed`
+  (D4), the listing count feeds `recall_audit_listed`. No new queue —
+  the criterion is query-time.
+- **`read --related N`**: neighbor rows via the knowledge_links
+  undirected UNION (relation label + reverse-direction marker),
+  appended after the knowledge block (no interleave),
+  source:"related", `--json` related_hits, cap 5, missing target
+  exit 3, zero links an empty response. The default read output stays
+  byte-identical (sealed regression test).
+- **`read --why`**: opt-in per-row evidence appendix — the token tier
+  as a "tier_name×weight" listing (the ReorderByTokenScore internals),
+  the RRF 4-signal values (match·read_count·jamo·topic), rank·
+  contribution, and zero-hit rows' zero_reason+near_score; one line
+  per row under a total cap. Default response sealed.
+- **kind·source_path writes**: `flint write` stdin takes the optional
+  `knowledge_kind` (preference|fact, unset NULL — vocabulary-verified;
+  the input key is separate from the rec["kind"] discriminator, the
+  key-separation rule) and `source_path` (sanitized path string); both
+  are excluded from content_hash, so duplicate resends stay idempotent.
+  `maintain --recheck N` now also clears content_changed_at on
+  matching vault_files rows (the row-connection promotion). D2
+  counters `correction_preference`·`correction_fact` accrue from
+  source=="correction" writes by kind (the curation group, 29 keys).
+- **survived minimal (the v1.22.0 carry-over)**: `flint distill`
+  listing and output rows now carry the `survived_sessions` count —
+  the score switch stays a post-observation decision.
+- **`survived_decay_relief` ruling**: the default stays 0 — activation
+  is a meta override only, with the observational evidence recorded in
+  the docs (the code is unchanged; the personal-values-in-meta
+  principle).
+- version sync: VERSION · plugin.json · README EN/KO badges · doclint
+  01240.
+
 ### v1.23.2 patch (2026-11-23) — r102: counter digit bound · spec alignment · what-if domain filter
 
 The v1.23.0 audit (R102) follow-ups — 3 small findings, no schema change:

@@ -143,6 +143,31 @@ func TestHashCanonicalExcludesConditions(t *testing.T) {
 	}
 }
 
+// TestHashCanonicalExcludesV1240Fields — v1.24.0 (schema v19): the kind
+// classification input (knowledge_kind — the discriminator rec["kind"] is
+// a separate key) and the vault source path (source_path) joined the
+// hashVolatile exclusion: both are metadata about provenance·review scope,
+// not content, so the same body with·without (or with changed) values
+// keeps one dedup identity (the relations·conditions precedent — a
+// duplicate resend never rewrites the stored columns).
+func TestHashCanonicalExcludesV1240Fields(t *testing.T) {
+	base := map[string]any{"topic": "t", "summary": "s", "confidence": 0.9}
+	withKind := map[string]any{"topic": "t", "summary": "s", "confidence": 0.9,
+		"knowledge_kind": "preference", "source_path": "demo/notes/a.md"}
+	if HashCanonical(base) != HashCanonical(withKind) {
+		t.Errorf("knowledge_kind·source_path 부재/존재로 해시 변동 — hashVolatile 계약 위반: %q vs %q",
+			HashCanonical(base), HashCanonical(withKind))
+	}
+	// differing values also keep the hash — neither field is content
+	// identity.
+	other := map[string]any{"topic": "t", "summary": "s", "confidence": 0.9,
+		"knowledge_kind": "fact", "source_path": "demo/notes/other.md"}
+	if HashCanonical(withKind) != HashCanonical(other) {
+		t.Errorf("knowledge_kind·source_path 값 차이로 해시 변동 — hashVolatile 계약 위반: %q vs %q",
+			HashCanonical(withKind), HashCanonical(other))
+	}
+}
+
 // TestCheckRelationsEchoTruncation — v1.20.2 (r88): the rejection echo
 // caps the echoed value at 200 runes. The write path's 64-byte
 // parseLinkSpecs cap keeps values that long unreachable from there, so

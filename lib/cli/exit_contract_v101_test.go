@@ -38,6 +38,10 @@ var exitContractProbes = []exitProbe{
 	{"update", []string{"--bogus"}, 3, "F3 unknown flag"},
 	{"teardown", []string{"--bogus"}, 3, "F3 unknown flag(인접 동류)"},
 	{"maintain", []string{"--check", "--bogus"}, 3, "v0.36.1 관례(기존)"},
+	// v1.24.0 T3 — the merge-audit report's invalid-arg exits (unknown
+	// flag·invalid value, the audit-family contract).
+	{"maintain", []string{"--merge-audit", "--bogus"}, 3, "v1.24.0 T3 unknown flag"},
+	{"maintain", []string{"--merge-audit", "--limit", "abc"}, 3, "v1.24.0 T3 무효 숫자"},
 	{"import", []string{"--verbose"}, 3, "v0.36.1 관례(기존)"},
 	{"doctor", []string{"--bogus"}, 3, "전역 계약(기존)"},
 	{"tuning", []string{"--bogus"}, 3, "서브커맨드 아님 → usage 3"},

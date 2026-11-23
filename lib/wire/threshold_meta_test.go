@@ -52,6 +52,8 @@ var frozenThresholdKeys = []string{
 	"vault_scan_max_files", "vault_summary_max_runes", "vault_skip_dirs",
 	// the distill output floor and file cap (v1.22.0·v1.22.1 r97 — schema v17 distill command)
 	"distill_min_score", "distill_max_runes",
+	// the recall-audit listing floor (v1.24.0 — schema v19 curation residual: maintain --recall-audit)
+	"recall_audit_min_bad",
 }
 
 // TestStaleThresholdDefaultsOverride — the v1.13.0 age-audit keys: defaults

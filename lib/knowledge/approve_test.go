@@ -520,8 +520,11 @@ func TestApproveOriginCounterQuietOnLookupFailure(t *testing.T) {
 // intake + review principle) and still rejects unknown kinds (the cap
 // principle).
 func TestCurationCounterKindsV1170(t *testing.T) {
-	if len(curationCounterKinds) != 11 {
-		t.Fatalf("curationCounterKinds 수=%d, want 11", len(curationCounterKinds))
+	// v1.24.0 D2: the correction classification funnel pair widened the
+	// registry-derived whitelist 11 → 13 (correction_preference·
+	// correction_fact — write-time accrual, the diagnosis frozen-set twin).
+	if len(curationCounterKinds) != 16 {
+		t.Fatalf("curationCounterKinds count=%d, want 16", len(curationCounterKinds))
 	}
 	for _, k := range []string{"correction_approved", "gap_approved", "survived_sessions"} {
 		if !curationCounterKinds[k] {

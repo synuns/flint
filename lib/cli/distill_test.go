@@ -398,3 +398,38 @@ func TestDistillFileNameShape(t *testing.T) {
 		t.Errorf("timestamp shape mismatch: %q (want YYYYMMDD-HHMM)", stamp)
 	}
 }
+
+// RF9 — v1.24.0 T2 (the survived minimum fulfillment): the aggregate
+// file's output rows carry the survived_sessions count verbatim from the
+// listing (the source seam delivers the merged rows; the formatter is
+// the knowledge-package contract, verified there — this pins the CLI
+// end-to-end pass-through).
+func TestRunDistillSurvivedSessionsInFile(t *testing.T) {
+	st := &distillFakeStore{fakeStore: &fakeStore{}}
+	rows := []knowledge.DistillRow{
+		{ID: 4, Topic: "demo-surv", Summary: "survived body", Tags: []string{"demo"},
+			RecallScore: 2, SurvivedSessions: 3},
+		{ID: 5, Topic: "demo-fresh", Summary: "fresh body", Tags: []string{"demo"},
+			RecallScore: 1, SurvivedSessions: 0},
+	}
+	_, _ = installDistillFakes(t, rows)
+	dir := t.TempDir()
+	out, code := runDistillOnce(st, []string{"--out", dir})
+	if code != 0 {
+		t.Fatalf("distill exit=%d out=%s", code, out)
+	}
+	files, err := os.ReadDir(dir)
+	if err != nil || len(files) != 1 {
+		t.Fatalf("insights 파일=%v err=%v", files, err)
+	}
+	body, err := os.ReadFile(filepath.Join(dir, files[0].Name()))
+	if err != nil {
+		t.Fatalf("파일 읽기: %v", err)
+	}
+	if !strings.Contains(string(body), "survived_sessions: 3") {
+		t.Fatalf("survived_sessions 병기 부재(3):\n%s", body)
+	}
+	if !strings.Contains(string(body), "survived_sessions: 0") {
+		t.Fatalf("survived_sessions 병기 부재(0 — 0도 행에 병기):\n%s", body)
+	}
+}
