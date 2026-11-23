@@ -68,6 +68,8 @@ func plistContent(bin, dataDir, outLog, errLog string) string {
 <dict>
 	<key>Label</key>
 	<string>` + launchdLabel + `</string>
+	<key>WorkingDirectory</key>
+	<string>` + filepath.Dir(bin) + `</string>
 	<key>ProgramArguments</key>
 	<array>
 		<string>` + bin + `</string>

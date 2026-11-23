@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/synuns/flint/lib/db"
+	"github.com/synuns/flint/lib/ops"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -311,6 +312,13 @@ func TestDoctorPendingAgeThresholdOverride(t *testing.T) {
 	}
 }
 
+func withContainerMode(t *testing.T) {
+	t.Helper()
+	prev := ops.EngineModeFn
+	ops.EngineModeFn = func() (string, error) { return "managed-container", nil }
+	t.Cleanup(func() { ops.EngineModeFn = prev })
+}
+
 func withComposePs(t *testing.T, fn func(context.Context) ([]byte, error)) {
 	t.Helper()
 	old := composePsFn
@@ -338,6 +346,7 @@ func doctorPortCheck(t *testing.T, out string) map[string]any {
 }
 
 func TestPortPass(t *testing.T) {
+	withContainerMode(t)
 	line := `{"Name":"flint-doltgres-1","State":"running",` +
 		`"Labels":"com.docker.compose.project=flint,com.docker.compose.service=doltgres",` +
 		`"Ports":"127.0.0.1:5434->5432/tcp"}`
@@ -355,6 +364,7 @@ func TestPortPass(t *testing.T) {
 }
 
 func TestPortForeign(t *testing.T) {
+	withContainerMode(t)
 	withComposePs(t, func(ctx context.Context) ([]byte, error) {
 		return []byte(`{"Name":"branding-web-1","State":"running",` +
 			`"Labels":"com.docker.compose.project=branding",` +
@@ -375,6 +385,7 @@ func TestPortForeign(t *testing.T) {
 }
 
 func TestPortDockerMissing(t *testing.T) {
+	withContainerMode(t)
 	withComposePs(t, func(ctx context.Context) ([]byte, error) {
 		return nil, errors.New("exec: docker: executable file not found")
 	})
@@ -392,6 +403,7 @@ func TestPortDockerMissing(t *testing.T) {
 }
 
 func TestPortStopped(t *testing.T) {
+	withContainerMode(t)
 	withComposePs(t, func(ctx context.Context) ([]byte, error) {
 		return []byte(`{"Name":"flint-doltgres-1","State":"exited","Labels":"com.docker.compose.project=flint","Publishers":null}`), nil
 	})
@@ -410,6 +422,7 @@ func TestPortStopped(t *testing.T) {
 }
 
 func TestPortNoFlintContainer(t *testing.T) {
+	withContainerMode(t)
 	withComposePs(t, func(ctx context.Context) ([]byte, error) {
 		return []byte(`{"Name":"other-app-1","State":"running","Publishers":[]}`), nil
 	})
@@ -423,6 +436,7 @@ func TestPortNoFlintContainer(t *testing.T) {
 }
 
 func TestPortJSONArray(t *testing.T) {
+	withContainerMode(t)
 	arr := `[{"Name":"flint-doltgres-1","State":"running",` +
 		`"Labels":"com.docker.compose.project=flint",` +
 		`"Publishers":[{"PublishedPort":5434}]}]`
@@ -455,6 +469,7 @@ func TestDoctorChecksIncludesPort(t *testing.T) {
 }
 
 func TestPortFlintSubstringNotPrefix(t *testing.T) {
+	withContainerMode(t)
 	if isFlintContainer("conflint-web-1") {
 		t.Errorf("isFlintContainer(conflint-web-1) = true, want false(접두 아님)")
 	}
