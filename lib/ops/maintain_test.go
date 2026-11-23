@@ -2402,6 +2402,15 @@ func TestMaintainGCYesGuard(t *testing.T) {
 	if !strings.Contains(out, "--shallow is not valid with --check") {
 		t.Errorf("--shallow 소유권 오류 문구 없음: %s", out)
 	}
+	// the r109-8 regression: a bare --shallow (no mode elected) names the
+	// missing scope — it must not print an empty mode name.
+	out, code = runMaintainArgs(t, f, "--shallow")
+	if code != 1 {
+		t.Fatalf("--shallow (단독) exit=%d, want 1: %s", code, out)
+	}
+	if !strings.Contains(out, "--shallow is not valid without a mode") {
+		t.Errorf("빈 모드명 문구 미교정(r109-8): %s", out)
+	}
 }
 
 // TestMaintainGCRunContract — the happy path: the disconnect notice line,
@@ -2438,6 +2447,43 @@ func TestMaintainGCRunContract(t *testing.T) {
 	}
 	if f.pings != 1 {
 		t.Errorf("Ping 호출 %d회, want 1(성공 시 즉시 종료)", f.pings)
+	}
+}
+
+// TestMaintainGCPendingNoticeJSON — the r108-1 regression: the pre-run
+// gc-pending notice line is valid JSON (it used to end at ` pings)` — the
+// closing quote and brace were missing, so a JSON-lines consumer failed on
+// every GC run). The line is located by its status key and unmarshaled.
+func TestMaintainGCPendingNoticeJSON(t *testing.T) {
+	f := &gcPingSeqStore{fakeMaintStore: &fakeMaintStore{fakeStore: &fakeStore{
+		queryFn: gcQueryFn(map[string]string{}),
+	}}}
+	withGCSeams(t, func(ctx context.Context, st wire.Store, shallow bool) error {
+		return nil
+	})
+	out, code := runGCMaintainArgs(t, f, "--gc", "--yes")
+	if code != 0 {
+		t.Fatalf("--gc --yes exit=%d, want 0: %s", code, out)
+	}
+	var pending string
+	for _, ln := range strings.Split(out, "\n") {
+		if strings.Contains(ln, `"status":"gc-pending"`) {
+			pending = strings.TrimSpace(ln)
+			break
+		}
+	}
+	if pending == "" {
+		t.Fatalf("gc-pending 안내 라인 부재: %s", out)
+	}
+	var v struct {
+		Status string `json:"status"`
+		Notice string `json:"notice"`
+	}
+	if err := json.Unmarshal([]byte(pending), &v); err != nil {
+		t.Fatalf("gc-pending 라인 JSON 파싱 실패(r108-1 마감 누락 의심) err=%v line=%s", err, pending)
+	}
+	if v.Status != "gc-pending" || !strings.Contains(v.Notice, "reconnect") {
+		t.Errorf("gc-pending JSON 내용 불일치: %+v", v)
 	}
 }
 

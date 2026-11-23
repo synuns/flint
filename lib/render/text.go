@@ -4,6 +4,8 @@ package render
 
 import (
 	"strconv"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 // TruncateRunes — truncates at a rune bound (multibyte-safe). Strings at or
@@ -19,9 +21,13 @@ func TruncateRunes(s string, n int) string {
 }
 
 // CellToInt — single coercion utility from a cell (any) to int. Accepts pgx
-// numeric types (int, int32, int64), float64, and decimal strings; nil and
-// non-numerics yield (0, false). Consumers: knowledge read (rowIDs) and cli
-// leftovers (maintain stale, report aggregation, doctor) — via aliases.
+// numeric types (int, int32, int64), float64, decimal strings, and
+// pgtype.Numeric (the r109-1 fix: Doltgres returns numeric columns as
+// pgtype.Numeric, which used to fall to the default and read as a silent 0
+// — the depth probe was always 0 on the real engine); nil, invalid, and
+// non-integral numerics yield (0, false). Consumers: knowledge read
+// (rowIDs) and cli leftovers (maintain stale, report aggregation, doctor)
+// — via aliases.
 func CellToInt(v any) (int, bool) {
 	switch n := v.(type) {
 	case int:
@@ -32,6 +38,12 @@ func CellToInt(v any) (int, bool) {
 		return int(n), true
 	case float64:
 		return int(n), true
+	case pgtype.Numeric:
+		i8, err := n.Int64Value()
+		if err != nil || !i8.Valid {
+			return 0, false
+		}
+		return int(i8.Int64), true
 	case string:
 		i, err := strconv.Atoi(n)
 		return i, err == nil

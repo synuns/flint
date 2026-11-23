@@ -26,7 +26,7 @@
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 하네스">
   <a href="https://github.com/synuns/flint/actions/workflows/ci.yml"><img src="https://github.com/synuns/flint/actions/workflows/ci.yml/badge.svg" alt="CI 상태"></a>
-  <img src="https://img.shields.io/badge/release-v1.25.0-blue" alt="v1.25.0">
+  <img src="https://img.shields.io/badge/release-v1.25.1-blue" alt="v1.25.1">
 </p>
 <p align="center">
   <sub>8종은 자동 등록(A급) 하니스 기준 — 전체 지원 목록은 아래 <a href="#에이전트--어댑터">어댑터 표</a>에 있습니다.</sub>
@@ -48,6 +48,7 @@ flint는 이걸 바꿉니다. 에이전트가 무언가 배우면 — 결정, �
 
 사람은 Obsidian에 노트를 남깁니다. 에이전트는 flint에 기억을 남깁니다 — 불과 도구를 얻기 위해 두드리는 부싯돌처럼.
 
+> v1.25.1 · r108-r109 패치 — gc-pending JSON 마감 수정(`maintain --gc` 사전 안내 라인이 JSON으로 파싱됨)·방언 프로브 이전(`dolt_log_depth` SQL의 lib/db 소유 확정 — `db.DoltLogDepth`, doctor는 호출만)·깊이 프로브 numeric 수정(`commit_order::int8` + `CellToInt` pgtype.Numeric — 실엔진에서 깊이가 0으로 읽히던 결함)·`db_size` Doltgres 상시 skip 문서화·engine-footprint 타임아웃 2s→5s·단독 `--shallow` 문구 · [전체 변경 이력](docs/HISTORY.md)
 > v1.25.0 · 엔진 운영 — `maintain --gc --yes`(dolt 가비지 컬렉션: 접속 단절 안내 → 재연결 루프 → 스키마 재검증 → meta 이력)·doctor `dolt_log_depth`(O(1))·`db_size` 경고 + `engine-footprint` 표시·RUNBOOK §10/§11·thresholds `dolt_log_depth_warn`·`db_size_warn_mb`·ANALYZE 폐기(무연산 실증)·audit_log 리플레이 스파이크 성공(순수 PG) · [전체 변경 이력](docs/HISTORY.md)
 > v1.24.2 · r106 패치 — race-recheck echo 커버리지(레이스 재확인 중복의 echo 적립 fake 회귀 추가)·quiet-failure 회귀(`echo_candidates` INSERT 실패가 write를 실패시키지 않음)·echo 스캔 주석(pending 행의 기존 후보 포함 서술) · [전체 변경 이력](docs/HISTORY.md)
 > v1.24.1 · r104-r105 패치 — `echo_candidates` 적립 회로 연결(write 시점 echo 후보 저장: 신규 행 id, 중복 재전송은 기존 행 기준)·merge-audit active 한정 페치(pending 배제)·`--merge`의 D4 처분 카운터 계상·int4 입력 가드(`--recall-audit --limit`·`read --related`) · [전체 변경 이력](docs/HISTORY.md)

@@ -1231,7 +1231,7 @@ func TestDoctorLogDepthBoundary(t *testing.T) {
 		return [][]any{{int64(3)}}, nil
 	}}
 	checkDoltLogDepthTh(context.Background(), f, th)
-	if !strings.Contains(probed, "commit_order FROM "+doltLogTbl+" ORDER BY commit_order DESC LIMIT 1") {
+	if !strings.Contains(probed, "commit_order::int8 FROM "+db.DoltLogTable+" ORDER BY commit_order DESC LIMIT 1") {
 		t.Errorf("O(1) 프로브 아님: %s", probed)
 	}
 	// a query failure is a warn finding (not disguised as clean).
@@ -1278,7 +1278,7 @@ func TestDoctorEngineChecksFullRun(t *testing.T) {
 	base := doctorQueryFn(time.Now(), time.Now(), time.Now())
 	f := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		switch {
-		case strings.Contains(sql, doltLogTbl):
+		case strings.Contains(sql, db.DoltLogTable):
 			return [][]any{{int64(10000)}}, nil
 		case strings.Contains(sql, "pg_database_size"):
 			return nil, errors.New("unsupported")
@@ -1366,5 +1366,26 @@ func TestDoctorEngineFootprintOK(t *testing.T) {
 	}
 	if !strings.Contains(c.Detail, "50MB") {
 		t.Fatalf("detail=%q, want 50MB 포함", c.Detail)
+	}
+}
+
+// TestDoctorEngineStatsTimeout5s — the r109-5 regression: EngineMemMB hands
+// the docker stats seam a ≥5s budget. The old 2s cap was shorter than the
+// sampling window docker stats --no-stream itself takes, so a normal read on
+// a loaded daemon timed out and the footprint was a standing skip. The seam
+// captures the deadline it was given; the checkUpdate convention is 5s.
+func TestDoctorEngineStatsTimeout5s(t *testing.T) {
+	var budget time.Duration
+	withEngineStats(t, func(ctx context.Context) ([]byte, error) {
+		if d, ok := ctx.Deadline(); ok {
+			budget = time.Until(d)
+		}
+		return nil, errors.New("stop")
+	})
+	if _, ok := EngineMemMB(context.Background()); ok {
+		t.Fatal("seam 오류 경로가 ok로 나오면 안 됨")
+	}
+	if budget < 4950*time.Millisecond {
+		t.Errorf("docker stats 시간 예산=%v, want ≥4.95s (r109-5 — 2s는 샘플링 창보다 짧다)", budget)
 	}
 }

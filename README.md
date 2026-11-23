@@ -26,7 +26,7 @@
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 harnesses">
   <a href="https://github.com/synuns/flint/actions/workflows/ci.yml"><img src="https://github.com/synuns/flint/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
-  <img src="https://img.shields.io/badge/release-v1.25.0-blue" alt="v1.25.0">
+  <img src="https://img.shields.io/badge/release-v1.25.1-blue" alt="v1.25.1">
 </p>
 <p align="center">
   <sub>8 counts the auto-registration (tier A) harnesses — the full support list is in the <a href="#agents--adapters">adapter table</a> below.</sub>
@@ -48,6 +48,7 @@ It adds up. Week one, it learns the stack. By week four, it remembers why you ch
 
 Humans take notes in Obsidian. Agents take notes in flint — the stone you strike to make fire and tools.
 
+> v1.25.1 · r108-r109 patch — gc-pending JSON closing fix (the `maintain --gc` pre-run notice line now parses as JSON) · dialect probe relocation (the `dolt_log_depth` SQL is lib/db-owned — `db.DoltLogDepth`; doctor calls it) · depth probe numeric fix (`commit_order::int8` + `CellToInt` pgtype.Numeric — the depth read a silent 0 on the real engine) · `db_size` documented as a standing skip on Doltgres · engine-footprint timeout 2s→5s · bare `--shallow` wording · [full changelog](docs/HISTORY.md)
 > v1.25.0 · engine ops — `maintain --gc --yes` (dolt garbage collection: disconnect notice → reconnect loop → schema recheck → meta history) · doctor `dolt_log_depth` (O(1)) / `db_size` warnings + `engine-footprint` display · RUNBOOK §10/§11 · thresholds `dolt_log_depth_warn`·`db_size_warn_mb` · ANALYZE retired (no-op evidenced) · audit_log replay spike succeeded (pure PG) · [full changelog](docs/HISTORY.md)
 > v1.24.2 · r106 patch — race-recheck echo coverage (the race-recheck duplicate's echo accrual now has a fake-store regression) · quiet-failure regression (an `echo_candidates` INSERT failure never fails the write) · echo scan comment (pending rows documented as pre-existing candidates) · [full changelog](docs/HISTORY.md)
 > v1.24.1 · r104-r105 patch — `echo_candidates` accrual wired (write-time echo candidates persist: fresh row id, duplicate resend keyed by the existing row) · merge-audit active-only fetch (pending rows excluded) · `--merge` joins the D4 disposed counter · int4 input guards (`--recall-audit --limit`, `read --related`) · [full changelog](docs/HISTORY.md)

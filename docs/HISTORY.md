@@ -6,6 +6,54 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.25.1 patch (2026-11-23) — r108-r109: gc-pending json fix · dialect probe relocation · depth numeric fix · doc corrections
+
+The engine-ops audit follow-ups (R108 + R109) — 9 distinct findings
+(R109's 10 minus 2 that overlapped R108's scope). Schema v19 stands:
+
+- **gc-pending JSON fix (r108-1)**: the `maintain --gc` pre-run notice
+  line ended at ` pings)` — the closing quote and brace were missing, so
+  the line was not parseable JSON. Closed (` pings)"}`); a regression
+  test unmarshals the line.
+- **dialect probe relocation (r108-2)**: the doctor `dolt_log_depth`
+  probe SQL moves to lib/db (`db.DoltLogDepth` — the O(1) commit_order
+  probe, with the exported `db.DoltLogTable` name); doctor calls it and
+  restates nothing. The ops-side split-assembly (`"dolt_" + "log"`)
+  dodged the dialect gate without transferring ownership — the gate's
+  contract is ownership, not evasion. The check name stays in ops (a
+  name, not SQL).
+- **db_size guidance correction (r108-3 / r109-6)**: TUNING §2 and the
+  v1.25.0 entry above claimed the `db_size` warn line carries the
+  consider-`maintain --gc` guidance; the check's fix line has always
+  been "review backup retention — RUNBOOK". Docs corrected to match the
+  code.
+- **fired_ cap comment (r108-4)**: the `metaKnownPrefixes` comment's
+  kind cap was stale — the check registry is 20 kinds (not 18), so the
+  arithmetic is 20 + 14 + 1 = 35.
+- **ThresholdMetas comment (r108-5 / r109-7)**: the "57 entries" count
+  was stale; the count is dropped — the guard tests assert the key set,
+  not a number in a comment.
+- **depth probe numeric fix (r109-1, high)**: Doltgres types
+  `dolt_log.commit_order` numeric and pgx returns it as
+  `pgtype.Numeric`, which the coercion rejected — the depth probe read a
+  silent 0 on the real engine, so the warning could never fire. Two
+  layers: the probe selects `commit_order::int8` (lib/db), and
+  `render.CellToInt` learned `pgtype.Numeric` (int-valued numerics
+  coerce; NULL/fractional stay invalid). Verified on the live engine.
+- **db_size engine support documented (r109-4)**: Doltgres does not
+  implement `pg_database_size` — the check is a standing quiet skip
+  there. Documented in TUNING §2 and the skip detail line (the docker
+  disk replacement was considered and deferred — the doc-explicit route
+  is the patch-sized fix; the threshold governs engines that provide
+  the function).
+- **engine-footprint timeout (r109-5)**: the docker stats cap was 2s —
+  shorter than the sampling window `docker stats --no-stream` itself
+  takes, so a loaded daemon regularly timed out and the footprint read
+  was a standing skip. Raised to 5s (the checkUpdate convention).
+- **bare --shallow wording (r109-8)**: `maintain --shallow` with no
+  mode elected printed an empty mode name ("not valid with ") — it now
+  names the missing scope ("not valid without a mode").
+
 ### v1.25.0 minor (2026-11-23) — engine-ops: maintain --gc · doctor engine warnings · container footprint
 
 (spec: docs/plans/2026-11-23-flint-v1250.md · design:
@@ -35,7 +83,9 @@ spike evidence. The v1.24.0↔v1.25.0 release swap (scope §2 principle
   points at `maintain --gc`.
 - **doctor `db_size`**: `pg_database_size()` measured in MB against
   the new threshold `db_size_warn_mb` (default 2048) — at or above,
-  warn with the same GC guidance. Both thresholds are code defaults +
+  warn with a review-backup-retention guidance line (RUNBOOK; corrected
+  in v1.25.1 r108-3 — the check's fix line never pointed at GC). Both
+  thresholds are code defaults +
   meta overrides (TUNING §2), never personal values in the repo.
 - **doctor `engine-footprint`**: one `docker stats --no-stream` read
   displayed on the doctor tail — display only, no threshold, no new

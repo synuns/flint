@@ -397,8 +397,15 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 		return 1
 	}
 	// --shallow is the --gc-scoped boolean modifier (v1.25.0) — under any other
-	// mode it is an error, the --yes principle (no silent ignoring).
+	// mode it is an error, the --yes principle (no silent ignoring). The r109-8
+	// fix: a bare --shallow (no mode elected) must not print an empty mode
+	// name — it names the scope it is missing instead.
 	if res.Given("--shallow") && mode != "--gc" {
+		if mode == "" {
+			fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf(
+				"maintain: --shallow is not valid without a mode (it is --gc-scoped)")))
+			return 1
+		}
 		fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("maintain: --shallow is not valid with %s", mode)))
 		return 1
 	}
@@ -2084,8 +2091,10 @@ func maintainGC(ctx context.Context, ms wire.Store, stdout io.Writer, shallow, y
 	}
 	// the pre-run notice — the disconnect contract named up front (the
 	// operator-command guard: no automated path may call this unaware).
+	// the r108-1 fix — the closing quote and brace were missing (the line
+	// ended at ` pings)`), so a JSON-lines consumer could not parse it.
 	fmt.Fprintln(stdout, `{"status":"gc-pending","notice":"dolt_gc() disconnects all active sessions — flint will reconnect (up to `+
-		strconv.Itoa(gcPingAttempts)+" pings)")
+		strconv.Itoa(gcPingAttempts)+` pings)"}`)
 	if err := maintainGCFn(ctx, ms, shallow); err != nil {
 		fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("maintain: --gc: %w", err)))
 		return store.MapExit(err)
@@ -2339,7 +2348,7 @@ func buildMetaKnownKeys() map[string]bool {
 // usage counters pb_<id>_uses/_ok — preventing false unknowns in the active
 // statistics. fired_: the fired-counter cumulative keys (the 3 fired_nudge_{distill,recall,
 // update} kinds, the 1 fired_done_stale kind, and fired_doctor_<check> — the check
-// registry's 18 + harness 14 + skill-file 1 = 33 kind cap). Preventing doctor from warning
+// registry's 20 + harness 14 + skill-file 1 = 35 kind cap). Preventing doctor from warning
 // about its own counters as unknown keys (a self-reference false positive). auto_streak_:
 // the v1.23.0 consecutive-hit counters (meta auto_streak_<key>, one per whitelisted
 // auto key — the same self-reference class, not an arbitrary auto_* pass-through).
