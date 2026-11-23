@@ -1,6 +1,8 @@
 package engine
 
 import (
+	"strings"
+
 	"context"
 	"fmt"
 	"net"
@@ -81,11 +83,29 @@ func BootstrapCredentials(ctx context.Context) error {
 			return fmt.Errorf("engine: create database: %w", err)
 		}
 	}
+	if grantFn != nil {
+		if err := grantFn(ctx); err != nil {
+			return fmt.Errorf("engine: schema grant: %w", err)
+		}
+	}
 
 	def, err := poolOpenFn(ctx, bootstrapDefaultDSN)
 	if err != nil {
 		return fmt.Errorf("engine: default dsn connect: %w", err)
 	}
 	def.Close()
+	return nil
+}
+
+var grantFn = func(ctx context.Context) error {
+	dsn := strings.Replace(bootstrapSuperuserDSN, "/postgres", "/"+bootstrapDatabaseName, 1)
+	pool, err := poolOpenFn(ctx, dsn)
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+	if _, err := pool.Exec(ctx, "GRANT ALL ON SCHEMA public TO "+bootstrapRoleName); err != nil {
+		return err
+	}
 	return nil
 }
