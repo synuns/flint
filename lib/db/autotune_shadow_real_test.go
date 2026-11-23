@@ -2,7 +2,6 @@ package db_test
 
 import (
 	"context"
-	"net/url"
 	"os"
 	"strings"
 	"testing"
@@ -35,12 +34,6 @@ func realShadowVerdict(rule db.ShadowRule, obs db.ShadowObs, th store.Thresholds
 		ReadEventsN: obs.ReadEventsN, ZeroN: obs.ZeroN, ReclassN: obs.ReclassN,
 	}, th)
 	return db.ShadowVerdict{Fired: v.Fired, SampleOk: v.SampleOk, Ratio: v.Ratio, Detail: v.Detail}
-}
-
-func dsnForDB(u *url.URL, name string) string {
-	c := *u
-	c.Path = "/" + name
-	return c.String()
 }
 
 func realScratch(t *testing.T) (*db.Repo, string) {

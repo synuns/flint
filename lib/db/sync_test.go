@@ -3,7 +3,6 @@ package db
 import (
 	"context"
 	"errors"
-	"net/url"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -742,16 +741,6 @@ func TestSyncResetRealSlow(t *testing.T) {
 	if err != nil || len(rows) != 1 || strAny(rows[0][0]) != "alpha" {
 		t.Fatalf("reset 후 데이터 미복원: rows=%v err=%v, want alpha", rows, err)
 	}
-}
-
-func dsnForDatabase(tb testing.TB, dsn, database string) string {
-	tb.Helper()
-	u, err := url.Parse(dsn)
-	if err != nil {
-		tb.Fatalf("DSN 파싱: %v", err)
-	}
-	u.Path = "/" + strings.Trim(database, `"`)
-	return u.String()
 }
 
 type poolQuerier struct{ pool *pgxpool.Pool }
