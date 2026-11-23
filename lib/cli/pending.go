@@ -28,7 +28,7 @@ func runPendingEntry(ctx context.Context, st Store, args []string, stdin io.Read
 		for j, b := range args {
 			if j != i && b != "--tui" {
 				fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf(
-					i18n.T("err.unknown_flag")+" — "+i18n.T("usage.pending"), b)))
+					i18n.T("err.unknown_flag")+" — "+i18n.T("usage.pending"), wire.MaskToken(b))))
 				return 3
 			}
 		}

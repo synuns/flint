@@ -21,7 +21,7 @@ is Docker: flint ships the engine compose definition inside the binary.
 ## 2. One-command setup
 
 ```sh
-flint setup           # ①embedded compose up --wait ②migrate (prints the recorded port; run `flint seed --demo` next)
+flint setup           # ①embedded compose up --wait ②migrate (stdout closes with one JSON status: {"status":"ok","mode":"managed","port":N})
 flint seed --demo     # synthetic demo data (isolated demo database)
 flint doctor          # diagnostics: verify the install (23 checks; fail → exit 1)
 ```
@@ -30,13 +30,13 @@ flint doctor          # diagnostics: verify the install (23 checks; fail → exi
 image pinned by digest (ADR-0020) — to a temp path under the config dir
 and starts Doltgres with `--project-name flint`, so it works from any
 directory: no git clone, no compose file on disk. Host port defaults to
-5434 (ADR-0010). `--port N` runs the managed path: an existing `flint`
+5434 (ADR-0010). The managed path runs for `--port N` and equally for a
+bare first install (no recorded DSN): an existing `flint`
 -project install is adopted, and when the requested port is taken setup
 probes upward for a free loopback port (5499 excluded — reserved for
 the v1.29.0 dedicated test engine), records the assigned port in
 `config.json`, retries ping (30 × 200ms code constants) and finishes
-ping + migrate in the same run. Port-occupant identification is scoped
-to this `--port` path.
+ping + migrate in the same run.
 
 External engine mode (v1.30.0): `flint setup --engine-url` skips engine
 install entirely and records a Doltgres you run yourself — loopback
@@ -46,6 +46,17 @@ inline values are rejected so the DSN never lands in shell history or
 process listings. Output always masks the DSN. `config.json` records
 `engine.mode: external`, and purge operations stay managed-mode-only.
 Tear down with `flint teardown` (`--purge` also removes volumes).
+
+Native engine mode (v1.31.0, opt-in — ADR-0021): `flint setup --engine
+native` records the mode and runs the native path in one go — the
+pinned engine binary is downloaded (platform hash + `-version`
+verified, atomically swapped under `engine/<version>/` with a
+`current` symlink), a platform service is registered (macOS launchd ·
+Linux systemd user) and first-boot credentials are initialized so the
+ADR-0010 default DSN connects. `flint engine status|start|stop` then
+controls the recorded mode (external advises only). Managed container
+stays the default for fresh installs; container→native transition and
+the native upgrade/rollback procedure live in RUNBOOK §11.
 
 Seeding is safe to re-run — identical payloads resolve to hash dedup with
 `{"status":"duplicate"}` exit 0 (idempotent). `flint seed --demo` writes only

@@ -70,9 +70,9 @@ func ParseArgs(args []string, spec ArgSpec) (*ArgResult, error) {
 			continue
 		}
 		if spec.Usage != "" {
-			return nil, UsageErrorf("unknown flag: %s — %s", maskToken(a), spec.Usage)
+			return nil, UsageErrorf("unknown flag: %s — %s", MaskToken(a), spec.Usage)
 		}
-		return nil, UsageErrorf("unknown flag: %s", maskToken(a))
+		return nil, UsageErrorf("unknown flag: %s", MaskToken(a))
 	}
 	return res, nil
 }
@@ -119,7 +119,7 @@ func (r *ArgResult) Positional() []string {
 	return out
 }
 
-func maskToken(s string) string {
+func MaskToken(s string) string {
 	if i := strings.Index(s, "://"); i >= 0 {
 		return s[:i+3] + "***"
 	}

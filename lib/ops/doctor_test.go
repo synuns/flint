@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/synuns/flint/lib/db"
+	"github.com/synuns/flint/lib/engine"
 	"github.com/synuns/flint/lib/store"
 	"github.com/synuns/flint/lib/wire"
 )
@@ -186,8 +187,8 @@ func TestDoctorListChecks(t *testing.T) {
 	if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &m); err != nil {
 		t.Fatalf("JSON 아님: %q", out)
 	}
-	if len(m.Checks) != 23 {
-		t.Errorf("checks %d종, want 23종(코어6+tail17): %v", len(m.Checks), m.Checks)
+	if len(m.Checks) != 24 {
+		t.Errorf("checks %d종, want 24종(코어6+tail18): %v", len(m.Checks), m.Checks)
 	}
 	if m.Checks[0] != "hook-file" || m.Checks[4] != "last-seen" || m.Checks[5] != "port" {
 		t.Errorf("코어 6종 순서 회귀: %v", m.Checks)
@@ -1199,6 +1200,7 @@ func TestDoctorEngineFootprintSpec(t *testing.T) {
 }
 
 func TestDoctorEngineFootprintSkip(t *testing.T) {
+	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	t.Setenv("FLINT_DSN", "postgresql://flint:flint-dev@localhost:5434/flint")
 	withComposePs(t, func(context.Context) ([]byte, error) {
 		return []byte(`[{"Name":"flint-doltgres-1","State":"running","Publishers":[{"PublishedPort":5434}]}]`), nil
@@ -1235,6 +1237,7 @@ func TestDoctorEngineFootprintSkip(t *testing.T) {
 }
 
 func TestDoctorEngineFootprintSkipWhenSelectionFails(t *testing.T) {
+	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	withEngineStats(t, func(context.Context) ([]byte, error) {
 		return []byte("{\"Name\":\"flint-doltgres-1\",\"MemUsage\":\"50.5MiB / 3.84GiB\"}\n"), nil
 	})
@@ -1275,6 +1278,7 @@ func TestDoctorEngineFootprintSkipWhenSelectionFails(t *testing.T) {
 }
 
 func TestDoctorEngineFootprintOK(t *testing.T) {
+	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	t.Setenv("FLINT_DSN", "postgresql://flint:flint-dev@localhost:5434/flint")
 	withComposePs(t, func(context.Context) ([]byte, error) {
 		return []byte(`[{"Name":"flint-test-doltgres-1","State":"running","Publishers":[{"PublishedPort":5499}]},` +
@@ -1687,6 +1691,7 @@ func withRestartCountV1290(t *testing.T, fn func() (int, error)) {
 }
 
 func TestDoctorEngineFootprintRestartsV1290(t *testing.T) {
+	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	t.Setenv("FLINT_DSN", "postgresql://flint:flint-dev@localhost:5434/flint")
 	withComposePs(t, func(context.Context) ([]byte, error) {
 		return []byte(`[{"Name":"flint-doltgres-1","State":"running","Publishers":[{"PublishedPort":5434}]}]`), nil
@@ -1914,5 +1919,162 @@ func TestEnginePinEquivalence(t *testing.T) {
 	embedded := extractPinnedImageFrom(t, filepath.Join("lib", "cli", "embedded-compose.yml"))
 	if ci != pin || testCompose != pin || embedded != pin {
 		t.Fatalf("핀 불일치 — ci=%q test=%q embedded=%q pin=%q", ci, testCompose, embedded, pin)
+	}
+}
+
+func withEngineModeV1310(t *testing.T, mode string) {
+	t.Helper()
+	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
+	if err := engine.SetMode(mode); err != nil {
+		t.Fatalf("SetMode(%q): %v", mode, err)
+	}
+}
+
+func withEngineStatusFnV1310(t *testing.T, fn func() (engine.ServiceStatus, error)) {
+	t.Helper()
+	old := EngineStatusFn
+	EngineStatusFn = fn
+	t.Cleanup(func() { EngineStatusFn = old })
+}
+
+func TestDoctorEngineCheckNativeStatesV1310(t *testing.T) {
+	withEngineModeV1310(t, engine.ModeNative)
+	cases := []struct {
+		name   string
+		status engine.ServiceStatus
+		err    error
+		want   string
+		detail string
+		fix    string
+	}{
+		{name: "ok", want: "ok",
+			status: engine.ServiceStatus{Mode: engine.ModeNative, Registered: true, Running: true, Version: engine.NativePinVersion}},
+		{name: "not registered", want: "fail", fix: "setup --engine native",
+			status: engine.ServiceStatus{Mode: engine.ModeNative}},
+		{name: "not running", want: "fail", fix: "engine start",
+			status: engine.ServiceStatus{Mode: engine.ModeNative, Registered: true}},
+		{name: "pin mismatch", want: "fail", detail: "pinned",
+			status: engine.ServiceStatus{Mode: engine.ModeNative, Registered: true, Running: true, Version: "0.9.0"}},
+		{name: "status error", want: "fail",
+			status: engine.ServiceStatus{Mode: engine.ModeNative}, err: errors.New("launchctl failed")},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			st, serr := tc.status, tc.err
+			withEngineStatusFnV1310(t, func() (engine.ServiceStatus, error) { return st, serr })
+			c := checkEngine(context.Background(), nil)
+			if c.Name != "engine" || c.Status != tc.want {
+				t.Fatalf("status=%q, want %q: %+v", c.Status, tc.want, c)
+			}
+			if tc.detail != "" && !strings.Contains(c.Detail, tc.detail) {
+				t.Errorf("detail=%q, want %q 포함", c.Detail, tc.detail)
+			}
+			if tc.fix != "" && !strings.Contains(c.Fix, tc.fix) {
+				t.Errorf("fix=%q, want %q 포함", c.Fix, tc.fix)
+			}
+		})
+	}
+}
+
+func TestDoctorEngineCheckSkipsNonNativeV1310(t *testing.T) {
+	called := 0
+	withEngineStatusFnV1310(t, func() (engine.ServiceStatus, error) {
+		called++
+		return engine.ServiceStatus{Mode: engine.ModeNative, Registered: true, Running: true, Version: engine.NativePinVersion}, nil
+	})
+	for _, mode := range []string{engine.ModeManagedContainer, engine.ModeExternal} {
+		withEngineModeV1310(t, mode)
+		c := checkEngine(context.Background(), nil)
+		if c.Name != "engine" || c.Status != "skip" {
+			t.Errorf("mode %s: status=%q, want skip: %+v", mode, c.Status, c)
+		}
+		if !strings.Contains(c.Detail, mode) {
+			t.Errorf("mode %s: detail=%q, want 현재 모드 노출", mode, c.Detail)
+		}
+	}
+	if called != 0 {
+		t.Errorf("비 native 모드에서 status 호출 %d회 — skip이 선행해야 함", called)
+	}
+
+	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
+	c := checkEngine(context.Background(), nil)
+	if c.Status != "skip" {
+		t.Errorf("mode unknown: status=%q, want skip: %+v", c.Status, c)
+	}
+	if !strings.Contains(c.Detail, engine.ModeUnknown) {
+		t.Errorf("mode unknown: detail=%q, want 현재 모드 노출", c.Detail)
+	}
+}
+
+func TestDoctorEngineCheckRegisteredV1310(t *testing.T) {
+	s, ok := doctorSpec("engine")
+	if !ok {
+		t.Fatal("등록표에 engine 부재 — v1.31.0 계약 위반")
+	}
+	if s.Chain != "tail" {
+		t.Errorf("chain=%q, want tail", s.Chain)
+	}
+	if s.ThFn != nil {
+		t.Errorf("ThFn 등록 — 임계 없음(Fn 관례)")
+	}
+	if s.OnStoreNil != "" {
+		t.Errorf("onStoreNil=%q, want 빈값(st 미사용)", s.OnStoreNil)
+	}
+	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
+	f := &fakeStore{}
+	out, code := runDoctorArgs(t, f, "--list-checks")
+	if code != 0 {
+		t.Fatalf("--list-checks exit=%d: %s", code, out)
+	}
+	if !strings.Contains(out, `"engine"`) {
+		t.Errorf("--list-checks에 engine 누락: %s", out)
+	}
+	out, code = runDoctorArgs(t, f, "--check", "engine")
+	if code == 3 {
+		t.Errorf("--check engine이 미등록 취급(exit 3): %s", out)
+	}
+}
+
+func TestDefaultEngineStatusWiresNativeV1310(t *testing.T) {
+	withEngineModeV1310(t, engine.ModeNative)
+	engine.SetNativeService(engine.NativeService{})
+	t.Cleanup(func() { engine.SetNativeService(engine.NativeService{}) })
+	s, err := defaultEngineStatus()
+	if err != nil {
+		t.Fatalf("ErrNotWired 재시도 후에도 에러: %v", err)
+	}
+	if s.Mode != engine.ModeNative {
+		t.Fatalf("mode=%q, want native", s.Mode)
+	}
+}
+
+func TestDoctorFootprintNativeRSSV1310(t *testing.T) {
+	withEngineModeV1310(t, engine.ModeNative)
+	psCalled := 0
+	withComposePs(t, func(context.Context) ([]byte, error) {
+		psCalled++
+		return nil, errors.New("native 모드에서 docker 경로 미사용")
+	})
+	old := NativeEngineRSSFn
+	NativeEngineRSSFn = func(context.Context) (int, bool, error) { return 97, true, nil }
+	t.Cleanup(func() { NativeEngineRSSFn = old })
+	c := checkEngineFootprint(context.Background(), nil)
+	if c.Status != "ok" {
+		t.Fatalf("status=%q, want ok: %+v", c.Status, c)
+	}
+	if !strings.Contains(c.Detail, "97MB") || !strings.Contains(c.Detail, "native") {
+		t.Fatalf("detail=%q, want 97MB·native 표기", c.Detail)
+	}
+	if psCalled != 0 {
+		t.Errorf("native 모드에서 docker ps 호출 %d회 — 네이티브 seam 미경유", psCalled)
+	}
+
+	NativeEngineRSSFn = func(context.Context) (int, bool, error) { return 0, false, errors.New("ps failed") }
+	c = checkEngineFootprint(context.Background(), nil)
+	if c.Status != "skip" {
+		t.Fatalf("측정 실패 status=%q, want skip: %+v", c.Status, c)
+	}
+	if !strings.Contains(c.Detail, "ps failed") {
+		t.Fatalf("detail=%q, want 원인 노출", c.Detail)
 	}
 }

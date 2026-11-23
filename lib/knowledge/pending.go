@@ -48,7 +48,7 @@ func RunPending(ctx context.Context, st wire.Store, args []string, stdin io.Read
 			jsonMode = true
 			continue
 		}
-		fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf(i18n.T("err.unknown_flag")+" — "+i18n.T("usage.pending.json"), a)))
+		fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf(i18n.T("err.unknown_flag")+" — "+i18n.T("usage.pending.json"), wire.MaskToken(a))))
 		return 3
 	}
 	if err := st.Ping(ctx); err != nil {

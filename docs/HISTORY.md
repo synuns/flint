@@ -6,6 +6,35 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.31.0 minor (2026-11-24) — native-engine: 배치 모드 3종·서비스 등록·모드 전환
+
+네이티브 엔진 모드(v1.30.0 M4 L0 스파이크 통과 후속 — 옵트인, 기본
+모드는 관리형 컨테이너 불변 Ruling):
+
+- **배치 모드 3종 단일 인터페이스**: `engine.mode`
+  (managed-container·native·external) 관례 — 기존 설치 DSN 호스트
+  추론으로 기록·Mode와 DSN 불일치 doctor warn.
+- **전용 다운로더**: 핀 버전·플랫폼별 해시 상수(4방 동치 가드에 네이티브
+  핀 추가)·스트리밍 다운로드(크기 상한)·중첩 tarball bin/doltgres 선택 →
+  해시 검증 → `-version` 검증 → 원자 교체(`engine/<version>/`·current
+  심링크·구버전 보존).
+- **서비스 등록**: macOS launchd(plist 0600·비밀 미포함)·Linux systemd
+  user — status {registered, running, version} 분리·서비스 관리자 부재
+  doctor fail+안내.
+- **자격증명 초기화**: 첫 기동 슈퍼유저 접속 → 대상 사용자 ALTER ROLE →
+  ADR-0010 기본 DSN 재접속 확인 → mode 기록(실패 시 미기록·정지).
+- **CLI**: `flint engine status|start|stop`(모드×명령)·
+  `setup --engine <mode>` 멱등 — 커맨드 표·usage·i18n(ko/en).
+- **모드 전환 container→native**: 정지 → 데이터 디렉터리 복사 → 0700 →
+  네이티브 기동 → dolt_log 깊이·AS OF 동치 확인 → 실패 시 원복.
+  업그레이드 왕복(구핀→신피→롤백). 역방향(native→container) 미지원.
+- **doctor·CI**: doctor `engine` 검사(등록·실행·버전·핀 정합)·네이티브
+  RSS seam — CI 네이티브 매트릭스로 M4 잔여 통과 기준 4항 실증(① Linux
+  네이티브 실DB 스위트 ② 양 OS 서비스 등록 ③ 전환 e2e 동치 ④ 롤백 왕복).
+- **R123 이월 2건**: `wire.MaskToken` 수출 — 커맨드 로컬 파서 unknown-flag
+  에코 토큰 마스킹 잔여 적용 · README 본문 2문장 정정(무플래그 첫 설치
+  관리형 진입·관리형 출력 JSON 서술).
+
 ### v1.30.2 patch (2026-11-24) — install-audit followup: docs routing sync · token masking
 
 R122 findings (3): the medium docs mismatch fixed, one low fixed, one

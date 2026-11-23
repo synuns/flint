@@ -26,7 +26,7 @@
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 하네스">
   <a href="https://github.com/synuns/flint/actions/workflows/ci.yml"><img src="https://github.com/synuns/flint/actions/workflows/ci.yml/badge.svg" alt="CI 상태"></a>
-  <img src="https://img.shields.io/badge/release-v1.30.2-blue" alt="v1.30.2">
+  <img src="https://img.shields.io/badge/release-v1.31.0-blue" alt="v1.31.0">
 </p>
 <p align="center">
   <sub>8종은 자동 등록(A급) 하니스 기준 — 전체 지원 목록은 아래 <a href="#에이전트--어댑터">어댑터 표</a>에 있습니다.</sub>
@@ -48,6 +48,7 @@ flint는 이걸 바꿉니다. 에이전트가 무언가 배우면 — 결정, �
 
 사람은 Obsidian에 노트를 남깁니다. 에이전트는 flint에 기억을 남깁니다 — 불과 도구를 얻기 위해 두드리는 부싯돌처럼.
 
+> v1.31.0 · 네이티브 엔진 — `flint engine status|start|stop` 서비스 제어 · `setup --engine managed-container|native|external`(옵트인 모드 선택 — 네이티브: 해시·버전 검증 다운로더·launchd/systemd user 서비스 등록·첫 기동 자격증명 초기화) · container→native 전환(실패 시 원복) · doctor `engine` 검사(등록·실행·버전·핀 정합) · R123 이월(로컬 파서 unknown-flag 에코 토큰 마스킹) · [전체 변경 이력](docs/HISTORY.md)
 > v1.30.2 · r122 패치 — 문서가 무플래그 첫 설치 라우팅 정합(관리형 경로 포트 배정·단계 안내 수정)·unknown-flag 에코 토큰 마스킹(인라인 DSN 거부의 파서 누출 차단)·?port= 수기 엣지 선언 · [전체 변경로그](docs/HISTORY.md)
 > v1.30.1 · 설치 감사 — 문서를 출시된 v1.30.0 구현에 맞게 정정(엔진 thresholds 3종은 코드 기본값·meta 등록은 후속 · pull/TLS/health-timeout 분류기·연결 수준 악수·외부 모드 purge 게이팅은 이 패치 추가 · compose v1은 처방 안내(폴백 실행 아님) · 포트 배정은 관리형 setup 경로(무플래그 첫 설치 포함)) · 네이티브 L0 스파이크 결론 정정(스펙 통과 기준 4항 잔여 — v1.31.0 G2에서 계획 수립) · doctor 종수 23으로 정정 · [전체 변경 이력](docs/HISTORY.md)
 > v1.30.0 · 설치 여정 — `flint setup`이 엔진 compose 정의를 바이너리에 내장(프로젝트명 `flint`·다이제스트 핀 4방 동치 가드 — 저장소 체크아웃 불필요, 첫 실행이 pull·기동·ping+migrate를 한 번에 완결하고 원인별 오류 처방을 제공) · `--port` 자동 배정(5434부터 순차, 5499 예약) · 엔진 확인 악수(Doltgres·핀 검증) · `--engine-url` 외부 엔진 모드(루프백 한정·DSN 마스킹) · 기존 설치 수동 전환 절차(RUNBOOK §11) · 네이티브 엔진 L0 스파이크 통과(v1.31.0 착수) · [전체 변경 이력](docs/HISTORY.md)
@@ -169,7 +170,7 @@ flint setup --mcp
 <details>
 <summary><code>flint setup</code>이 하는 일</summary>
 
-내장 compose 정의(프로젝트명 `flint`·Doltgres 이미지 다이제스트 핀 — ADR-0020)를 임시 파일로 기록해 `--project-name flint`로 엔진을 띄우고, 같은 실행에서 스키마를 마이그레이션하고 다음 단계를 안내합니다 — 임의 디렉터리에서 동작합니다. 호스트 포트 기본값은 5434이고, `--port N`이 관리형 경로를 실행합니다 — 기존 `flint` 프로젝트 설치는 포트를 승계하고, 요청 포트가 점유됐으면 루프백 바인드 시험으로 빈 포트를 순차 탐색해(5499 제외 — 전용 테스트 엔진 예약) config.json에 기록합니다. 기본 DSN은 `postgresql://flint:flint-dev@localhost:5434/flint`이며 `FLINT_DSN`으로 바꿀 수 있습니다. 직접 운영하는 Doltgres가 있다면 `flint setup --engine-url`로 기록합니다(루프백 한정 — DSN은 `FLINT_ENGINE_URL`이나 `--engine-url-file`로 전달, 인라인 값은 거부·출력은 마스킹). 정리는 `flint teardown`으로.
+내장 compose 정의(프로젝트명 `flint`·Doltgres 이미지 다이제스트 핀 — ADR-0020)를 임시 파일로 기록해 `--project-name flint`로 엔진을 띄우고, 같은 실행에서 스키마를 마이그레이션합니다 — 임의 디렉터리에서 동작합니다. 관리형 실행은 stdout에 JSON 상태 한 줄(`{"status":"ok","mode":"managed","port":N}` — 진행 노트는 stderr)로 마무리합니다. 호스트 포트 기본값은 5434이며, 관리형 경로는 `--port N`과 무플래그 첫 설치(기록된 DSN 없음)에서 동일하게 실행됩니다 — 기존 `flint` 프로젝트 설치는 포트를 승계하고, 요청 포트가 점유됐으면 루프백 바인드 시험으로 빈 포트를 순차 탐색해(5499 제외 — 전용 테스트 엔진 예약) config.json에 기록합니다. 기본 DSN은 `postgresql://flint:flint-dev@localhost:5434/flint`이며 `FLINT_DSN`으로 바꿀 수 있습니다. 직접 운영하는 Doltgres가 있다면 `flint setup --engine-url`로 기록합니다(루프백 한정 — DSN은 `FLINT_ENGINE_URL`이나 `--engine-url-file`로 전달, 인라인 값은 거부·출력은 마스킹). 정리는 `flint teardown`으로.
 
 </details>
 
@@ -252,7 +253,8 @@ flint는 여러분의 코딩 세션 안에서 동작하므로, 제약 조건은 
 
 | 커맨드 | 설명 |
 | :--- | :--- |
-| `flint setup` | Doltgres 기동(내장 compose·다이제스트 핀) · 마이그레이션 · 시드/플러그인 안내 — `--port N` · `--engine-url`(외부 엔진, 루프백 한정) |
+| `flint setup` | Doltgres 기동(내장 compose·다이제스트 핀) · 마이그레이션 · 시드/플러그인 안내 — `--port N` · `--engine managed-container\|native\|external`(모드 선택 — 네이티브는 핀 버전 다운로드·플랫폼 서비스 등록·자격증명 초기화) · `--engine-url`(외부 엔진, 루프백 한정) |
+| `flint engine` | 기록된 엔진 모드의 서비스 제어 — `status` · `start` · `stop`(모드×명령 행렬: managed-container는 내장 compose, native는 등록된 서비스, external은 안내만 — 미정의 조합은 안내와 함께 거부) |
 | `flint seed --demo` | 내장 합성 데모 데이터셋을 격리 데모 DB에 적재(db명 + `_demo`, `FLINT_DEMO_DSN` 오버라이드; 멱등; `--reset --yes`는 `demo/` 행만 삭제 — 소유자 불일치 exit 3) |
 | `flint update` | 최신 릴리스 자가 업데이트(체크섬 검증·`--check` 드라이런) |
 | `flint tuning` | 임계값 키 조회·오버라이드(`list`/`get`/`set`/`reset`; 자율 튜닝 표면 `auto off\|shadow`·`what-if`·`status`); TTY 무인수 호출은 대화형 폼 진입(서브커맨드·플래그·비TTY·FLINT_NO_TUI는 현행 모드 유지·`--tui` 강제) |
@@ -293,7 +295,7 @@ flint는 여러분의 코딩 세션 안에서 동작하므로, 제약 조건은 
 
 ### 대화형 TUI (v1.5.0)
 
-`flint setup`(무인자) 위저드와 `pending`·`export`·`report`의 4화면. 터미널에서는 기본 대화형 — 무인자 실행 시 TUI가 열린다(v1.5.2부터). 파이프·비터미널 실행과 플래그 지정 시 기존 출력이 그대로 유지된다. `flint maintain --tui`(v1.6.0)는 옵트인 관리 화면 — 의심 목록 → 병합 시 무엇이 남는지 미리보기 → 병합/유지/무효화, 실행은 기존 서브커맨드에 위임.
+`flint setup`(무인자, 이미 설정된 기기) 위저드와 `pending`·`export`·`report`의 4화면. DSN이 기록되지 않은 무플래그 첫 설치는 위저드 대신 관리형 엔진 경로로 진입한다(포트 배정 · 엔진 기동 · 마이그레이션 — JSON 상태 한 줄로 마무리). 터미널에서는 기본 대화형 — 무인자 실행 시 TUI가 열린다(v1.5.2부터). 파이프·비터미널 실행과 플래그 지정 시 기존 출력이 그대로 유지된다. `flint maintain --tui`(v1.6.0)는 옵트인 관리 화면 — 의심 목록 → 병합 시 무엇이 남는지 미리보기 → 병합/유지/무효화, 실행은 기존 서브커맨드에 위임.
 
 운영: [docs/RUNBOOK.md](docs/RUNBOOK.md) · 튜닝: [docs/TUNING.md](docs/TUNING.md) · 메트릭: [docs/METRICS.md](docs/METRICS.md) · 성능: [docs/PERF.md](docs/PERF.md) · 문서 지도: [docs/README.md](docs/README.md)
 

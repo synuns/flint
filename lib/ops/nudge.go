@@ -48,7 +48,7 @@ func RunNudge(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 			return 0
 		}
 		if strings.HasPrefix(a, "-") {
-			fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf(i18n.T("err.unknown_flag")+" — "+i18n.T("usage.nudge"), a)))
+			fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf(i18n.T("err.unknown_flag")+" — "+i18n.T("usage.nudge"), wire.MaskToken(a))))
 			return 3
 		}
 	}

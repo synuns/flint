@@ -66,7 +66,7 @@ func RunApprove(ctx context.Context, st wire.Store, args []string, stdin io.Read
 				supersede = n
 			}
 		default:
-			fmt.Fprintln(stdout, wire.ErrLine(approveUsageErr("unknown flag: %s", args[i])))
+			fmt.Fprintln(stdout, wire.ErrLine(approveUsageErr("unknown flag: %s", wire.MaskToken(args[i]))))
 			return 3
 		}
 	}

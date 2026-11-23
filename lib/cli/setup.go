@@ -260,6 +260,7 @@ func runSetup(ctx context.Context, st Store, args []string, stdin io.Reader, std
 			{Name: "--exposure", Value: true},
 			{Name: "--engine-url", Value: true},
 			{Name: "--engine-url-file", Value: true},
+			{Name: "--engine", Value: true},
 			{Name: "--port", Value: true},
 		},
 		Usage: i18n.T("usage.setup"),
@@ -267,6 +268,13 @@ func runSetup(ctx context.Context, st Store, args []string, stdin io.Reader, std
 	if perr != nil {
 		fmt.Fprintln(stdout, errLine(perr))
 		return 3
+	}
+	if res.Given("--engine") {
+		if !res.HasValue("--engine") {
+			fmt.Fprintln(stdout, errLine(errors.New("setup: --engine requires managed-container|native|external")))
+			return 3
+		}
+		return runSetupEngineMode(ctx, stdout, res.Value("--engine"))
 	}
 	if res.Given("--engine-url") {
 		fmt.Fprintln(stdout, errLine(errors.New("setup: --engine-url does not accept an inline value — use FLINT_ENGINE_URL or --engine-url-file (see docs/QUICKSTART.md)")))
@@ -495,7 +503,7 @@ func runTeardown(ctx context.Context, st Store, args []string, stdin io.Reader, 
 		case "--yes":
 			confirm = true
 		default:
-			fmt.Fprintln(stdout, errLine(wire.UsageErrorf(i18n.T("err.unknown_flag")+" — "+i18n.T("usage.teardown"), a)))
+			fmt.Fprintln(stdout, errLine(wire.UsageErrorf(i18n.T("err.unknown_flag")+" — "+i18n.T("usage.teardown"), wire.MaskToken(a))))
 			return 3
 		}
 	}

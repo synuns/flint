@@ -25,7 +25,7 @@ func RunCompact(ctx context.Context, st wire.Store, args []string, stdin io.Read
 
 	for _, a := range args {
 		if strings.HasPrefix(a, "-") {
-			fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf(i18n.T("err.unknown_flag")+" — "+i18n.T("usage.compact"), a)))
+			fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf(i18n.T("err.unknown_flag")+" — "+i18n.T("usage.compact"), wire.MaskToken(a))))
 			return 3
 		}
 	}

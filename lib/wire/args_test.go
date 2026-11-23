@@ -170,6 +170,15 @@ func TestParseArgsOrderAndIndex(t *testing.T) {
 	}
 }
 
+func TestMaskTokenExportedV1310(t *testing.T) {
+	if got := MaskToken("postgresql://flint:pw@127.0.0.1:5434/db"); got != "postgresql://***" {
+		t.Fatalf("MaskToken = %q, want postgresql://***", got)
+	}
+	if got := MaskToken("--plain"); got != "--plain" {
+		t.Fatalf("MaskToken(--plain) = %q, want 불변", got)
+	}
+}
+
 func TestUnknownFlagMasksTokensV1302(t *testing.T) {
 	_, err := ParseArgs([]string{"--engine-url=postgresql://flint:pw@127.0.0.1:5434/db"}, ArgSpec{})
 	if err == nil {

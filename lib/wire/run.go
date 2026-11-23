@@ -36,7 +36,7 @@ func Run(args []string, stdin io.Reader, stdout io.Writer, newStore func(ctx con
 	}
 	ctx := context.Background()
 
-	if cmd == "version" || cmd == "teardown" || cmd == "mcp" || cmd == "update" || cmd == "seed" {
+	if cmd == "version" || cmd == "teardown" || cmd == "mcp" || cmd == "update" || cmd == "seed" || cmd == "engine" {
 		return run(ctx, nil, rest, stdin, stdout)
 	}
 
@@ -72,7 +72,7 @@ func RunHelp(w io.Writer) int {
 }
 
 func HelpSummary() string {
-	return "write capture · read search · hot injection · brief external-AI briefing · status state · profile exposure · pending review · doctor diagnostics · report observability · export extraction (4 formats · pam standard · --out sha256 sidecar) · distill insight extraction (recall-scored markdown · --out local folder · row-level idempotence) · import migration (jsonl·pam) · backup/restore backups · sync remote knowledge sync (push/pull · operator command) · maintain upkeep (--supersede handover · --decay-audit archive candidates · --merge-audit duplicate pair report · --recall-audit bad-recall feedback report · --reaffirm validity refresh · --recheck conditions review · --gc engine garbage collection [--shallow] --yes — disconnects sessions · --purge-dropped dropped-database purge (dry-run default · loopback-only · --yes applies — irreversible) · approve promotion · tuning thresholds (auto mode off|shadow — shadow predict-only) · update self-update · seed demo data (--demo · isolated _demo database · --reset --yes) · done/compact/nudge hooks · setup/teardown install · audit/diff time travel · mcp server · version · index vault indexing (markdown vault snapshot diff · --vault/--limit)"
+	return "write capture · read search · hot injection · brief external-AI briefing · status state · profile exposure · pending review · doctor diagnostics · report observability · export extraction (4 formats · pam standard · --out sha256 sidecar) · distill insight extraction (recall-scored markdown · --out local folder · row-level idempotence) · import migration (jsonl·pam) · backup/restore backups · sync remote knowledge sync (push/pull · operator command) · maintain upkeep (--supersede handover · --decay-audit archive candidates · --merge-audit duplicate pair report · --recall-audit bad-recall feedback report · --reaffirm validity refresh · --recheck conditions review · --gc engine garbage collection [--shallow] --yes — disconnects sessions · --purge-dropped dropped-database purge (dry-run default · loopback-only · --yes applies — irreversible) · approve promotion · tuning thresholds (auto mode off|shadow — shadow predict-only) · update self-update · seed demo data (--demo · isolated _demo database · --reset --yes) · done/compact/nudge hooks · setup/teardown install · engine service control (status/start/stop · setup --engine mode) · audit/diff time travel · mcp server · version · index vault indexing (markdown vault snapshot diff · --vault/--limit)"
 }
 
 type UsageError struct{ err error }
