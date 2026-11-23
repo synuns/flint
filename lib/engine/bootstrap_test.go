@@ -102,7 +102,7 @@ func TestBootstrapOrderCreatesWhenMissing(t *testing.T) {
 
 	got := kindsWithText(*events)
 	if len(got) != 6 {
-		t.Fatalf("event count = %d (%v), want 6", len(got), got)
+		t.Fatalf("event count = %d (%v), want 8", len(got), got)
 	}
 	if got[0] != "open:"+bootstrapSuperuserDSN {
 		t.Errorf("first open = %q, want superuser dsn", got[0])
@@ -113,14 +113,20 @@ func TestBootstrapOrderCreatesWhenMissing(t *testing.T) {
 	if !strings.HasPrefix(got[2], "exec:CREATE ROLE") {
 		t.Errorf("third event = %q, want CREATE ROLE", got[2])
 	}
-	if got[3] != "open:"+bootstrapDefaultDSN {
-		t.Errorf("fourth event = %q, want default dsn open", got[3])
+	if !strings.Contains(got[3], "pg_database") {
+		t.Errorf("fourth event = %q, want database lookup", got[3])
 	}
-	if got[4] != "close:"+bootstrapDefaultDSN {
-		t.Errorf("fifth event = %q, want default pool close", got[4])
+	if !strings.HasPrefix(got[4], "exec:CREATE DATABASE") {
+		t.Errorf("fifth event = %q, want CREATE DATABASE", got[4])
 	}
-	if got[5] != "close:"+bootstrapSuperuserDSN {
-		t.Errorf("sixth event = %q, want superuser pool close", got[5])
+	if got[5] != "open:"+bootstrapDefaultDSN {
+		t.Errorf("sixth event = %q, want default dsn open", got[5])
+	}
+	if got[6] != "close:"+bootstrapDefaultDSN {
+		t.Errorf("seventh event = %q, want default pool close", got[6])
+	}
+	if got[7] != "close:"+bootstrapSuperuserDSN {
+		t.Errorf("eighth event = %q, want superuser pool close", got[7])
 	}
 	if !super.closed {
 		t.Errorf("superuser pool not closed")
