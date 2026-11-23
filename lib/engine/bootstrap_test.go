@@ -101,7 +101,7 @@ func TestBootstrapOrderCreatesWhenMissing(t *testing.T) {
 	}
 
 	got := kindsWithText(*events)
-	if len(got) != 6 {
+	if len(got) != 8 {
 		t.Fatalf("event count = %d (%v), want 8", len(got), got)
 	}
 	if got[0] != "open:"+bootstrapSuperuserDSN {
