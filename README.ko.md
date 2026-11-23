@@ -26,7 +26,7 @@
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 하네스">
   <a href="https://github.com/synuns/flint/actions/workflows/ci.yml"><img src="https://github.com/synuns/flint/actions/workflows/ci.yml/badge.svg" alt="CI 상태"></a>
-  <img src="https://img.shields.io/badge/release-v1.30.1-blue" alt="v1.30.1">
+  <img src="https://img.shields.io/badge/release-v1.30.2-blue" alt="v1.30.2">
 </p>
 <p align="center">
   <sub>8종은 자동 등록(A급) 하니스 기준 — 전체 지원 목록은 아래 <a href="#에이전트--어댑터">어댑터 표</a>에 있습니다.</sub>
@@ -48,7 +48,8 @@ flint는 이걸 바꿉니다. 에이전트가 무언가 배우면 — 결정, �
 
 사람은 Obsidian에 노트를 남깁니다. 에이전트는 flint에 기억을 남깁니다 — 불과 도구를 얻기 위해 두드리는 부싯돌처럼.
 
-> v1.30.1 · 설치 감사 — 문서를 출시된 v1.30.0 구현에 맞게 정정(엔진 thresholds 3종은 코드 기본값·meta 등록은 후속 · pull/TLS/health-timeout 분류기·연결 수준 악수·외부 모드 purge 게이팅은 이 패치 추가 · compose v1은 처방 안내(폴백 실행 아님) · 포트 배정은 `--port` 경로 한정) · 네이티브 L0 스파이크 결론 정정(스펙 통과 기준 4항 잔여 — v1.31.0 G2에서 계획 수립) · doctor 종수 23으로 정정 · [전체 변경 이력](docs/HISTORY.md)
+> v1.30.2 · r122 패치 — 문서가 무플래그 첫 설치 라우팅 정합(관리형 경로 포트 배정·단계 안내 수정)·unknown-flag 에코 토큰 마스킹(인라인 DSN 거부의 파서 누출 차단)·?port= 수기 엣지 선언 · [전체 변경로그](docs/HISTORY.md)
+> v1.30.1 · 설치 감사 — 문서를 출시된 v1.30.0 구현에 맞게 정정(엔진 thresholds 3종은 코드 기본값·meta 등록은 후속 · pull/TLS/health-timeout 분류기·연결 수준 악수·외부 모드 purge 게이팅은 이 패치 추가 · compose v1은 처방 안내(폴백 실행 아님) · 포트 배정은 관리형 setup 경로(무플래그 첫 설치 포함)) · 네이티브 L0 스파이크 결론 정정(스펙 통과 기준 4항 잔여 — v1.31.0 G2에서 계획 수립) · doctor 종수 23으로 정정 · [전체 변경 이력](docs/HISTORY.md)
 > v1.30.0 · 설치 여정 — `flint setup`이 엔진 compose 정의를 바이너리에 내장(프로젝트명 `flint`·다이제스트 핀 4방 동치 가드 — 저장소 체크아웃 불필요, 첫 실행이 pull·기동·ping+migrate를 한 번에 완결하고 원인별 오류 처방을 제공) · `--port` 자동 배정(5434부터 순차, 5499 예약) · 엔진 확인 악수(Doltgres·핀 검증) · `--engine-url` 외부 엔진 모드(루프백 한정·DSN 마스킹) · 기존 설치 수동 전환 절차(RUNBOOK §11) · 네이티브 엔진 L0 스파이크 통과(v1.31.0 착수) · [전체 변경 이력](docs/HISTORY.md)
 > v1.28.1 · R119 패치 — T()가 ko에 없는 키에 en 폴백으로 응답 — 신규 키가 원시 키 문자열로 노출되지 않음(R119-2의 ≤24시간 캐시 참고 사항은 수용 확정·자동 해소) · [전체 변경로그](docs/HISTORY.md)
 > v1.28.0 · 표면 확장·품질 청산 — TTY에서 무인수 `flint read`·`flint tuning`이 대화형 TUI로 진입(플래그 호출·비TTY·FLINT_NO_TUI는 현행 플래그 모드 그대로·read 계측 보존)·i18n KO 카탈로그(FLINT_LANG·usage 우선 적용)·테스트 통합(8도메인 버전 접미 56파일→8·스위트 592 불변)·BRAND 동향 회수·BREW tap 검토·서명 재실증 · [전체 변경로그](docs/HISTORY.md)

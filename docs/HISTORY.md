@@ -6,6 +6,25 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.30.2 patch (2026-11-24) — install-audit followup: docs routing sync · token masking
+
+R122 findings (3): the medium docs mismatch fixed, one low fixed, one
+declared.
+
+- **[medium] docs match the fresh no-flag routing**: a bare `flint setup`
+  on a fresh machine now runs the managed path (port probe · config ·
+  ping retries · migrate) — QUICKSTART/README notes that scoped the
+  port assignment and the step guide to `--port` only are corrected, and
+  the HISTORY entry records the routing change.
+- **[low] unknown-flag echo masks tokens**: an unknown `--flag=value`
+  carrying a `scheme://...` value now echoes as `scheme://***` — the
+  inline-DSN rejection no longer leaks the DSN through the parser's
+  error echo.
+- **[low, accepted] `?port=` query parameter in a hand-edited DSN** can
+  disagree with the config port substitution (pgx honors the query
+  param). Declared a hand-edit edge: the setup path records `port`
+  only.
+
 ### v1.30.1 patch (2026-11-24) — install-audit: R121 문서 정정·버전 승격
 
 R121 설치 여정 감사의 문서 레인(코드 정정 — 포트→DSN 체인·악수 연결·

@@ -26,7 +26,7 @@
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 harnesses">
   <a href="https://github.com/synuns/flint/actions/workflows/ci.yml"><img src="https://github.com/synuns/flint/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
-  <img src="https://img.shields.io/badge/release-v1.30.1-blue" alt="v1.30.1">
+  <img src="https://img.shields.io/badge/release-v1.30.2-blue" alt="v1.30.2">
 </p>
 <p align="center">
   <sub>8 counts the auto-registration (tier A) harnesses — the full support list is in the <a href="#agents--adapters">adapter table</a> below.</sub>
@@ -48,7 +48,8 @@ It adds up. Week one, it learns the stack. By week four, it remembers why you ch
 
 Humans take notes in Obsidian. Agents take notes in flint — the stone you strike to make fire and tools.
 
-> v1.30.1 · install-audit — docs corrected to match the shipped v1.30.0 implementation (engine thresholds are code constants pending meta registration · pull/TLS/health-timeout classifiers, connection-level handshake and external-mode purge gating are this patch's additions · compose v1 is a prescription, not a fallback · port assignment scoped to `--port`) · native L0 spike reworded (four spec pass criteria remain open, planned at v1.31.0 G2) · doctor count corrected to 23 · [full changelog](docs/HISTORY.md)
+> v1.30.2 · r122 patch — docs follow the fresh no-flag routing (port assignment on the managed path, step guide corrected) · unknown-flag echo masks `scheme://` tokens (the inline-DSN rejection no longer leaks through the parser) · `?port=` hand-edit edge declared · [full changelog](docs/HISTORY.md)
+> v1.30.1 · install-audit — docs corrected to match the shipped v1.30.0 implementation (engine thresholds are code constants pending meta registration · pull/TLS/health-timeout classifiers, connection-level handshake and external-mode purge gating are this patch's additions · compose v1 is a prescription, not a fallback · port assignment on the managed setup path (bare no-flag setup included)) · native L0 spike reworded (four spec pass criteria remain open, planned at v1.31.0 G2) · doctor count corrected to 23 · [full changelog](docs/HISTORY.md)
 > v1.30.0 · install-journey — `flint setup` ships the engine compose definition inside the binary (project name `flint` · digest-pinned image with a 4-way equivalence guard — no repository checkout; the first run pulls, starts and finishes ping + migrate in one go, with per-cause error prescriptions) · `--port` auto-assignment probes upward from 5434 (5499 reserved) · engine handshake verifies Doltgres and the pin · `--engine-url` external engine mode (loopback-only, DSN masked) · manual conversion procedure for pre-v1.30.0 installs (RUNBOOK §11) · native-engine L0 spike passed (v1.31.0 go-ahead) · [full changelog](docs/HISTORY.md)
 > v1.28.1 · R119 patch — T() gains an en fallback for missing ko keys — new keys no longer leak raw key strings (≤24h cache note from R119-2 declared accepted, self-resolving) · [full changelog](docs/HISTORY.md)
 > v1.28.0 · surface cleanup — `flint read` / `flint tuning` with no arguments on a TTY open an interactive TUI (flagged·non-TTY·FLINT_NO_TUI invocations keep the flag mode unchanged; read instrumentation preserved) · i18n KO catalog (`FLINT_LANG`, usage surface first) · test consolidation (8 domains, 56 version-suffixed files into 8, suite count unchanged at 592) · BRAND sweep · BREW tap review · signature re-verification · [full changelog](docs/HISTORY.md)
