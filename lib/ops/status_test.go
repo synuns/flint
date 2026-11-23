@@ -93,6 +93,10 @@ func TestStatusVaultRowCorruptNull(t *testing.T) {
 }
 
 func TestStatusEngineMemMB(t *testing.T) {
+	t.Setenv("FLINT_DSN", "postgresql://flint:flint-dev@localhost:5434/flint")
+	withComposePs(t, func(context.Context) ([]byte, error) {
+		return []byte(`[{"Name":"flint-doltgres-1","State":"running","Publishers":[{"PublishedPort":5434}]}]`), nil
+	})
 	withEngineStats(t, func(context.Context) ([]byte, error) {
 		return []byte("{\"Name\":\"flint-doltgres-1\",\"MemUsage\":\"50.5MiB / 3.84GiB\"}\n"), nil
 	})
@@ -115,6 +119,10 @@ func TestStatusEngineMemMB(t *testing.T) {
 }
 
 func TestStatusEngineMemMBOmitted(t *testing.T) {
+	t.Setenv("FLINT_DSN", "postgresql://flint:flint-dev@localhost:5434/flint")
+	withComposePs(t, func(context.Context) ([]byte, error) {
+		return []byte(`[{"Name":"flint-doltgres-1","State":"running","Publishers":[{"PublishedPort":5434}]}]`), nil
+	})
 	withEngineStats(t, func(context.Context) ([]byte, error) {
 		return nil, errors.New("docker not installed")
 	})

@@ -2,7 +2,7 @@ name: flint-test
 
 services:
   doltgres:
-    image: dolthub/doltgresql:latest
+    image: dolthub/doltgresql@sha256:3a119bb6726a0be283cfda2a73fa9fbdff58df06c0b850f245cd1828f57281a6
     ports:
       - "127.0.0.1:5499:5432"
     environment:

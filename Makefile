@@ -1,8 +1,9 @@
 DSN ?= postgresql://flint:flint-dev@localhost:5434/flint
 
-# v0.9.3 R1 테스트 격리: tests/는 이 DSN만 쓴다(기본 flint_test — 운영
-# flint와 분리). test·e2e 타깃에만 주입하고 DSN(운영) 기본값은 그대로.
-FLINT_TEST_DSN ?= postgresql://flint:flint-dev@localhost:5434/flint_test
+# v1.29.1 R116: 테스트 기본 DSN은 전용 엔진(docker-compose.test.yml·
+# internal/testengine 기본값과 동일 문자열). 운영 포트 5434를 기본 주입해
+# 격리를 무력화하지 않는다 — CI는 ci.yml job env가 우선한다.
+FLINT_TEST_DSN ?= postgresql://flint:pw@127.0.0.1:5499/flint_test
 
 # 버전 주입(T33): 기본 dev, 릴리스는 make build VERSION=0.3.0
 # v0.12.0 R2: 최근 git 태그에서 파생, 태그 부재 클론은 dev 폴백.

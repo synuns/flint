@@ -26,7 +26,7 @@
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 하네스">
   <a href="https://github.com/synuns/flint/actions/workflows/ci.yml"><img src="https://github.com/synuns/flint/actions/workflows/ci.yml/badge.svg" alt="CI 상태"></a>
-  <img src="https://img.shields.io/badge/release-v1.29.0-blue" alt="v1.29.0">
+  <img src="https://img.shields.io/badge/release-v1.29.1-blue" alt="v1.29.1">
 </p>
 <p align="center">
   <sub>8종은 자동 등록(A급) 하니스 기준 — 전체 지원 목록은 아래 <a href="#에이전트--어댑터">어댑터 표</a>에 있습니다.</sub>
@@ -48,6 +48,7 @@ flint는 이걸 바꿉니다. 에이전트가 무언가 배우면 — 결정, �
 
 사람은 Obsidian에 노트를 남깁니다. 에이전트는 flint에 기억을 남깁니다 — 불과 도구를 얻기 위해 두드리는 부싯돌처럼.
 
+> v1.29.1 · r116 패치 — 격리 감사 수정: Makefile FLINT_TEST_DSN 기본값을 전용 엔진(5499)으로(운영 포트 기본값이 로컬 격리 무력화)·docker-compose.test.yml 이미지 다이제스트 고정(동치 가드)·엔진 컨테이너 선택 포트 기반(EngineMemMB·restarts의 오엔진 판독 방지)·tests/ 헬퍼의 FLINT_REALDB_REQUIRED 준수(전 경로 skip 0 센티널) · [전체 변경로그](docs/HISTORY.md)
 > v1.29.0 · 물리 격리 — 테스트 전용 엔진(`docker-compose.test.yml` — 127.0.0.1:5499·`internal/testengine` lazy 기동 + 스크래치 수명주기 + 런 종료 purge·테스트는 운영 엔진 무접촉)·`maintain --purge-dropped`(복원 가능 DROP DB 목록 dry-run → 되돌림 불가 purge, 루프백 한정)·doctor `dropped_dbs`·`stray_dbs` 경고(thresholds `dropped_dbs_warn`·`stray_dbs_warn`·meta `stray_dbs_allow` 면제)·engine-footprint 재시작 횟수 표시 · [전체 변경로그](docs/HISTORY.md)
 > v1.26.3 · 패치 — 주석 게이트: `internal/commentlint`(지시어 외 Go 주석이면 go test 실패)·`scripts/csweep.go`(AST 스윕 도구 repo 편입)·`make ci`의 `scripts/check_comments.py`(git 추적 셸·파이썬 전수·따옴표/heredoc 인식)·스크립트 주석 227건 삭제 · [전체 변경로그](docs/HISTORY.md)
 > v1.26.2 · r113 패치 — 주석 스윕: 556파일·23,960 서술 주석 삭제(go/parser AST — 문자열 리터럴 미페이지·`//go:*`·`//nolint`·`// +build` 지시어 보존) · README 하이라이트 이력 복원(범프 스크립트 결함이 37줄 전량 라벨 교체) · 범프 스크립트는 배지만 동기(하이라이트 미조정) · release-gate 하이라이트 라벨 유일 검사 추가 · [전체 변경로그](docs/HISTORY.md)

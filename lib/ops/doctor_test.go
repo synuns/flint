@@ -1199,6 +1199,10 @@ func TestDoctorEngineFootprintSpec(t *testing.T) {
 }
 
 func TestDoctorEngineFootprintSkip(t *testing.T) {
+	t.Setenv("FLINT_DSN", "postgresql://flint:flint-dev@localhost:5434/flint")
+	withComposePs(t, func(context.Context) ([]byte, error) {
+		return []byte(`[{"Name":"flint-doltgres-1","State":"running","Publishers":[{"PublishedPort":5434}]}]`), nil
+	})
 	cases := map[string]func(context.Context) ([]byte, error){
 		"docker absent": func(context.Context) ([]byte, error) { return nil, errors.New("docker not installed") },
 		"no flint row": func(context.Context) ([]byte, error) {
@@ -1215,9 +1219,28 @@ func TestDoctorEngineFootprintSkip(t *testing.T) {
 	}
 }
 
-func TestDoctorEngineFootprintOK(t *testing.T) {
+func TestDoctorEngineFootprintSkipWhenSelectionFails(t *testing.T) {
+	t.Setenv("FLINT_DSN", "postgresql://flint:flint-dev@localhost:5434/flint")
+	withComposePs(t, func(context.Context) ([]byte, error) {
+		return nil, errors.New("docker compose ps failed")
+	})
 	withEngineStats(t, func(context.Context) ([]byte, error) {
-		return []byte("{\"Name\":\"other-db-1\",\"MemUsage\":\"900MiB / 4GiB\"}\n" +
+		return []byte("{\"Name\":\"flint-doltgres-1\",\"MemUsage\":\"50.5MiB / 3.84GiB\"}\n"), nil
+	})
+	c := checkEngineFootprint(context.Background(), nil)
+	if c.Status != "skip" {
+		t.Fatalf("status=%q, want skip(엔진 선택 실패): %+v", c.Status, c)
+	}
+}
+
+func TestDoctorEngineFootprintOK(t *testing.T) {
+	t.Setenv("FLINT_DSN", "postgresql://flint:flint-dev@localhost:5434/flint")
+	withComposePs(t, func(context.Context) ([]byte, error) {
+		return []byte(`[{"Name":"flint-test-doltgres-1","State":"running","Publishers":[{"PublishedPort":5499}]},` +
+			`{"Name":"flint-doltgres-1","State":"running","Publishers":[{"PublishedPort":5434}]}]`), nil
+	})
+	withEngineStats(t, func(context.Context) ([]byte, error) {
+		return []byte("{\"Name\":\"flint-test-doltgres-1\",\"MemUsage\":\"900MiB / 4GiB\"}\n" +
 			"{\"Name\":\"flint-doltgres-1\",\"MemUsage\":\"50.5MiB / 3.84GiB\"}\n"), nil
 	})
 	c := checkEngineFootprint(context.Background(), nil)
@@ -1225,7 +1248,34 @@ func TestDoctorEngineFootprintOK(t *testing.T) {
 		t.Fatalf("status=%q, want ok: %+v", c.Status, c)
 	}
 	if !strings.Contains(c.Detail, "50MB") {
-		t.Fatalf("detail=%q, want 50MB 포함", c.Detail)
+		t.Fatalf("detail=%q, want 50MB — 전용 엔진(5499) 900MB가 아니라 DSN 포트 컨테이너 선택", c.Detail)
+	}
+}
+
+func TestEnginePortResolvesDSNPort(t *testing.T) {
+	t.Setenv("FLINT_DSN", "postgresql://flint:pw@127.0.0.1:5499/flint_test")
+	if got := enginePort(); got != 5499 {
+		t.Fatalf("enginePort=%d, want 5499(해소 DSN 포트)", got)
+	}
+	t.Setenv("FLINT_DSN", "postgresql://flint@localhost/flint")
+	if got := enginePort(); got != doctorPort {
+		t.Fatalf("enginePort=%d, want 폴백 %d(포트 없는 DSN)", got, doctorPort)
+	}
+}
+
+func TestEngineContainerNameMatchesDSNPort(t *testing.T) {
+	t.Setenv("FLINT_DSN", "postgresql://flint:flint-dev@localhost:5434/flint")
+	withComposePs(t, func(context.Context) ([]byte, error) {
+		return []byte(`[{"Name":"flint-test-doltgres-1","State":"running","Publishers":[{"PublishedPort":5499}]},` +
+			`{"Name":"flint-doltgres-2","State":"exited","Publishers":[{"PublishedPort":5434}]},` +
+			`{"Name":"flint-doltgres-1","State":"running","Publishers":[{"PublishedPort":5434}]}]`), nil
+	})
+	name, err := engineContainerName(context.Background())
+	if err != nil {
+		t.Fatalf("engineContainerName: %v", err)
+	}
+	if name != "flint-doltgres-1" {
+		t.Fatalf("name=%q, want flint-doltgres-1 — 접두 first-match는 전용 엔진(5499)·exited 컨테이너를 잘못 고른다", name)
 	}
 }
 
@@ -1396,6 +1446,10 @@ func TestReportTextUpdateCheckedAt(t *testing.T) {
 }
 
 func TestDoctorEngineStatsTimeout5s(t *testing.T) {
+	t.Setenv("FLINT_DSN", "postgresql://flint:flint-dev@localhost:5434/flint")
+	withComposePs(t, func(context.Context) ([]byte, error) {
+		return []byte(`[{"Name":"flint-doltgres-1","State":"running","Publishers":[{"PublishedPort":5434}]}]`), nil
+	})
 	var budget time.Duration
 	withEngineStats(t, func(ctx context.Context) ([]byte, error) {
 		if d, ok := ctx.Deadline(); ok {
@@ -1581,6 +1635,10 @@ func withRestartCountV1290(t *testing.T, fn func() (int, error)) {
 }
 
 func TestDoctorEngineFootprintRestartsV1290(t *testing.T) {
+	t.Setenv("FLINT_DSN", "postgresql://flint:flint-dev@localhost:5434/flint")
+	withComposePs(t, func(context.Context) ([]byte, error) {
+		return []byte(`[{"Name":"flint-doltgres-1","State":"running","Publishers":[{"PublishedPort":5434}]}]`), nil
+	})
 	withEngineStats(t, func(context.Context) ([]byte, error) {
 		return []byte("{\"Name\":\"flint-doltgres-1\",\"MemUsage\":\"50.5MiB / 3.84GiB\"}\n"), nil
 	})

@@ -6,6 +6,32 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.29.1 patch (2026-11-23) — isolation-audit: Makefile default off the ops engine · digest pin · port-based container selection · realdb-required in tests/
+
+R116 audit findings, all four fixed:
+
+- **[high] Makefile default DSN left the ops port (R116-1)**: the
+  `FLINT_TEST_DSN ?=` default still pointed at 5434 (the operating
+  engine, ADR-0010), so local `make test`/`ci`/`e2e` runs defeated the
+  physical isolation the release introduced. The default is now the
+  dedicated engine DSN (127.0.0.1:5499 — identical string to
+  testengine's), with a guard test pinning it. CI is unaffected (the
+  job env wins over `?=`).
+- **[medium] image digest pinned (R116-2)**:
+  docker-compose.test.yml now pins the same sha256 digest as ci.yml,
+  with an equivalence guard test asserting the two strings match —
+  closing the spec M0 contract that HISTORY described but the code
+  missed.
+- **[medium] port-based engine container selection (R116-3)**:
+  IsFlintContainer's prefix first-match could pick the wrong engine
+  once the dedicated test engine runs alongside the operating one.
+  EngineMemMB and RestartCountFn now select the container whose
+  published port matches the resolved DSN's port.
+- **[low] realdb-required honored in tests/ helpers (R116-4)**:
+  mustDB (tests/e2e) and regViewDB (tests/regression) now t.Fatal
+  instead of skip when FLINT_REALDB_REQUIRED=1 — the CI
+  skip-0 sentinel holds on every path, not just lib/.
+
 ### v1.29.0 minor (2026-11-23) — engine-isolation: dedicated test engine · purge-dropped · doctor engine warnings
 
 (spec: docs/plans/2026-11-23-flint-v1290.spec.md · plan:
