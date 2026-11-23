@@ -2,6 +2,7 @@ package wire
 
 import (
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -166,5 +167,19 @@ func TestParseArgsOrderAndIndex(t *testing.T) {
 	}
 	if pts := res.PosToks(); len(pts) != 2 || pts[0].Value != "q" || pts[0].Index != 0 || pts[1].Value != "z" || pts[1].Index != 4 {
 		t.Errorf("PosToks = %+v, want q@0 z@4", pts)
+	}
+}
+
+func TestUnknownFlagMasksTokensV1302(t *testing.T) {
+	_, err := ParseArgs([]string{"--engine-url=postgresql://flint:pw@127.0.0.1:5434/db"}, ArgSpec{})
+	if err == nil {
+		t.Fatal("오류 기대")
+	}
+	msg := err.Error()
+	if strings.Contains(msg, "flint:pw") || strings.Contains(msg, "127.0.0.1") {
+		t.Fatalf("비밀/호스트 노출: %s", msg)
+	}
+	if !strings.Contains(msg, "://***") {
+		t.Fatalf("마스킹 부재: %s", msg)
 	}
 }

@@ -21,7 +21,7 @@ is Docker: flint ships the engine compose definition inside the binary.
 ## 2. One-command setup
 
 ```sh
-flint setup           # ①embedded compose up --wait ②migrate ③seed guide ④plugin guide
+flint setup           # ①embedded compose up --wait ②migrate (prints the recorded port; run `flint seed --demo` next)
 flint seed --demo     # synthetic demo data (isolated demo database)
 flint doctor          # diagnostics: verify the install (23 checks; fail → exit 1)
 ```
