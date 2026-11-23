@@ -1431,25 +1431,32 @@ func parseMemUsageMB(s string) (int, bool) {
 	return int(f * factor), true
 }
 
-func EngineMemMB(ctx context.Context) (int, bool) {
+func EngineMemMB(ctx context.Context) (int, bool, error) {
 	name, err := engineContainerName(ctx)
 	if err != nil {
-		return 0, false
+		return 0, false, fmt.Errorf("engine container selection: %w", err)
 	}
 	tctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	b, err := EngineStatsFn(tctx)
 	if err != nil {
-		return 0, false
+		return 0, false, err
 	}
 	dec := json.NewDecoder(bytes.NewReader(bytes.TrimSpace(b)))
 	for {
 		var e dockerStatsEntry
 		if err := dec.Decode(&e); err != nil {
-			return 0, false
+			if errors.Is(err, io.EOF) {
+				return 0, false, fmt.Errorf("docker stats has no row for container %q", name)
+			}
+			return 0, false, fmt.Errorf("docker stats decode: %w", err)
 		}
 		if e.Name == name {
-			return parseMemUsageMB(e.MemUsage)
+			mb, ok := parseMemUsageMB(e.MemUsage)
+			if !ok {
+				return 0, false, fmt.Errorf("unparsable MemUsage %q for container %q", e.MemUsage, name)
+			}
+			return mb, true, nil
 		}
 	}
 }
@@ -1468,10 +1475,13 @@ var RestartCountFn = func() (int, error) {
 
 func checkEngineFootprint(ctx context.Context, st wire.Store) DoctorCheck {
 	c := DoctorCheck{Name: "engine-footprint"}
-	mb, ok := EngineMemMB(ctx)
+	mb, ok, err := EngineMemMB(ctx)
 	if !ok {
 		c.Status = "skip"
 		c.Detail = "docker stats unavailable — check skipped"
+		if err != nil {
+			c.Detail = "engine-footprint skipped — " + err.Error()
+		}
 		return c
 	}
 	c.Status = "ok"

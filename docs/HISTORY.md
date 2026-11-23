@@ -6,6 +6,27 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.29.2 patch (2026-11-23) — isolation-polish: footprint skip reasons · dedicated-engine selection coverage
+
+R117 audit findings, both fixed:
+
+- **[medium] engine-footprint skip detail exposes the cause (R117-2)**:
+  EngineMemMB folded every failure — engine container selection
+  (compose ps failure, decode error, no running container publishing
+  the DSN port) and the docker stats read itself — into `(0, false)`,
+  so checkEngineFootprint reported a generic "docker stats
+  unavailable — check skipped" even when docker was fine and the
+  engine simply wasn't running. EngineMemMB now returns the failure
+  reason and the skip detail names it: an unstarted dedicated engine
+  ("no running container publishes 5499") is distinguishable from
+  docker being absent, a missing stats row, or an unparsable body.
+- **[test] dedicated-engine DSN selection subcase (R117-1)**:
+  TestEngineContainerNameMatchesDSNPort asserted only the 5434
+  direction (ops DSN must not pick the 5499 dedicated container). A
+  5499 subcase now pins the other direction on the same compose ps
+  rows: a dedicated-engine DSN selects the 5499 container, so both
+  engines running side by side resolve to their own container.
+
 ### v1.29.1 patch (2026-11-23) — isolation-audit: Makefile default off the ops engine · digest pin · port-based container selection · realdb-required in tests/
 
 R116 audit findings, all four fixed:
