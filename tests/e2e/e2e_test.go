@@ -147,7 +147,7 @@ func TestRetryRecoversAfterTransientCommitFailure(t *testing.T) {
 
 	backend := backendAddr(t)
 	proxy := newKillProxy(t, backend)
-	t.Setenv("FLINT_DSN", "postgresql://flint:flint-dev@"+proxy.Addr().String()+dsnPath(t))
+	t.Setenv("FLINT_DSN", "postgresql://flint:"+dbPassword(t)+"@"+proxy.Addr().String()+dsnPath(t))
 
 	payload := `{"topic":"e2e-retry-k","summary":"재시도 회복 프로브","confidence":0.9}`
 	start := time.Now()
@@ -1327,4 +1327,19 @@ func TestBackupEncryptDrillE2E(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("마스킹 drill = exit %d %s, want 1", code, out)
 	}
+}
+
+
+func dbPassword(t *testing.T) string {
+	t.Helper()
+	u, err := url.Parse(dsn())
+	if err != nil {
+		t.Fatalf("DSN 파싱: %v", err)
+	}
+	if u.User != nil {
+		if pw, ok := u.User.Password(); ok {
+			return pw
+		}
+	}
+	return "flint-dev"
 }

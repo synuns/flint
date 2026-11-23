@@ -129,9 +129,13 @@ func init() {
 			}
 		}
 		if err := engine.Register(); err != nil {
-			return err
+			return fmt.Errorf("engine service registration failed: %w", err)
 		}
-		return engine.WaitForEngine(ctx, "postgresql://postgres:password@127.0.0.1:5434/postgres", 30, 500*time.Millisecond)
+		if err := engine.WaitForEngine(ctx, "postgresql://postgres:password@127.0.0.1:5434/postgres", 30, 500*time.Millisecond); err != nil {
+			logs, _ := engine.TailEngineLogs(4)
+			return fmt.Errorf("%w\nengine logs:\n%s", err, logs)
+		}
+		return nil
 	}
 	engineNativeBootstrapFn = engine.BootstrapCredentials
 }

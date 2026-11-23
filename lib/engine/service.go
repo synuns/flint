@@ -244,3 +244,17 @@ func WaitForEngine(ctx context.Context, dsn string, attempts int, delay time.Dur
 	}
 	return fmt.Errorf("engine: not reachable at %s after %d attempts", addr, attempts)
 }
+
+
+func TailEngineLogs(n int) (string, error) {
+	_, errLog := logFilePaths()
+	b, err := os.ReadFile(errLog)
+	if err != nil {
+		return "", err
+	}
+	lines := strings.Split(strings.TrimSpace(string(b)), "\n")
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	return strings.Join(lines, "\n"), nil
+}
