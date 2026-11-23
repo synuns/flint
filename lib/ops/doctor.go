@@ -46,6 +46,10 @@ var (
 	// of checkVersions (cli update.go; offline renders "unverified (offline)"
 	// — a display note, not a warning).
 	FetchRegistryVersionFn func() (string, error)
+	// RegistryCacheInfoFn — the cached registry version and checked_at
+	// (cli update.go): the offline fallback of checkVersions — a failed probe
+	// is not evidence, but the cache is, shown with its age (v1.26.1).
+	RegistryCacheInfoFn func() (string, string)
 	// KnownMetaKeyFn — the unknown-key determination of checkMetaHygiene (maintain.go).
 	KnownMetaKeyFn func(k string) bool
 	// AnyToTimeFn — the valid_at parsing of checkPendingAge (maintain.go).
@@ -1732,6 +1736,16 @@ func checkVersionsTh(ctx context.Context, st wire.Store, th store.Thresholds) Do
 	if FetchRegistryVersionFn != nil {
 		if v, rerr := FetchRegistryVersionFn(); rerr == nil && v != "" {
 			regPart = "registry v" + v
+		} else if RegistryCacheInfoFn != nil {
+			// offline fallback: the cached copy is real evidence — shown with
+			// its age so the staleness stays visible (v1.26.1).
+			if cv, checkedAt := RegistryCacheInfoFn(); cv != "" {
+				regPart = "registry v" + cv + " (cached, unverified — offline"
+				if t, terr := time.Parse(time.RFC3339, checkedAt); terr == nil {
+					regPart += fmt.Sprintf(", %dh old", int(time.Since(t).Hours()))
+				}
+				regPart += ")"
+			}
 		}
 	}
 	parts = append(parts, regPart)

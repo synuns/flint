@@ -6,6 +6,34 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.26.1 patch (2026-11-23) — surface-trust audit fixes: explicit-check cache refresh · keyword-DSN guard · registry offline cache display
+
+Patch round R111+R112 findings. No schema change.
+
+- **explicit check refreshes the update cache (R111-2)**:
+  `fetchLatestVersion` now writes latest·ETag·checked_at to
+  update-check.json, so the doctor Fix guidance "flint doctor --check
+  update (refresh the version cache)" does what it says; session start
+  stays the other writer.
+- **keyword-form DSN guard (R111-3, R112-3)**: `deriveDemoDSN` rejects
+  `host=... dbname=...` DSNs (url.Parse mangles them into a garbage
+  path) as a derivation failure — exit 3 with FLINT_DEMO_DSN guidance,
+  instead of a corrupted-DSN connection error.
+- **FLINT_DEMO_DSN skips ensure (R111-4)**: with an explicit override
+  the ensure-retry never runs — creating the database on the base
+  server would be a cross-server no-op at best; the connection error
+  flows unchanged.
+- **registry offline cache display (R111-5)**: doctor versions shows
+  the cached registry copy with its age ("registry vX (cached, Nh old,
+  unverified — offline)") when the fetch fails — the cache is evidence,
+  with its staleness visible; still not a warn.
+- **concurrent first-run seed (R112-2)**: seedEnsureDBFn tolerates
+  42P04 duplicate_database — a parallel creator winning the
+  check-then-create race is success, not server_down exit 2.
+- **missing test committed (R111-1, R112-1)**: data/embed_test.go
+  (SeedJSONL ↔ disk byte identity, per-line JSON contract) was left
+  untracked by ae6b096 — now in the tree.
+
 ### v1.26.0 minor (2026-11-23) — surface-trust: cache three principles (ETag · contradiction detector · checked_at) · seed --demo · doctor versions
 
 (spec: docs/plans/2026-11-23-flint-v1260.md · design:

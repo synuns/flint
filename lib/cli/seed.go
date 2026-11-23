@@ -6,14 +6,16 @@
 // all-duplicate exit 0). Every seeded row carries the fixed demo/ identifier
 // prefix; --reset deletes ONLY rows with that prefix and ONLY after the
 // demo_owner ownership marker matches (mismatch is exit 3; --yes required).
-// Derivation failure (no database name / unparseable DSN) is invalid-arg
-// exit 3 with FLINT_DEMO_DSN guidance. The Makefile `seed` target (disk file,
+// Derivation failure (no database name / unparseable DSN / keyword-form DSN
+// that cannot be URL-derived) is invalid-arg exit 3 with FLINT_DEMO_DSN
+// guidance (v1.26.1). The Makefile `seed` target (disk file,
 // production DSN) is unaffected — this is the binary-user route.
 package cli
 
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -21,6 +23,7 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/synuns/flint/data"
 	"github.com/synuns/flint/lib/db"
@@ -43,7 +46,10 @@ var seedWriteFn = runWrite
 
 // seedEnsureDBFn — the demo-database creation seam: connects the admin DSN
 // and creates dbName when missing (the drill.go CREATE DATABASE convention).
-// Tests swap in a no-op recorder.
+// A concurrent creator winning the check-then-create race surfaces as 42P04
+// duplicate_database — tolerated as success (the database exists either way;
+// v1.26.1, observed with parallel first-run seeds). Tests swap in a no-op
+// recorder.
 var seedEnsureDBFn = func(ctx context.Context, adminDSN, dbName string) error {
 	pool, err := db.Connect(ctx, adminDSN)
 	if err != nil {
@@ -60,17 +66,29 @@ var seedEnsureDBFn = func(ctx context.Context, adminDSN, dbName string) error {
 		return nil
 	}
 	_, err = pool.Exec(ctx, `CREATE DATABASE `+pgx.Identifier{dbName}.Sanitize())
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "42P04" {
+			return nil // lost the race — the winner created it
+		}
+	}
 	return err
 }
 
 // deriveDemoDSN — the isolated-DB derivation: the base DSN's database name
 // plus the fixed `_demo` suffix (host, credentials, and query params are kept
-// verbatim). An unparseable DSN or a missing database name is an error — the
-// command layer turns it into exit 3 with FLINT_DEMO_DSN guidance.
+// verbatim). An unparseable DSN, a keyword-form DSN (pgx accepts
+// "host=... dbname=..." — url.Parse mangles it into a garbage path), or a
+// missing database name is an error — the command layer turns it into exit 3
+// with FLINT_DEMO_DSN guidance (v1.26.1: keyword forms must use the explicit
+// override instead of a silently corrupted derivation).
 func deriveDemoDSN(base string) (string, error) {
 	u, err := url.Parse(base)
 	if err != nil {
 		return "", fmt.Errorf("seed: DSN parse failed: %w", err)
+	}
+	if u.Scheme == "" {
+		return "", fmt.Errorf("seed: keyword-form DSN cannot derive a demo database — set %s to the demo database DSN explicitly", demoDSNEnv)
 	}
 	name := strings.TrimPrefix(u.Path, "/")
 	if name == "" {
@@ -145,9 +163,13 @@ func runSeed(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 		return 3
 	}
 	// connect the demo database; on failure (typically: not created yet),
-	// create it from the base DSN once and retry.
+	// create it from the base DSN once and retry — only when the demo DSN was
+	// DERIVED from the base (same server). With an explicit FLINT_DEMO_DSN the
+	// database is the operator's to create: creating it on the base server
+	// would at best be a cross-server no-op (v1.26.1).
+	overridden := os.Getenv(demoDSNEnv) != ""
 	demoSt, err := newStore(ctx, demoDSN)
-	if err != nil {
+	if err != nil && !overridden {
 		if ensureErr := seedEnsureDBFn(ctx, dsnFromEnv(), dbName); ensureErr == nil {
 			demoSt, err = newStore(ctx, demoDSN)
 		}
