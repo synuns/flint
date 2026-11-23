@@ -339,7 +339,8 @@ func doctorPortCheck(t *testing.T, out string) map[string]any {
 
 func TestPortPass(t *testing.T) {
 	line := `{"Name":"flint-doltgres-1","State":"running",` +
-		`"Publishers":[{"URL":"","TargetPort":5432,"PublishedPort":5434,"Protocol":"tcp"}]}`
+		`"Labels":"com.docker.compose.project=flint,com.docker.compose.service=doltgres",` +
+		`"Ports":"127.0.0.1:5434->5432/tcp"}`
 	withComposePs(t, func(ctx context.Context) ([]byte, error) {
 		return []byte(line + "\n" + `{"Name":"flint-cache-1","State":"running","Publishers":[]}` + "\n"), nil
 	})
@@ -356,23 +357,20 @@ func TestPortPass(t *testing.T) {
 func TestPortForeign(t *testing.T) {
 	withComposePs(t, func(ctx context.Context) ([]byte, error) {
 		return []byte(`{"Name":"branding-web-1","State":"running",` +
+			`"Labels":"com.docker.compose.project=branding",` +
 			`"Publishers":[{"TargetPort":5434,"PublishedPort":5434,"Protocol":"tcp"}]}`), nil
 	})
 
 	out, code := runDoctorArgs(t, &fakeStore{}, "--check", "port")
-	if code != 1 {
-		t.Fatalf("runDoctor exit=%d, want 1 (출력 %q)", code, out)
+	if code != 0 {
+		t.Fatalf("runDoctor exit=%d, want 0(unknown은 경고 아님 — 출력 %q)", code, out)
 	}
 	c := doctorPortCheck(t, out)
-	if c["status"] != "fail" {
-		t.Fatalf("status=%v, want fail: %q", c["status"], out)
+	if c["status"] != "skip" {
+		t.Fatalf("status=%v, want skip(라벨 비일치 unknown): %q", c["status"], out)
 	}
-	if !strings.Contains(fmt.Sprint(c["detail"]), "branding-web-1") {
-		t.Errorf("점유자 이름 없음: %v", c["detail"])
-	}
-	fix, _ := c["fix"].(string)
-	if !strings.Contains(fix, "FLINT_DSN") || !strings.Contains(fix, "compose") {
-		t.Errorf("포트 이동 fix 문구 부족: %q", fix)
+	if !strings.Contains(fmt.Sprint(c["detail"]), "branding-web-1") || !strings.Contains(fmt.Sprint(c["detail"]), "unknown") {
+		t.Errorf("점유자·unknown 없음: %v", c["detail"])
 	}
 }
 
@@ -395,7 +393,7 @@ func TestPortDockerMissing(t *testing.T) {
 
 func TestPortStopped(t *testing.T) {
 	withComposePs(t, func(ctx context.Context) ([]byte, error) {
-		return []byte(`{"Name":"flint-doltgres-1","State":"exited","Publishers":null}`), nil
+		return []byte(`{"Name":"flint-doltgres-1","State":"exited","Labels":"com.docker.compose.project=flint","Publishers":null}`), nil
 	})
 
 	out, code := runDoctorArgs(t, &fakeStore{}, "--check", "port")
@@ -406,8 +404,8 @@ func TestPortStopped(t *testing.T) {
 	if c["status"] != "fail" {
 		t.Fatalf("status=%v, want fail: %q", c["status"], out)
 	}
-	if fix, _ := c["fix"].(string); !strings.Contains(fix, "docker compose up -d") {
-		t.Errorf("up -d fix 문구 없음: %q", fix)
+	if fix, _ := c["fix"].(string); !strings.Contains(fix, "flint setup") {
+		t.Errorf("flint setup fix 문구 없음: %q", fix)
 	}
 }
 
@@ -419,13 +417,14 @@ func TestPortNoFlintContainer(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("exit=%d, want 1 (출력 %q)", code, out)
 	}
-	if !strings.Contains(out, "docker compose up -d") {
-		t.Errorf("up -d 안내 없음: %q", out)
+	if !strings.Contains(out, "flint setup") {
+		t.Errorf("flint setup 안내 없음: %q", out)
 	}
 }
 
 func TestPortJSONArray(t *testing.T) {
 	arr := `[{"Name":"flint-doltgres-1","State":"running",` +
+		`"Labels":"com.docker.compose.project=flint",` +
 		`"Publishers":[{"PublishedPort":5434}]}]`
 	withComposePs(t, func(ctx context.Context) ([]byte, error) { return []byte(arr), nil })
 	out, code := runDoctorArgs(t, &fakeStore{}, "--check", "port")
@@ -436,12 +435,12 @@ func TestPortJSONArray(t *testing.T) {
 		t.Errorf("배열 status=%v, want ok: %q", pc["status"], out)
 	}
 
-	foreign := `[{"Name":"flint-doltgres-1","State":"running","Publishers":[]},` +
-		`{"Name":"branding-1","State":"running","Publishers":[{"PublishedPort":5434}]}]`
+	foreign := `[{"Name":"flint-doltgres-1","State":"running","Labels":"com.docker.compose.project=flint","Publishers":[]},` +
+		`{"Name":"branding-1","State":"running","Labels":"com.docker.compose.project=branding","Publishers":[{"PublishedPort":5434}]}]`
 	withComposePs(t, func(ctx context.Context) ([]byte, error) { return []byte(foreign), nil })
 	out2, code2 := runDoctorArgs(t, &fakeStore{}, "--check", "port")
-	if code2 != 1 {
-		t.Fatalf("배열 점유 exit=%d, want 1 (출력 %q)", code2, out2)
+	if code2 != 0 {
+		t.Fatalf("배열 점유 exit=%d, want 0(unknown은 경고 아님 — 출력 %q)", code2, out2)
 	}
 	if !strings.Contains(out2, "branding-1") {
 		t.Errorf("배열 점유자 미보고: %q", out2)
@@ -468,12 +467,12 @@ func TestPortFlintSubstringNotPrefix(t *testing.T) {
 			`"Publishers":[{"PublishedPort":5434}]}`), nil
 	})
 	out, code := runDoctorArgs(t, &fakeStore{}, "--check", "port")
-	if code != 1 {
-		t.Fatalf("conflint 점유 exit=%d, want 1 (출력 %q)", code, out)
+	if code != 0 {
+		t.Fatalf("라벨 없는 점유 exit=%d, want 0(unknown은 경고 아님 — 출력 %q)", code, out)
 	}
 	c := doctorPortCheck(t, out)
-	if c["status"] != "fail" {
-		t.Fatalf("status=%v, want fail(오탐 아님 — 점유자 보고): %q", c["status"], out)
+	if c["status"] == "ok" {
+		t.Fatalf("라벨 없는 conflint 컨테이너를 ok 판정 — 이름 접두사 오탐: %q", out)
 	}
 	if !strings.Contains(fmt.Sprint(c["detail"]), "conflint-web-1") {
 		t.Errorf("점유자 이름 없음: %v", c["detail"])

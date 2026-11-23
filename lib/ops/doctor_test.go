@@ -1715,3 +1715,204 @@ func TestDoctorEngineFootprintRestartsV1290(t *testing.T) {
 		t.Fatalf("에러 시에도 메모리 표시 유지: %q", c.Detail)
 	}
 }
+
+const dockerPsFlintManaged = `{"Names":"flint-doltgres-1","State":"running","Image":"` + enginePinnedImage + `","Labels":"com.docker.compose.project=flint,com.docker.compose.service=doltgres","Ports":"127.0.0.1:5434->5432/tcp"}` + "\n"
+
+func TestDoctorPortManagedLabelExactMatch(t *testing.T) {
+	t.Setenv("FLINT_DSN", "postgresql://flint:flint-dev@localhost:5434/flint")
+	withComposePs(t, func(context.Context) ([]byte, error) { return []byte(dockerPsFlintManaged), nil })
+	c := checkPort(context.Background())
+	if c.Status != "ok" {
+		t.Fatalf("status=%q, want ok: %+v", c.Status, c)
+	}
+	if !strings.Contains(c.Detail, "flint-doltgres-1") || !strings.Contains(c.Detail, "5434") {
+		t.Fatalf("detail=%q, want 컨테이너명·포트", c.Detail)
+	}
+	if !strings.Contains(c.Detail, "flint") {
+		t.Fatalf("detail=%q, want 관리형(project flint) 표기", c.Detail)
+	}
+}
+
+func TestDoctorPortLabelMismatchUnknown(t *testing.T) {
+	t.Setenv("FLINT_DSN", "postgresql://flint:flint-dev@localhost:5434/flint")
+	body := `{"Names":"flint-test-doltgres-1","State":"running","Image":"dolthub/doltgresql","Labels":"com.docker.compose.project=flint-test","Ports":"127.0.0.1:5434->5432/tcp"}` + "\n"
+	withComposePs(t, func(context.Context) ([]byte, error) { return []byte(body), nil })
+	c := checkPort(context.Background())
+	if c.Status == "fail" || c.Status == "ok" {
+		t.Fatalf("라벨 비일치 status=%q, want fail 아님(unknown 판정): %+v", c.Status, c)
+	}
+	if !strings.Contains(c.Detail, "unknown") {
+		t.Fatalf("detail=%q, want unknown 표기", c.Detail)
+	}
+}
+
+func TestDoctorPortNamePrefixAloneNotManaged(t *testing.T) {
+	t.Setenv("FLINT_DSN", "postgresql://flint:flint-dev@localhost:5434/flint")
+	body := `{"Names":"flint-doltgres-1","State":"running","Labels":"com.docker.compose.project=branding","Ports":"127.0.0.1:5434->5432/tcp"}` + "\n"
+	withComposePs(t, func(context.Context) ([]byte, error) { return []byte(body), nil })
+	c := checkPort(context.Background())
+	if c.Status == "ok" {
+		t.Fatalf("이름 접두사만으로 ok — 라벨 정확 일치어야: %+v", c)
+	}
+}
+
+func TestDoctorPortDockerAbsentQuietSkip(t *testing.T) {
+	withComposePs(t, func(context.Context) ([]byte, error) {
+		return nil, errors.New("docker not installed")
+	})
+	c := checkPort(context.Background())
+	if c.Status != "skip" {
+		t.Fatalf("status=%q, want skip(훅 경로 조용한 skip)", c.Status)
+	}
+}
+
+func withEngineSeams(t *testing.T, hs func(ctx context.Context, st wire.Store) (db.EngineInfo, error), img func(ctx context.Context) (string, bool)) {
+	t.Helper()
+	prevHs, prevImg := HandshakeFn, ManagedEngineImageFn
+	HandshakeFn, ManagedEngineImageFn = hs, img
+	t.Cleanup(func() { HandshakeFn, ManagedEngineImageFn = prevHs, prevImg })
+}
+
+func TestDoctorVersionsEnginePinned(t *testing.T) {
+	checked := time.Now().UTC().Format(time.RFC3339)
+	withVersionSeams(t, "1.26.0",
+		func() (string, string) { return "1.26.0", checked },
+		func() (string, error) { return "1.26.0", nil })
+	withEngineSeams(t,
+		func(ctx context.Context, st wire.Store) (db.EngineInfo, error) {
+			return db.EngineInfo{Kind: "doltgres", Version: "15.5"}, nil
+		},
+		func(ctx context.Context) (string, bool) { return enginePinnedImage, true })
+	c := checkVersionsTh(context.Background(), &fakeStore{}, store.DefaultThresholds())
+	if c.Status != "ok" {
+		t.Fatalf("status=%q, want ok: %+v", c.Status, c)
+	}
+	if !strings.Contains(c.Detail, "engine doltgres 15.5 (managed, pinned)") {
+		t.Fatalf("detail=%q, want 엔진 핀 일치 부분", c.Detail)
+	}
+}
+
+func TestDoctorVersionsEngineImageDrift(t *testing.T) {
+	checked := time.Now().UTC().Format(time.RFC3339)
+	withVersionSeams(t, "1.26.0",
+		func() (string, string) { return "1.26.0", checked },
+		func() (string, error) { return "1.26.0", nil })
+	withEngineSeams(t,
+		func(ctx context.Context, st wire.Store) (db.EngineInfo, error) {
+			return db.EngineInfo{Kind: "doltgres", Version: "15.5"}, nil
+		},
+		func(ctx context.Context) (string, bool) { return "dolthub/doltgresql:latest", true })
+	c := checkVersionsTh(context.Background(), &fakeStore{}, store.DefaultThresholds())
+	if c.Status != "warn" {
+		t.Fatalf("status=%q, want warn(이미지 드리프트): %+v", c.Status, c)
+	}
+	if !strings.Contains(c.Detail, "dolthub/doltgresql:latest") || !strings.Contains(c.Detail, "pinned") {
+		t.Fatalf("detail=%q, want 원인(실행 이미지·핀) 노출", c.Detail)
+	}
+	if c.Fix == "" {
+		t.Fatalf("처방 문구 없음: %+v", c)
+	}
+}
+
+func TestDoctorVersionsEngineExternalVersionOnly(t *testing.T) {
+	checked := time.Now().UTC().Format(time.RFC3339)
+	withVersionSeams(t, "1.26.0",
+		func() (string, string) { return "1.26.0", checked },
+		func() (string, error) { return "1.26.0", nil })
+	withEngineSeams(t,
+		func(ctx context.Context, st wire.Store) (db.EngineInfo, error) {
+			return db.EngineInfo{Kind: "postgres", Version: "16.2"}, nil
+		},
+		func(ctx context.Context) (string, bool) { return "", false })
+	c := checkVersionsTh(context.Background(), &fakeStore{}, store.DefaultThresholds())
+	if c.Status != "ok" {
+		t.Fatalf("외부 엔진 status=%q, want ok(버전만 기록): %+v", c.Status, c)
+	}
+	if !strings.Contains(c.Detail, "engine postgres 16.2") {
+		t.Fatalf("detail=%q, want 외부 버전 기록", c.Detail)
+	}
+}
+
+func TestDoctorVersionsEngineNonDoltgresManaged(t *testing.T) {
+	checked := time.Now().UTC().Format(time.RFC3339)
+	withVersionSeams(t, "1.26.0",
+		func() (string, string) { return "1.26.0", checked },
+		func() (string, error) { return "1.26.0", nil })
+	withEngineSeams(t,
+		func(ctx context.Context, st wire.Store) (db.EngineInfo, error) {
+			return db.EngineInfo{Kind: "postgres", Version: "16.2"}, nil
+		},
+		func(ctx context.Context) (string, bool) { return enginePinnedImage, true })
+	c := checkVersionsTh(context.Background(), &fakeStore{}, store.DefaultThresholds())
+	if c.Status != "warn" {
+		t.Fatalf("관리형 비Doltgres status=%q, want warn: %+v", c.Status, c)
+	}
+	if !strings.Contains(c.Detail, "Doltgres") || c.Fix == "" {
+		t.Fatalf("detail=%q fix=%q — want 원인·처방", c.Detail, c.Fix)
+	}
+}
+
+func TestDoctorVersionsEngineHandshakeFailDefers(t *testing.T) {
+	checked := time.Now().UTC().Format(time.RFC3339)
+	withVersionSeams(t, "1.26.0",
+		func() (string, string) { return "1.26.0", checked },
+		func() (string, error) { return "1.26.0", nil })
+	withEngineSeams(t,
+		func(ctx context.Context, st wire.Store) (db.EngineInfo, error) {
+			return db.EngineInfo{}, errors.New("connection refused")
+		},
+		func(ctx context.Context) (string, bool) { return "", false })
+	c := checkVersionsTh(context.Background(), &fakeStore{}, store.DefaultThresholds())
+	if c.Status != "ok" {
+		t.Fatalf("무응답 status=%q, want ok(판정 유옄): %+v", c.Status, c)
+	}
+	if !strings.Contains(c.Detail, "unknown") {
+		t.Fatalf("detail=%q, want unknown 표기", c.Detail)
+	}
+}
+
+func TestDoctorVersionsEngineNilStoreDefers(t *testing.T) {
+	checked := time.Now().UTC().Format(time.RFC3339)
+	withVersionSeams(t, "1.26.0",
+		func() (string, string) { return "1.26.0", checked },
+		func() (string, error) { return "1.26.0", nil })
+	withEngineSeams(t,
+		func(ctx context.Context, st wire.Store) (db.EngineInfo, error) {
+			t.Fatal("nil store인데 handshake 호출")
+			return db.EngineInfo{}, nil
+		},
+		func(ctx context.Context) (string, bool) { return "", false })
+	c := checkVersionsTh(context.Background(), nil, store.DefaultThresholds())
+	if c.Status != "ok" {
+		t.Fatalf("nil store status=%q, want ok: %+v", c.Status, c)
+	}
+	if !strings.Contains(c.Detail, "unknown") {
+		t.Fatalf("detail=%q, want unknown 표기", c.Detail)
+	}
+}
+
+func extractPinnedImageFrom(t *testing.T, path string) string {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join("..", "..", path))
+	if err != nil {
+		t.Fatalf("%s 읽기 실패: %v", path, err)
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "image:") {
+			return strings.TrimSpace(strings.TrimPrefix(trimmed, "image:"))
+		}
+	}
+	t.Fatalf("%s에 image 라인 없음", path)
+	return ""
+}
+
+func TestEnginePinEquivalence(t *testing.T) {
+	pin := enginePinnedImage
+	ci := extractPinnedImageFrom(t, filepath.Join(".github", "workflows", "ci.yml"))
+	testCompose := extractPinnedImageFrom(t, "docker-compose.test.yml")
+	embedded := extractPinnedImageFrom(t, filepath.Join("lib", "cli", "embedded-compose.yml"))
+	if ci != pin || testCompose != pin || embedded != pin {
+		t.Fatalf("핀 불일치 — ci=%q test=%q embedded=%q pin=%q", ci, testCompose, embedded, pin)
+	}
+}

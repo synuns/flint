@@ -6,6 +6,61 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.30.0 minor (2026-11-24) — install-journey: embedded compose · port assignment · engine handshake · external mode
+
+(spec: docs/plans/2026-11-23-flint-v1300.spec.md · plan:
+docs/plans/2026-11-24-flint-v1300.md · G2 APPROVED 2026-11-24 —
+six findings reflected). The install journey, no schema change:
+
+- **embedded compose · engine pin (ADR-0020)**: the compose definition
+  is embedded in the binary (`go:embed`, top-level `name: flint`) and
+  staged to a temp file under the config dir, so `flint setup` runs
+  from any directory — no repository checkout, no compose file on
+  disk. The engine image is digest-pinned with a 4-way equivalence
+  guard (embedded compose · ci.yml service image ·
+  docker-compose.test.yml · the code constant). Pin renewal happens
+  through flint releases only; container identity is an exact label
+  match on `com.docker.compose.project=flint`.
+- **first-run single success**: after the engine starts, setup retries
+  ping (default 30 × 200ms — thresholds `ping_retry_count` /
+  `ping_retry_interval_ms`, separate from `engine_wait_seconds`) and
+  finishes ping + migrate in the same run on a fresh machine.
+- **error classification**: compose failures classify into per-cause
+  prescriptions (daemon down · compose v1 with a one-shot
+  `docker-compose` fallback · permission · pull limits/TLS · port
+  bind · health-check timeout; lightweight runtimes get runtime-specific
+  wording, not a feature fork).
+- **port assignment**: `flint setup --port N`, or auto-assignment when
+  the default port is taken — an upward loopback bind probe from 5434
+  (5499 excluded, reserved for the v1.29.0 dedicated test engine; cap
+  65535) recorded in `config.json` (0600). The occupant is named via
+  lsof + `docker ps --filter publish=<port>` when available.
+- **engine handshake**: connections verify the engine kind and version
+  (Doltgres-only) right after connect — managed engines must match the
+  pin, external engines get a version warning; hard failure is limited
+  to human commands (setup · doctor), hook/MCP paths keep the quiet
+  skip contract. doctor's port check no longer needs the repository
+  (socket probe + `docker ps` label match) and checkVersions shows the
+  engine version.
+- **external engine mode**: `flint setup --engine-url` records a
+  Doltgres you run yourself and skips engine install entirely —
+  loopback-only (localhost · 127.0.0.1 · [::1]; unix sockets and
+  remote hosts rejected), DSN masked in output, `config.json` records
+  `engine.mode: external` (0600), and purge stays managed-mode-only.
+- **existing installs**: a non-`flint` compose project holding the
+  engine stops setup with a warning — never migrated or recreated
+  automatically. The manual conversion procedure (dump → restore →
+  config.json → legacy cleanup per RUNBOOK §13) is documented in
+  RUNBOOK §11.
+- **native spike (M4)**: the L0 spike passed — v1.31.0 native-engine
+  mode gets the go-ahead (conclusion note:
+  docs/plans/native-spike-v1300.md; upstream checksums absence and the
+  config `user` section observation carry over as design work).
+- **memory verdict**: the v1.29.0 measurement spike is declared
+  deferred (미반영 선언, RUNBOOK §12) — no Go runtime memory limits in
+  the compose environment; re-measurement triggers on a major engine
+  image renewal.
+
 ### v1.28.1 patch (2026-11-24) — i18n-fallback: T() en fallback for missing ko keys
 
 R119 audit finding, fixed:

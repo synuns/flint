@@ -27,7 +27,8 @@ Options:
   -h, --help      show this help
 
 The download is verified against the release checksums.txt (sha256).
-Runtime prerequisite: a Doltgres server (see docker-compose.yml).
+Runtime prerequisite: Docker — flint setup ships the Doltgres engine
+compose definition inside the binary (no repository checkout needed).
 No build tools are required — this installs a prebuilt binary.
 EOF
 }
@@ -118,7 +119,7 @@ ensure chmod +x "$bin_dir/flint"
 
 printf '==> Installed flint %s to %s\n' "$tag" "$bin_dir/flint"
 printf '==> No build tools required — a prebuilt release binary was installed.\n'
-printf '==> Runtime prerequisite: flint talks to a Doltgres server (see docker-compose.yml in the repository).\n'
+printf '==> Runtime prerequisite: Docker — run "flint setup" to start the embedded Doltgres engine (no checkout needed).\n'
 
 case ":$PATH:" in
 	*":$bin_dir:"*) ;;

@@ -54,6 +54,14 @@ func (u *setupUX) Fail(err error) {
 	fmt.Fprintf(u.w, "%s: failed (%v)\n", u.lastStep, err)
 }
 
+func (u *setupUX) Remedy(kind, remedy string) {
+	if u.isTTY {
+		fmt.Fprintf(u.w, "\r  %s %s — %s: %s\n", ansiRed, u.lastStep, kind, remedy)
+		return
+	}
+	fmt.Fprintf(u.w, "%s: %s — %s\n", u.lastStep, kind, remedy)
+}
+
 func (u *setupUX) Summary(next []string) {
 	if len(next) == 0 {
 		return

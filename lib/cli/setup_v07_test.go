@@ -9,6 +9,7 @@ import (
 )
 
 func TestSetupWaitArgs(t *testing.T) {
+	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	var gotArgs []string
 	prevUp, prevRun := composeUpFn, composeRunFn
 	composeRunFn = func(ctx context.Context, args ...string) error {
@@ -20,13 +21,17 @@ func TestSetupWaitArgs(t *testing.T) {
 	if err := composeUpFn(context.Background()); err != nil {
 		t.Fatalf("composeUpFn 오류: %v", err)
 	}
-	want := []string{"up", "-d", "--wait", "--wait-timeout", "60"}
-	if len(gotArgs) != len(want) {
-		t.Fatalf("인자=%v, want %v", gotArgs, want)
+	if len(gotArgs) < 2 || gotArgs[0] != "-f" {
+		t.Fatalf("인자=%v, want -f <path> 머리", gotArgs)
+	}
+	rest := gotArgs[2:]
+	want := []string{"--project-name", "flint", "up", "-d", "--wait"}
+	if len(rest) != len(want) {
+		t.Fatalf("인자=%v, want -f <path> %v", gotArgs, want)
 	}
 	for i := range want {
-		if gotArgs[i] != want[i] {
-			t.Fatalf("인자[%d]=%q, want %q (전체 %v)", i, gotArgs[i], want[i], gotArgs)
+		if rest[i] != want[i] {
+			t.Fatalf("인자[%d]=%q, want %q (전체 %v)", i+2, rest[i], want[i], gotArgs)
 		}
 	}
 }

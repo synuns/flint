@@ -68,6 +68,24 @@ Sources: `lib/wire/registry.go` · `lib/wire/run.go` · `lib/store/pipeline.go` 
 - store-free fast path: `version` · `teardown` · `mcp` · `update` · `help`
   respond immediately without starting the DB. `setup` treats a down DB as
   its main scenario and only proceeds storeless when the connection fails.
+- `setup` engine surface (v1.30.0): the compose definition is embedded in
+  the binary (project name `flint`, engine image pinned by digest —
+  ADR-0020) and staged to a temp file under the config dir, so `flint
+  setup` no longer depends on a repository checkout. Host port defaults
+  to 5434 (ADR-0010); when occupied, setup probes upward for a free
+  loopback port — 5499 excluded (v1.29.0 dedicated test-engine
+  reservation) — and records the assigned port in `config.json` (`port`
+  field, 0600). `setup --port N` fixes the port explicitly.
+  `setup --engine-url DSN` switches to external engine mode: the DSN is
+  accepted only from the `FLINT_ENGINE_URL` environment variable or
+  `--engine-url-file PATH` (inline values are rejected — shell history ·
+  process listing hygiene), only loopback hosts (localhost · 127.0.0.1 ·
+  [::1]; unix sockets and remote hosts are refused), and output masks
+  the DSN. `config.json` records `engine.mode: external`, and
+  `maintain --purge-dropped` stays managed-mode-only. A non-`flint`
+  compose project already holding the engine stops setup with a warning
+  (manual conversion — RUNBOOK §11); it is never migrated or recreated
+  automatically.
 - DB-down precedes argument validation (v1.5.5, one-line priority): for
   every store-connected command the store connection is attempted before
   the handler parses arguments, so a down DB surfaces first
