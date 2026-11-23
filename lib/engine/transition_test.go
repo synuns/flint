@@ -76,6 +76,7 @@ func setupTransition(t *testing.T, states []dbState, stateErrs []error) *transit
 		return nil
 	}
 	nativeService.Start = func() error { *env.events = append(*env.events, "native-start"); *env.nativeOn = true; return nil }
+	nativeService.Stop = func() error { return nil }
 	return env
 }
 
@@ -170,6 +171,7 @@ func TestContainerToNativeCopyFailureRestartsContainer(t *testing.T) {
 func TestContainerToNativeNativeStartFailureRestartsContainer(t *testing.T) {
 	env := setupTransition(t, []dbState{{logDepth: 1, asOf: "demo-asof-1"}}, nil)
 	nativeService.Start = func() error { *env.events = append(*env.events, "native-start"); return errors.New("start boom") }
+	nativeService.Stop = func() error { return nil }
 
 	err := ContainerToNative(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "start boom") {
@@ -335,6 +337,7 @@ func TestUpgradeRoundTrip(t *testing.T) {
 	resetSeams(t)
 	started := false
 	nativeService.Start = func() error { started = true; return nil }
+	nativeService.Stop = func() error { return nil }
 
 	if err := UpgradeRoundTrip(context.Background(), fromVer, toVer); err != nil {
 		t.Fatalf("UpgradeRoundTrip: %v", err)
@@ -363,6 +366,7 @@ func TestUpgradeRoundTripStartFailureRollsBack(t *testing.T) {
 	engDir := seedFromVersion(t, home, fromVer)
 	resetSeams(t)
 	nativeService.Start = func() error { return errors.New("start boom") }
+	nativeService.Stop = func() error { return nil }
 
 	err := UpgradeRoundTrip(context.Background(), fromVer, toVer)
 	if err == nil || !strings.Contains(err.Error(), "start boom") {
@@ -388,6 +392,7 @@ func TestUpgradeRoundTripDownloadFailureRollsBack(t *testing.T) {
 	t.Cleanup(func() { downloadEngine = saved })
 	resetSeams(t)
 	nativeService.Start = func() error { return nil }
+	nativeService.Stop = func() error { return nil }
 
 	err := UpgradeRoundTrip(context.Background(), fromVer, toVer)
 	if err == nil || !strings.Contains(err.Error(), "download boom") {
@@ -473,5 +478,31 @@ func TestUpgradeRoundTripNilSeamKeepsErrorV1312(t *testing.T) {
 	}
 	if !errors.Is(err, ErrNotWired) {
 		t.Fatalf("nil-seam 시 ErrNotWired 병합 기대: %v", err)
+	}
+}
+
+func TestUpgradeRoundTripNilSeamDownloadSuccessKeepsErrorV1313(t *testing.T) {
+	prevS, prevD := nativeService, downloadEngine
+	nativeService = NativeService{Stop: func() error { return nil }}
+	downloadEngine = func(ctx context.Context, ver string) (string, error) {
+		return "/tmp/engine-" + ver, nil
+	}
+	t.Cleanup(func() { nativeService, downloadEngine = prevS, prevD })
+	dir := t.TempDir()
+	t.Setenv("FLINT_HOME", dir)
+	engDir := filepath.Join(dir, "engine", "1.4.0")
+	if err := os.MkdirAll(engDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := setCurrentVersion(filepath.Join(dir, "engine"), "1.4.0"); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("panic: %v", r)
+		}
+	}()
+	if err := UpgradeRoundTrip(context.Background(), "1.4.0", "1.5.0"); !errors.Is(err, ErrNotWired) {
+		t.Fatalf("err = %v, want ErrNotWired(성공 경로 nil-seam)", err)
 	}
 }

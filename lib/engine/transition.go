@@ -169,6 +169,9 @@ func UpgradeRoundTrip(ctx context.Context, fromVer, toVer string) error {
 	if downloadEngine == nil {
 		return ErrNotWired
 	}
+	if nativeService.Stop == nil || nativeService.Start == nil {
+		return ErrNotWired
+	}
 	home := engineHomeDir()
 	if home == "" {
 		return errors.New("engine: home directory unavailable — set FLINT_HOME")
