@@ -200,8 +200,15 @@ jobs:
           mkdir -p "$FLINT_CONFIG_DIR" "$FLINT_HOME"
           ./bin/flint setup --engine native
       - name: doctor engine 검사
+        # setup 단계와 동일 env — 누락 시 mode unknown으로 검사가 skip된다(R124 높음4).
+        env:
+          FLINT_CONFIG_DIR: ${{ runner.temp }}/flint-config
+          FLINT_HOME: ${{ runner.temp }}/flint-home
         run: ./bin/flint doctor --check engine
       - name: 세션 시작 주입
+        env:
+          FLINT_CONFIG_DIR: ${{ runner.temp }}/flint-config
+          FLINT_HOME: ${{ runner.temp }}/flint-home
         run: ./bin/flint session-start --session native-ci-smoke
 
   # 완전 자동 배포: test 통과 후 실행.

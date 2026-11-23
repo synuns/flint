@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -33,6 +34,20 @@ func setupService(t *testing.T, osName, versionOutput string, versionErr error) 
 		rec.sysArgs = append(rec.sysArgs, args)
 		return nil
 	}
+	savedLQ := launchctlQuery
+	launchctlQuery = func(args ...string) (string, error) { return "", nil }
+	savedSQ := systemctlQuery
+	systemctlQuery = func(args ...string) (string, error) { return "", nil }
+	savedState := serviceStateFn
+	serviceStateFn = func() (string, error) {
+		if versionErr != nil {
+			return "", versionErr
+		}
+		if versionOutput != "" {
+			return "running", nil
+		}
+		return "stopped", nil
+	}
 	savedV := execVersion
 	execVersion = func(string) (string, error) { return versionOutput, versionErr }
 	t.Cleanup(func() {
@@ -40,6 +55,9 @@ func setupService(t *testing.T, osName, versionOutput string, versionErr error) 
 		userHomeDir = savedHome
 		launchctlCmd = savedL
 		systemctlCmd = savedS
+		launchctlQuery = savedLQ
+		systemctlQuery = savedSQ
+		serviceStateFn = savedState
 		execVersion = savedV
 	})
 	return rec
@@ -111,10 +129,14 @@ func TestRegisterDarwinPlist(t *testing.T) {
 			t.Fatalf("plist missing %q:\n%s", want, body)
 		}
 	}
-	if len(rec.launchArgs) != 1 {
-		t.Fatalf("launchctl calls = %d, want 1: %v", len(rec.launchArgs), rec.launchArgs)
+	if len(rec.launchArgs) != 2 {
+		t.Fatalf("launchctl calls = %d, want 2: %v", len(rec.launchArgs), rec.launchArgs)
 	}
-	call := rec.launchArgs[0]
+	boot := rec.launchArgs[0]
+	if boot[0] != "bootout" || boot[1] != fmt.Sprintf("gui/%d/dev.flint.engine", os.Getuid()) {
+		t.Fatalf("bootout args = %v", boot)
+	}
+	call := rec.launchArgs[1]
 	if call[0] != "bootstrap" || !strings.HasPrefix(call[1], "gui/") || call[2] != path {
 		t.Fatalf("launchctl args = %v", call)
 	}
@@ -275,10 +297,10 @@ func TestUnregisterDarwin(t *testing.T) {
 	if _, err := os.Stat(plistPath(rec.home)); !os.IsNotExist(err) {
 		t.Fatalf("plist not removed: %v", err)
 	}
-	if len(rec.launchArgs) != 2 {
-		t.Fatalf("launchctl calls = %d, want 2", len(rec.launchArgs))
+	if len(rec.launchArgs) != 3 {
+		t.Fatalf("launchctl calls = %d, want 3", len(rec.launchArgs))
 	}
-	boot := rec.launchArgs[1]
+	boot := rec.launchArgs[2]
 	if boot[0] != "bootout" || boot[1] != fmt.Sprintf("gui/%d/dev.flint.engine", os.Getuid()) {
 		t.Fatalf("bootout args = %v", boot)
 	}
@@ -345,8 +367,8 @@ func TestNativeServiceStartStop(t *testing.T) {
 		t.Fatalf("Stop: %v", err)
 	}
 	last = rec.launchArgs[len(rec.launchArgs)-1]
-	if last[0] != "kill" || last[2] != fmt.Sprintf("gui/%d/dev.flint.engine", os.Getuid()) {
-		t.Fatalf("kill args = %v", last)
+	if last[0] != "bootout" || last[1] != fmt.Sprintf("gui/%d/dev.flint.engine", os.Getuid()) {
+		t.Fatalf("stop args = %v, want bootout of gui target", last)
 	}
 	v, err := svc.Version()
 	if err != nil || v != "" {
@@ -388,5 +410,173 @@ func TestNativeServiceWiredIntoEngineStatus(t *testing.T) {
 	}
 	if st.Mode != ModeNative || st.Registered {
 		t.Fatalf("status = %+v, want native mode unregistered", st)
+	}
+}
+
+func TestRegisterDarwinIdempotentV1311(t *testing.T) {
+	rec := setupService(t, "darwin", "", nil)
+	fakeCurrentBinary(t, rec.home)
+	if err := Register(); err != nil {
+		t.Fatalf("first Register: %v", err)
+	}
+	if err := Register(); err != nil {
+		t.Fatalf("re-register must be idempotent: %v", err)
+	}
+	if len(rec.launchArgs) != 4 {
+		t.Fatalf("launchctl calls = %d, want 4: %v", len(rec.launchArgs), rec.launchArgs)
+	}
+	for i := 0; i < 2; i++ {
+		boot, strap := rec.launchArgs[2*i], rec.launchArgs[2*i+1]
+		if boot[0] != "bootout" || boot[1] != fmt.Sprintf("gui/%d/dev.flint.engine", os.Getuid()) {
+			t.Fatalf("round %d bootout args = %v", i, boot)
+		}
+		if strap[0] != "bootstrap" || strap[2] != plistPath(rec.home) {
+			t.Fatalf("round %d bootstrap args = %v", i, strap)
+		}
+	}
+}
+
+func TestRegisterDarwinToleratesBootoutFailureV1311(t *testing.T) {
+	rec := setupService(t, "darwin", "", nil)
+	fakeCurrentBinary(t, rec.home)
+	saved := launchctlCmd
+	launchctlCmd = func(args ...string) error {
+		if args[0] == "bootout" {
+			return errors.New("bootout boom — service not loaded")
+		}
+		rec.launchArgs = append(rec.launchArgs, args)
+		return nil
+	}
+	t.Cleanup(func() { launchctlCmd = saved })
+	if err := Register(); err != nil {
+		t.Fatalf("Register must tolerate bootout of unloaded service: %v", err)
+	}
+	if len(rec.launchArgs) != 1 || rec.launchArgs[0][0] != "bootstrap" {
+		t.Fatalf("bootstrap must still run: %v", rec.launchArgs)
+	}
+}
+
+func TestNativeServiceDarwinStopBootsOutNotKillV1311(t *testing.T) {
+	rec := setupService(t, "darwin", "", nil)
+	fakeCurrentBinary(t, rec.home)
+	if err := Register(); err != nil {
+		t.Fatal(err)
+	}
+	svc := NewNativeService()
+	if err := svc.Stop(); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+	last := rec.launchArgs[len(rec.launchArgs)-1]
+	if last[0] != "bootout" || last[1] != fmt.Sprintf("gui/%d/dev.flint.engine", os.Getuid()) {
+		t.Fatalf("stop args = %v, want bootout of gui target", last)
+	}
+	for _, call := range rec.launchArgs {
+		if call[0] == "kill" {
+			t.Fatalf("kill must not be used with KeepAlive (restarts immediately): %v", call)
+		}
+	}
+}
+
+func TestNativeServiceDarwinStartAfterStopReBootstrapsV1311(t *testing.T) {
+	rec := setupService(t, "darwin", "", nil)
+	fakeCurrentBinary(t, rec.home)
+	if err := Register(); err != nil {
+		t.Fatal(err)
+	}
+	svc := NewNativeService()
+	if err := svc.Stop(); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+	if err := svc.Start(); err != nil {
+		t.Fatalf("start after stop must reload the service: %v", err)
+	}
+	if len(rec.launchArgs) < 3 {
+		t.Fatalf("launchctl calls = %v", rec.launchArgs)
+	}
+	tail := rec.launchArgs[len(rec.launchArgs)-3:]
+	if tail[0][0] != "bootout" || tail[1][0] != "bootstrap" || tail[2][0] != "kickstart" {
+		t.Fatalf("start-after-stop = %v, want bootout+bootstrap+kickstart", tail)
+	}
+}
+
+func TestNativeStatusRunningDecoupledFromVersionProbeV1311(t *testing.T) {
+	rec := setupService(t, "darwin", "", errors.New("probe failed"))
+	fakeCurrentBinary(t, rec.home)
+	if err := Register(); err != nil {
+		t.Fatal(err)
+	}
+	serviceStateFn = func() (string, error) { return "running", nil }
+	st, err := nativeStatus()
+	if err != nil {
+		t.Fatalf("Status: %v", err)
+	}
+	if !st.Registered || !st.Running {
+		t.Fatalf("status = %+v, want registered+running from service state, not -version exec", st)
+	}
+	if st.Version != "" {
+		t.Fatalf("version = %q, want empty when probe fails", st.Version)
+	}
+}
+
+func TestNativeStatusStoppedDespiteVersionProbeV1311(t *testing.T) {
+	rec := setupService(t, "darwin", "Doltgres version "+NativePinVersion+"\n", nil)
+	fakeCurrentBinary(t, rec.home)
+	if err := Register(); err != nil {
+		t.Fatal(err)
+	}
+	serviceStateFn = func() (string, error) { return "stopped", nil }
+	st, err := nativeStatus()
+	if err != nil {
+		t.Fatalf("Status: %v", err)
+	}
+	if !st.Registered || st.Running {
+		t.Fatalf("status = %+v, want registered but not running when manager says stopped", st)
+	}
+}
+
+func TestServiceStateDefaultDarwinLaunchctlPrintV1311(t *testing.T) {
+	setupService(t, "darwin", "", nil)
+	var got []string
+	launchctlQuery = func(args ...string) (string, error) {
+		got = args
+		return "\tstate = running\n", nil
+	}
+	serviceStateFn = serviceStateDefault
+	state, err := serviceStateDefault()
+	if err != nil {
+		t.Fatalf("serviceStateDefault: %v", err)
+	}
+	if state != "running" {
+		t.Fatalf("state = %q, want running", state)
+	}
+	want := []string{"print", fmt.Sprintf("gui/%d/dev.flint.engine", os.Getuid())}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("launchctl args = %v, want %v", got, want)
+	}
+	launchctlQuery = func(args ...string) (string, error) { return "\tstate = waiting\n", nil }
+	serviceStateFn = serviceStateDefault
+	if state, err = serviceStateDefault(); err != nil || state != "stopped" {
+		t.Fatalf("state = %q, %v — want stopped without running line", state, err)
+	}
+}
+
+func TestServiceStateDefaultLinuxSystemctlIsActiveV1311(t *testing.T) {
+	setupService(t, "linux", "", nil)
+	var got []string
+	systemctlQuery = func(args ...string) (string, error) {
+		got = args
+		return "active\n", nil
+	}
+	serviceStateFn = serviceStateDefault
+	state, err := serviceStateDefault()
+	if err != nil {
+		t.Fatalf("serviceStateDefault: %v", err)
+	}
+	if state != "active" {
+		t.Fatalf("state = %q, want active", state)
+	}
+	want := []string{"--user", "is-active", "flint-engine.service"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("systemctl args = %v, want %v", got, want)
 	}
 }

@@ -38,13 +38,13 @@ func TestQuickstartCopilotAuto(t *testing.T) {
 
 func TestQuickstartDoctorCheckCount(t *testing.T) {
 	d := docStr(t, "QUICKSTART.md")
-	if !strings.Contains(d, "23 checks") {
-		t.Error("QUICKSTART.md: '23 checks' 누락")
+	if !strings.Contains(d, "24 checks") {
+		t.Error("QUICKSTART.md: '24 checks' 누락")
+	}
+	if strings.Contains(d, "23 checks") {
+		t.Error("QUICKSTART.md: '23 checks' 잔존 — 24종(코어 6 + tail 18, engine 추가)이 실제")
 	}
 	if strings.Contains(d, "21 checks") {
-		t.Error("QUICKSTART.md: '21 checks' 잔존 — 23종(코어 6 + tail 17)이 실제")
-	}
-	if strings.Contains(d, "17 checks") {
-		t.Error("QUICKSTART.md: '17 checks' 잔존 — 23종(코어 6 + tail 17)이 실제")
+		t.Error("QUICKSTART.md: '21 checks' 잔존 — 24종(코어 6 + tail 18, engine 추가)이 실제")
 	}
 }

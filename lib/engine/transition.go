@@ -72,6 +72,11 @@ func ContainerToNative(ctx context.Context) error {
 		return err
 	}
 	rollback := func(err error) error {
+		if nativeService.Stop != nil {
+			if serr := nativeService.Stop(); serr != nil {
+				err = errors.Join(err, fmt.Errorf("engine: native stop during rollback: %w", serr))
+			}
+		}
 		if rerr := containerService.Start(); rerr != nil {
 			return errors.Join(err, fmt.Errorf("engine: container restart during rollback: %w", rerr))
 		}
@@ -175,6 +180,12 @@ func UpgradeRoundTrip(ctx context.Context, fromVer, toVer string) error {
 	rollback := func(err error) error {
 		if rerr := setCurrentVersion(engDir, fromVer); rerr != nil {
 			return errors.Join(err, fmt.Errorf("engine: symlink rollback to %s: %w", fromVer, rerr))
+		}
+		if nativeService.Stop != nil {
+			_ = nativeService.Stop()
+		}
+		if rerr := nativeService.Start(); rerr != nil {
+			return errors.Join(err, fmt.Errorf("engine: service restart during rollback: %w", rerr))
 		}
 		return err
 	}

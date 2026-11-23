@@ -153,18 +153,11 @@ func inferMode(c fileConfig) string {
 	if c.dsn == "" {
 		return ModeUnknown
 	}
-	host, port := dsnHostPort(c.dsn)
-	if c.port != 0 {
-		port = c.port
-	}
+	host, _ := dsnHostPort(c.dsn)
 	if !isLoopbackHost(host) {
 		return ModeUnknown
 	}
-	switch port {
-	case managedContainerPort, testEnginePort:
-		return ModeManagedContainer
-	}
-	return ModeUnknown
+	return ModeManagedContainer
 }
 
 func SetMode(mode string) error {

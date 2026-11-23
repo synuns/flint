@@ -208,6 +208,33 @@ func TestContainerToNativeNilSeams(t *testing.T) {
 	}
 }
 
+func TestContainerToNativeRollbackStopsNativeBeforeContainerV1311(t *testing.T) {
+	env := setupTransition(t, []dbState{{logDepth: 1, asOf: "demo-asof-1"}}, nil)
+	nativeService.Start = func() error { return errors.New("start boom") }
+	nativeService.Stop = func() error { *env.events = append(*env.events, "native-stop"); return nil }
+
+	err := ContainerToNative(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "start boom") {
+		t.Fatalf("err = %v, want native start failure", err)
+	}
+	events := *env.events
+	stopIdx, containerIdx := -1, -1
+	for i, ev := range events {
+		switch ev {
+		case "native-stop":
+			stopIdx = i
+		case "container-start":
+			containerIdx = i
+		}
+	}
+	if stopIdx == -1 {
+		t.Fatalf("rollback must stop native first, events = %v", events)
+	}
+	if containerIdx == -1 || containerIdx < stopIdx {
+		t.Fatalf("container restart must follow native stop, events = %v", events)
+	}
+}
+
 func TestCopyDataDirRealChmodAndContents(t *testing.T) {
 	src := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(src, "db"), 0o755); err != nil {
@@ -386,5 +413,35 @@ func TestUpgradeRoundTripRejectsBadArgs(t *testing.T) {
 	}
 	if err := UpgradeRoundTrip(context.Background(), "8.8.8", NativePinVersion); err == nil {
 		t.Fatal("missing from-version directory want error")
+	}
+}
+
+func TestUpgradeRoundTripRollbackRestartsServiceV1311(t *testing.T) {
+	fromVer, toVer := "0.9.0", NativePinVersion
+	home := setupUpgrade(t, fromVer, toVer)
+	engDir := seedFromVersion(t, home, fromVer)
+	saved := downloadEngine
+	downloadEngine = func(ctx context.Context, ver string) (string, error) {
+		return "", errors.New("download boom")
+	}
+	t.Cleanup(func() { downloadEngine = saved })
+	resetSeams(t)
+	var seq []string
+	nativeService.Stop = func() error { seq = append(seq, "stop"); return nil }
+	nativeService.Start = func() error { seq = append(seq, "start"); return nil }
+
+	err := UpgradeRoundTrip(context.Background(), fromVer, toVer)
+	if err == nil || !strings.Contains(err.Error(), "download boom") {
+		t.Fatalf("err = %v, want download failure", err)
+	}
+	link, lerr := os.Readlink(filepath.Join(engDir, "current"))
+	if lerr != nil {
+		t.Fatal(lerr)
+	}
+	if link != fromVer {
+		t.Fatalf("current -> %q, want rollback to %q", link, fromVer)
+	}
+	if !reflect.DeepEqual(seq, []string{"stop", "start"}) {
+		t.Fatalf("rollback service sequence = %v, want stop then start after symlink restore", seq)
 	}
 }
