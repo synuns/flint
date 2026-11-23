@@ -316,3 +316,39 @@ func TestRecallAuditThresholdKeys(t *testing.T) {
 		t.Errorf("unset 폴백: recall_audit_min_bad=%d, want 0", unset.RecallAuditMinBad)
 	}
 }
+
+// TestEngineWarnThresholdKeys — the v1.25.0 engine-warning keys
+// (dolt_log_depth_warn · db_size_warn_mb): defaults (10000 · 2048), meta
+// override reflection, and the unset-keeps-0 convention (the consumer —
+// doctor — falls back to DefaultThresholds via ApplyThresholdsFallback).
+func TestEngineWarnThresholdKeys(t *testing.T) {
+	def := DefaultThresholds()
+	if def.DoltLogDepthWarn != 10000 {
+		t.Errorf("DoltLogDepthWarn 기본값=%d, want 10000", def.DoltLogDepthWarn)
+	}
+	if def.DbSizeWarnMB != 2048 {
+		t.Errorf("DbSizeWarnMB 기본값=%d, want 2048", def.DbSizeWarnMB)
+	}
+	th, err := ParseThresholds([][2]any{
+		{"dolt_" + "log_depth_warn", "5000"},
+		{"db_size_warn_mb", "1024"},
+	})
+	if err != nil {
+		t.Fatalf("ParseThresholds err: %v", err)
+	}
+	if th.DoltLogDepthWarn != 5000 {
+		t.Errorf("depth warn 오버라이드=%d, want 5000", th.DoltLogDepthWarn)
+	}
+	if th.DbSizeWarnMB != 1024 {
+		t.Errorf("db_size_warn_mb 오버라이드=%d, want 1024", th.DbSizeWarnMB)
+	}
+	// unset keeps 0 (the consumer fallback basis — DefaultThresholds).
+	unset, err := ParseThresholds([][2]any{{"pending_max", "50"}})
+	if err != nil {
+		t.Fatalf("ParseThresholds err: %v", err)
+	}
+	if unset.DoltLogDepthWarn != 0 || unset.DbSizeWarnMB != 0 {
+		t.Errorf("unset 폴백: depth=%d size=%d, want 0·0",
+			unset.DoltLogDepthWarn, unset.DbSizeWarnMB)
+	}
+}

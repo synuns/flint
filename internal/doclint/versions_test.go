@@ -562,6 +562,13 @@ var versionDocContracts = []struct {
 	{name: "TestVersion01242Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.24.2", "r106",
 	}},
+	// v1.25.0 T4: engine-ops 마일스톤 계약행 — maintain --gc(--yes·접속
+	// 단절·재연결·meta 이력)·doctor dolt_log_depth(O(1))+db_size+
+	// engine-footprint(20종)·RUNBOOK §10/§11·thresholds 2종(10000·2048)·
+	// ANALYZE 폐기(무연산 실증)·audit_log 리플레이 스파이크 성공(순수 PG).
+	{name: "TestVersion01250Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.25.0", "engine-ops",
+	}},
 	{name: "TestVersion0170Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.7.0", "sync",
 	}},

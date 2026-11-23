@@ -56,14 +56,14 @@ func TestDoctorRegistryCoversChain(t *testing.T) {
 		chain[c.Name] = true
 	}
 	specs := doctorChecks()
-	if len(specs) != 17 {
-		t.Errorf("등록표 %d종, want 17종(코어6+tail11)", len(specs))
+	if len(specs) != 20 {
+		t.Errorf("등록표 %d종, want 20종(코어6+tail14)", len(specs))
 	}
 	if got := doctorRegistryChainedNames("core"); len(got) != 6 {
 		t.Errorf("코어 체인 %v, want 6종", got)
 	}
-	if got := doctorRegistryChainedNames("tail"); len(got) != 11 {
-		t.Errorf("tail 체인 %v, want 11종", got)
+	if got := doctorRegistryChainedNames("tail"); len(got) != 14 {
+		t.Errorf("tail 체인 %v, want 14종", got)
 	}
 	for _, name := range doctorRegistryNames() {
 		if !chain[name] {

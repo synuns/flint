@@ -116,6 +116,11 @@ type Thresholds struct {
 	// same topic's invalidated·superseded rows) at or above which an
 	// active row is listed (the correction convention).
 	RecallAuditMinBad int // default 2
+	// the engine-warning thresholds (v1.25.0 — doctor dolt_log_depth·db_size):
+	// the dolt history-depth warning line (at or above, the GC guidance)
+	// and the database-size warning line in MB (pg_database_size based).
+	DoltLogDepthWarn int // default 10000
+	DbSizeWarnMB     int // default 2048
 }
 
 // Defaults — pending > 50, duplicate-suspects > 20, conf < 0.8, 3 consecutive sessions, stale 90 days, stall 48/72h.
@@ -212,6 +217,13 @@ const (
 	// the recall-audit listing floor default (v1.24.0): 2 bad recalls —
 	// a single bad recall is noise, two is a pattern worth listing.
 	defaultRecallAuditMinBad = 2
+	// the engine-warning defaults (v1.25.0): a conservative initial pair —
+	// the depth line sits far past a healthy write cadence's daily commit
+	// growth, and 2048MB leaves multiple headroom for a vault-scale
+	// knowledge base (real measurements stay out of the repo — meta
+	// overrides only).
+	defaultDoltLogDepthWarn = 10000
+	defaultDbSizeWarnMB     = 2048
 )
 
 // DefaultThresholds is the all-keys defaults struct.
@@ -293,6 +305,9 @@ func DefaultThresholds() Thresholds {
 		DistillMaxRunes: defaultDistillMaxRunes,
 		// the recall-audit listing floor (the consumer fallback basis).
 		RecallAuditMinBad: defaultRecallAuditMinBad,
+		// the engine-warning thresholds (the consumer fallback basis).
+		DoltLogDepthWarn: defaultDoltLogDepthWarn,
+		DbSizeWarnMB:     defaultDbSizeWarnMB,
 	}
 }
 
@@ -495,6 +510,14 @@ func ParseThresholds(rows [][2]any) (Thresholds, error) {
 			// basis; 0 cannot be a meaningful floor, so the consumer
 			// applies values > 0 only — the distill_max_runes convention).
 			th.RecallAuditMinBad = parseIntOrDefault(val, defaultRecallAuditMinBad, ks)
+		case "dolt_" + "log_depth_warn":
+			// unset keeps 0 (the convention — the consumer, doctor
+			// dolt_log_depth, falls back via ApplyThresholdsFallback).
+			th.DoltLogDepthWarn = parseIntOrDefault(val, defaultDoltLogDepthWarn, ks)
+		case "db_size_warn_mb":
+			// unset keeps 0 (the convention — the consumer, doctor
+			// db_size, falls back via ApplyThresholdsFallback).
+			th.DbSizeWarnMB = parseIntOrDefault(val, defaultDbSizeWarnMB, ks)
 		}
 	}
 	return th, nil

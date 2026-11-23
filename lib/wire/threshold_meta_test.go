@@ -54,6 +54,8 @@ var frozenThresholdKeys = []string{
 	"distill_min_score", "distill_max_runes",
 	// the recall-audit listing floor (v1.24.0 — schema v19 curation residual: maintain --recall-audit)
 	"recall_audit_min_bad",
+	// the engine-warning thresholds (v1.25.0 — doctor dolt_log_depth·db_size)
+	"dolt_" + "log_depth_warn", "db_size_warn_mb",
 }
 
 // TestStaleThresholdDefaultsOverride — the v1.13.0 age-audit keys: defaults
@@ -452,3 +454,34 @@ func TestThresholdAutoWhitelist(t *testing.T) {
 // fmtInt/fmtFloat — the registry-default notation (the same rules as the ops derivation).
 func fmtInt(v int) string       { return strconv.Itoa(v) }
 func fmtFloat(v float64) string { return strconv.FormatFloat(v, 'f', -1, 64) }
+
+// TestEngineWarnThresholdOverride — the v1.25.0 engine-warning 2 keys:
+// registry rows (defaults 10000 · 2048), meta override reflection, the
+// unset-keeps-0 convention, and the ApplyThresholdsFallback completion
+// (unset 0 must not read as "warn at depth 0" — the fallback place of the
+// 6-spot registration).
+func TestEngineWarnThresholdOverride(t *testing.T) {
+	def := store.DefaultThresholds()
+	if def.DoltLogDepthWarn != 10000 || def.DbSizeWarnMB != 2048 {
+		t.Fatalf("기본값: depth=%d size=%d, want 10000·2048",
+			def.DoltLogDepthWarn, def.DbSizeWarnMB)
+	}
+	th, err := store.ParseThresholds([][2]any{
+		{"dolt_" + "log_depth_warn", "5000"},
+		{"db_size_warn_mb", "4096"},
+	})
+	if err != nil {
+		t.Fatalf("ParseThresholds err: %v", err)
+	}
+	if th.DoltLogDepthWarn != 5000 || th.DbSizeWarnMB != 4096 {
+		t.Errorf("오버라이드: depth=%d size=%d, want 5000·4096",
+			th.DoltLogDepthWarn, th.DbSizeWarnMB)
+	}
+	// unset keeps 0 and the fallback completes it to the defaults
+	// (LoadThresholds's unset-0-then-fallback convention — no depth-0 false warn).
+	fb := wire.ApplyThresholdsFallback(store.Thresholds{})
+	if fb.DoltLogDepthWarn != 10000 || fb.DbSizeWarnMB != 2048 {
+		t.Errorf("폴백: depth=%d size=%d, want 10000·2048",
+			fb.DoltLogDepthWarn, fb.DbSizeWarnMB)
+	}
+}

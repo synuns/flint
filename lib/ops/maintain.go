@@ -110,11 +110,14 @@ var maintainModeFlags = map[string]map[string]bool{
 	// convention). v1.22.1 r96: --conditions turns it into the conditions
 	// backfill write (--yes-gated).
 	"--recheck": {"--conditions": true},
+	// v1.25.0 T1: gc — the dolt garbage-collection wrapper (the confirmation
+	// is --yes; --shallow is the boolean quick-mode modifier, mode-scoped).
+	"--gc": {},
 }
 
 // maintainYesModes — the modes where --yes (execution confirmation) is meaningful. In the
 // other modes, --yes is also rejected with an error instead of silent ignoring.
-var maintainYesModes = map[string]bool{"--invalidate": true, "--invalidate-stale": true, "--reaffirm": true}
+var maintainYesModes = map[string]bool{"--invalidate": true, "--invalidate-stale": true, "--reaffirm": true, "--gc": true}
 
 // maintainCommitModes — the modes where --commit (transition confirmation) is meaningful. In the
 // other modes, --commit is rejected with an error by the same principle as --yes.
@@ -136,7 +139,7 @@ func retryWrite(ctx context.Context, fn func() error) error {
 
 // maintainUsageLine — the allowed-flags guidance (the common suffix of the invalid-arg
 // error message — for agent self-correction, alongside the error:"usage" transition).
-const maintainUsageLine = "usage: flint maintain --check | --dup-suspects [--limit M] | --conflict-suspects [--limit M] | --stale [--days N] [--limit M] | --invalidate-stale [--yes] [--days N] [--limit M] | --invalidate (--id N --reason S | --ids 1,2,3 --yes) | --merge --from N --to M | --supersede OLD --by NEW | --expire-pending N [--commit] | --meta-audit | --prune-invalidated [N] [--commit] | --decay-audit [--limit M] | --age-audit [--limit M] | --merge-audit [--limit M] | --recall-audit [--limit M] | --reaffirm (--id N | --ids 1,2) --yes | --recheck N [--conditions S --yes] | --tui (opt-in, run alone)"
+const maintainUsageLine = "usage: flint maintain --check | --dup-suspects [--limit M] | --conflict-suspects [--limit M] | --stale [--days N] [--limit M] | --invalidate-stale [--yes] [--days N] [--limit M] | --invalidate (--id N --reason S | --ids 1,2,3 --yes) | --merge --from N --to M | --supersede OLD --by NEW | --expire-pending N [--commit] | --meta-audit | --prune-invalidated [N] [--commit] | --decay-audit [--limit M] | --age-audit [--limit M] | --merge-audit [--limit M] | --recall-audit [--limit M] | --reaffirm (--id N | --ids 1,2) --yes | --recheck N [--conditions S --yes] | --gc [--shallow] --yes | --tui (opt-in, run alone)"
 
 // maintainUsageErrf — assembles the invalid-arg error (the approve.approveUsageErr
 // convention — a UsageError type + the allowed-flags suffix. The exit code stays with the caller).
@@ -172,6 +175,7 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 			{Name: "--id", Value: true}, {Name: "--from", Value: true}, {Name: "--to", Value: true},
 			{Name: "--reason", Value: true}, {Name: "--supersede", Value: true}, {Name: "--by", Value: true},
 			{Name: "--ids", Value: true}, {Name: "--conditions", Value: true},
+			{Name: "--gc"}, {Name: "--shallow"},
 			{Name: "--commit"}, {Name: "--yes"},
 		},
 		Usage: maintainUsageLine,
@@ -200,7 +204,7 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 		case "--check", "--dup-suspects", "--conflict-suspects", "--merge", "--stale",
 			"--invalidate", "--invalidate-stale", "--meta-audit", "--expire-pending",
 			"--prune-invalidated", "--supersede", "--decay-audit", "--age-audit",
-			"--merge-audit", "--recall-audit", "--reaffirm", "--recheck":
+			"--merge-audit", "--recall-audit", "--reaffirm", "--recheck", "--gc":
 			mode = name
 		}
 	}
@@ -392,6 +396,12 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 		fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("maintain: --commit is not valid with %s", mode)))
 		return 1
 	}
+	// --shallow is the --gc-scoped boolean modifier (v1.25.0) — under any other
+	// mode it is an error, the --yes principle (no silent ignoring).
+	if res.Given("--shallow") && mode != "--gc" {
+		fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("maintain: --shallow is not valid with %s", mode)))
+		return 1
+	}
 
 	switch mode {
 	case "--check":
@@ -417,6 +427,8 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 			return maintainRecheckConditions(ctx, ms, stdout, recheckID, conditionsVal, yes)
 		}
 		return maintainRecheck(ctx, ms, stdout, recheckID)
+	case "--gc":
+		return maintainGC(ctx, ms, stdout, res.Given("--shallow"), yes)
 	case "--prune-invalidated":
 		return maintainPruneInvalidated(ctx, ms, stdout, expireDays, commit)
 	case "--dup-suspects":
@@ -2029,6 +2041,112 @@ func maintainRecheckConditions(ctx context.Context, ms MaintStore, stdout io.Wri
 	return 0
 }
 
+// ── v1.25.0 T1: --gc (the dolt garbage-collection wrapper) ──
+
+// gcPingAttempts — the reconnect Ping upper bound (5 tries, 1s apart —
+// dolt_gc() disconnects every session by contract, so the CLI absorbs the
+// disconnect itself instead of surfacing it as a failure).
+const gcPingAttempts = 5
+
+// maintainGCFn — the GC execution seam (the ComposePsFn convention): the
+// engine call that disconnects. Swapped in tests; the real body runs the
+// dolt_gc() SQL (full by default; --shallow takes the quicker, less
+// thorough argument form — verified on the engine: a bare
+// dolt_gc_shallow() function does not exist).
+var maintainGCFn = func(ctx context.Context, st wire.Store, shallow bool) error {
+	q := "SELECT dolt_gc()"
+	if shallow {
+		q = "SELECT dolt_gc('--shallow')"
+	}
+	_, err := st.Query(ctx, q)
+	return err
+}
+
+// maintainGCPingDelay — the reconnect Ping interval (1s; tests swap to 0).
+var maintainGCPingDelay = time.Second
+
+// maintainGC — `maintain --gc [--shallow] --yes`: the disconnect notice →
+// dolt_gc() → the ping-reconnect loop (upper bound gcPingAttempts) → the
+// schema_version recheck gate → the meta pair (last_gc_at · last_gc_mode)
+// → the result JSON. A reconnect that never lands is exit 1 with NO meta
+// write — the GC ran but its completion is unverified (the operator
+// verifies via doctor and reruns). The dolt commit is not applicable —
+// meta stamps ride the SetMetaKV convention (last_backup), not the audit
+// Commit path (GC rewrites no user rows).
+func maintainGC(ctx context.Context, ms wire.Store, stdout io.Writer, shallow, yes bool) int {
+	if !yes { // the execution-confirmation marker (the --reaffirm convention)
+		fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("%s", errors.New("maintain: --gc requires --yes (confirmation)"))))
+		return 1
+	}
+	mode := "full"
+	if shallow {
+		mode = "shallow"
+	}
+	// the pre-run notice — the disconnect contract named up front (the
+	// operator-command guard: no automated path may call this unaware).
+	fmt.Fprintln(stdout, `{"status":"gc-pending","notice":"dolt_gc() disconnects all active sessions — flint will reconnect (up to `+
+		strconv.Itoa(gcPingAttempts)+" pings)")
+	if err := maintainGCFn(ctx, ms, shallow); err != nil {
+		fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("maintain: --gc: %w", err)))
+		return store.MapExit(err)
+	}
+	// the reconnect loop — the disconnect is expected, so Ping failures are
+	// retries, not errors, until the cap.
+	reconnected := false
+	for i := 0; i < gcPingAttempts; i++ {
+		if i > 0 {
+			time.Sleep(maintainGCPingDelay)
+		}
+		if err := ms.Ping(ctx); err == nil {
+			reconnected = true
+			break
+		}
+	}
+	if !reconnected {
+		fmt.Fprintln(stdout, `{"status":"gc-incomplete","notice":"the GC ran but the connection did not return — verify with flint doctor, then rerun maintain --gc --yes"}`)
+		fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf(
+			"maintain: --gc: reconnect failed after %d pings", gcPingAttempts)))
+		return 1
+	}
+	// the schema gate — a database that answers but fails the version
+	// recheck is an unverified completion too (no meta write).
+	rows, err := wire.QueryOnce(ctx, ms, `SELECT value FROM meta WHERE key = 'schema_version'`, nil)
+	if err != nil {
+		fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("maintain: --gc: schema recheck failed: %w", err)))
+		return 1
+	}
+	version := ""
+	if len(rows) > 0 && len(rows[0]) > 0 && rows[0][0] != nil {
+		version = fmt.Sprint(rows[0][0])
+	}
+	if _, convErr := strconv.Atoi(version); convErr != nil {
+		fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf(
+			"maintain: --gc: schema recheck failed: schema_version=%q", version)))
+		return 1
+	}
+	// the history pair (the audit-minimum record — a rare operator event).
+	stamped := time.Now().UTC().Format(time.RFC3339)
+	if err := wire.SetMetaKV(ctx, ms, "last_gc_at", stamped); err != nil {
+		fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("maintain: --gc: last_gc_at: %w", err)))
+		return store.MapExit(err)
+	}
+	if err := wire.SetMetaKV(ctx, ms, "last_gc_mode", mode); err != nil {
+		fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("maintain: --gc: last_gc_mode: %w", err)))
+		return store.MapExit(err)
+	}
+	out, mErr := json.Marshal(struct {
+		Status string `json:"status"`
+		Mode   string `json:"mode"`
+		LastAt string `json:"last_gc_at"`
+	}{Status: "gc", Mode: mode, LastAt: stamped})
+	if mErr != nil {
+		fmt.Fprintln(stdout, wire.ErrLine(mErr))
+		return 1
+	}
+	fmt.Fprintln(stdout, string(out))
+	return 0
+}
+
 // AnyToTime — a cell value as time (accepting time.Time and RFC3339 strings).
 func AnyToTime(v any) (time.Time, bool) {
 	switch t := v.(type) {
@@ -2208,6 +2326,8 @@ func buildMetaKnownKeys() map[string]bool {
 		"scan_stats":           true, // v1.21.0 A6 — the {echo,suggest}{calls,samples} metering baseline (p95 derived on read)
 		"auto_mode":            true, // v1.23.0 — `tuning auto off|shadow` (the shadow-circuit master switch)
 		"last_shadow_at":       true, // v1.23.0 — the shadow-circuit 24h gate stamp (usage.go, the rollup/snapshot pattern)
+		"last_gc_at":           true, // v1.25.0 — the maintain --gc history stamp (the last_backup convention)
+		"last_gc_mode":         true, // v1.25.0 — the maintain --gc mode record (full | shallow)
 	}
 	for _, k := range meteringFreshnessGateKeys {
 		m[k] = true
@@ -2219,7 +2339,7 @@ func buildMetaKnownKeys() map[string]bool {
 // usage counters pb_<id>_uses/_ok — preventing false unknowns in the active
 // statistics. fired_: the fired-counter cumulative keys (the 3 fired_nudge_{distill,recall,
 // update} kinds, the 1 fired_done_stale kind, and fired_doctor_<check> — the check
-// registry's 16 + harness 14 + skill-file 1 = 31 kind cap). Preventing doctor from warning
+// registry's 18 + harness 14 + skill-file 1 = 33 kind cap). Preventing doctor from warning
 // about its own counters as unknown keys (a self-reference false positive). auto_streak_:
 // the v1.23.0 consecutive-hit counters (meta auto_streak_<key>, one per whitelisted
 // auto key — the same self-reference class, not an arbitrary auto_* pass-through).

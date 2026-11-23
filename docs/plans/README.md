@@ -9,11 +9,13 @@
 | 플랜 | 상태 | 요약 | 다음 액션 | 갱신 |
 |---|---|---|---|---|
 | `2026-11-21-flint-release-scope.md` | active | 전체 릴리스 스코프 v1.19.0~v2.0.0 — 11 릴리스 편성·완료 루프 계약(§4)·상태 표(§5) | 루프 실행 중 — v1.19.0~v1.23.0 done(종결 R83·R90·R95·R99·R103) → **v1.24.0(지식 잔여 — 원칙 ③ v1.25.0과 교환) 빌드 중** | 2026-11-22 |
-| `2026-11-23-flint-v1250.md` | active | v1.25.0 엔진 운영 — maintain --gc·doctor 경고 2종·RUNBOOK 2절·footprint·스파이크 2건(ANALYZE·audit_log) | G2 독립 리뷰 대기 | 2026-11-23 |
+| `2026-11-23-flint-v1250.md` | active | v1.25.0 엔진 운영 — maintain --gc·doctor 경고 2종·RUNBOOK 2절·footprint·스파이크 2건(ANALYZE·audit_log) | G2 승인(2026-11-23) — T1~T4 빌드 중 | 2026-11-23 |
 | `2026-11-23-flint-v1250.spec.md` | draft | v1.25.0 엔진 운영 스펙 — 리서치(v125-research) 권안 채택 | 플랜과 함께 G2 리뷰 | 2026-11-23 |
+| `2026-11-23-flint-v1250-spike-analyze.md` | active | v1.25.0 스파이크 — Doltgres ANALYZE 미지원 실증(성공 반환·통계 무연산) → maintain --analyze 폐기 선언 | 완결 — v1.25.0 릴리스 시 아카이브 | 2026-11-23 |
+| `2026-11-23-flint-v1250-spike-auditlog.md` | active | v1.25.0 스파이크 — audit_log 리플레이 설계안·실증: 순수 PG로 dolt 감사 3쿼리 재현 성공(경계 오탐 회피형 포함) | v2.0.0 G2 Ruling(대체 vs 병행) 투입 | 2026-11-23 |
 | `2026-11-19-flint-knowledge-pipelines.md` | active | 지식 관리 계열 로드맵 — K원칙·교정 채널·변동성 계층·만남 판정·관측·자율 튜닝(§12·ADR-0017) | §12 편성 확정 — 계측 v1.19.0·자율 shadow v1.23.0·잔여 v1.24.0·적용 v1.25.0(스코프 문서 §2 — 2026-11-23 교환) — 병합·환류는 계측 동반 분해 | 2026-11-21 |
 | `2026-11-21-flint-vault-bridge.md` | active | 볼트 브리지 — 옵시디언 스냅숏-디프 인덱싱·포인터 저장(원문 비복사)·인사이트 증류 출력(ADR-0018) | v1.21.0(M1 색인·M2 read 통합)·v1.22.0(M3 낡음·M4 distill) 편성 확정 | 2026-11-21 |
-| `2026-11-21-flint-engine-ops.md` | active | 엔진 운영 — maintain --gc(접속 단절 계약)·doctor 경고 2종(로그 깊이·db 크기)·컨테이너 footprint 표시·버전업 절차 | v1.26.0 편성 확정 — M1 GC·경고부터 | 2026-11-21 |
+| `2026-11-21-flint-engine-ops.md` | active | 엔진 운영 — maintain --gc(접속 단절 계약)·doctor 경고 2종(로그 깊이·db 크기)·컨테이너 footprint 표시·버전업 절차 | v1.25.0 편성 확정(2026-11-23 재교환) — M1 GC·경고 구현 완료 | 2026-11-23 |
 | `2026-11-21-flint-surface-trust.md` | active | 표면 신뢰 — 업데이트 캐시 3원칙(ETag 조건부 재검증·모순 검출기)·doctor 버전 정합 표시·`flint seed --demo` 격리 데모 | v1.27.0 편성 확정 — M1 캐시 3원칙부터 | 2026-11-21 |
 
 > v1.12.0~v1.24.2(2026-11-23 릴리스)의 플랜·스펙은

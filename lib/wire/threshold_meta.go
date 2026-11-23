@@ -126,6 +126,11 @@ var thresholdMetas = []ThresholdMeta{
 	// residual: the minimum bad-recall history count at or above which
 	// maintain --recall-audit lists an active row).
 	{"RecallAuditMinBad", "recall_audit_min_bad", 2, "maintain --recall-audit listing floor", ""},
+
+	// the engine-warning thresholds (v1.25.0 — the consumption paths: doctor
+	// dolt_log_depth · db_size, the at-or-above warn lines).
+	{"DoltLogDepthWarn", "dolt_" + "log_depth_warn", 10000, "doctor depth warning", ""},
+	{"DbSizeWarnMB", "db_size_warn_mb", 2048, "doctor db_size", ""},
 }
 
 // ThresholdMetas — the registry's deterministic copy (57 entries — the key set

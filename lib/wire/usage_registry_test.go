@@ -172,3 +172,15 @@ func TestHelpSummaryDocumentsRecallAudit(t *testing.T) {
 		t.Errorf("helpSummary에 recall-audit 누락: %s", s)
 	}
 }
+
+// TestHelpSummaryDocumentsGC — the maintain summary entry must mention the
+// v1.25.0 engine garbage-collection flag (--gc — a subflag row extension,
+// the usageOrder and seedCommands sets unchanged).
+func TestHelpSummaryDocumentsGC(t *testing.T) {
+	s := HelpSummary()
+	for _, want := range []string{"--gc", "disconnect"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("helpSummary에 %q 누락: %s", want, s)
+		}
+	}
+}

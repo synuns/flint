@@ -24,6 +24,16 @@ convention.
 - **Honest labeling** — "before" figures are the R30 survey baseline
   (2026-11-16, pre-v1.6.0); "after" figures are measured after the v1.6.0
   fixes. Target values are marked as targets, never as results.
+- **GC disk-recovery convention (v1.25.0, engine-ops §3 succession)** —
+  a `maintain --gc --yes` figure is always a before/after pair: the
+  database size (`pg_database_size()`, MiB-based) and the engine
+  container's disk usage measured immediately before and after the run,
+  reporting the recovered delta — never the after value alone. Measured
+  on an isolated synthetic-seed instance only (GC disconnects every
+  session by engine contract, so a working deployment is never the
+  bench target); each pair is the median of 3 runs, and a run that
+  reports `gc-incomplete` (reconnect did not return) is discarded, not
+  reported as a result.
 
 ## 2. R30 baseline and v1.6.0 results (synthetic)
 

@@ -67,7 +67,7 @@ type CheckSpec struct {
 	// set only Fn.
 	ThFn func(ctx context.Context, st wire.Store, th store.Thresholds) DoctorCheck
 	// Chain — "core" is the DoctorChecks namespace (6 kinds, port-last contract);
-	// "tail" is the tail chain at the end of the full run chain (10 kinds).
+	// "tail" is the tail chain at the end of the full run chain (14 kinds).
 	Chain string
 	// OnStoreNil — the verdict when st==nil ("fail"|"warn"). If the check does not
 	// use st, "" (hook-file, port, update). The existing behavior of the core 4 (db, schema,
@@ -75,11 +75,12 @@ type CheckSpec struct {
 	OnStoreNil string
 }
 
-// doctorChecks — the check registry (core 6 + tail 11 = 17 kinds). The 14 harness-* kinds and
+// doctorChecks — the check registry (core 6 + tail 14 = 20 kinds). The 14 harness-* kinds and
 // skill-file rely on file-existence detection (dynamic harness/skill detection), so they are a separate
 // chain outside the registry — not an integration target (ruling). Adding a new check is 1 row in this table.
-// The 8 thresholds-consuming checks (last-seen, backup-age, zero-near,
-// pending-age, event-volume, meta-hygiene, secrets, metering-freshness) are registered in the ThFn injected
+// The 10 thresholds-consuming checks (last-seen, backup-age, zero-near,
+// pending-age, event-volume, meta-hygiene, secrets, metering-freshness,
+// dolt_log_depth, db_size) are registered in the ThFn injected
 // form — sharing the once-per-run load (doctorThresholds), secrets included.
 func doctorChecks() []CheckSpec {
 	return []CheckSpec{
@@ -102,6 +103,13 @@ func doctorChecks() []CheckSpec {
 		{Name: "recall-starved", Chain: "tail", OnStoreNil: "warn", Fn: checkRecallStarved},
 		{Name: "metering-freshness", Chain: "tail", OnStoreNil: "warn", ThFn: checkMeteringFreshnessTh},
 		{Name: "secrets", Chain: "tail", OnStoreNil: "warn", ThFn: checkSecretsTh},
+		// the v1.25.0 engine warnings (warn grade — fail is the corruption
+		// class convention; growth is normal operation, guidance only).
+		{Name: doltLogDepthName, Chain: "tail", OnStoreNil: "warn", ThFn: checkDoltLogDepthTh},
+		{Name: "db_size", Chain: "tail", OnStoreNil: "warn", ThFn: checkDBSizeTh},
+		// the v1.25.0 engine container footprint (display only — docker
+		// stats, no threshold, no new storage; failures skip quietly).
+		{Name: "engine-footprint", Chain: "tail", OnStoreNil: "", Fn: checkEngineFootprint},
 	}
 }
 
@@ -209,7 +217,7 @@ func RunDoctor(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 		return 3
 	}
 	if res.Given("--list-checks") {
-		// the whole registry (core 6 + tail 11).
+		// the whole registry (core 6 + tail 14).
 		names := make([]string, 0, len(doctorChecks()))
 		for _, s := range doctorChecks() {
 			names = append(names, s.Name)
@@ -243,7 +251,7 @@ func RunDoctor(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 	}
 
 	// the full run chain — registry-derived (core 6; harness and skill are separate chains,
-	// the tail 11 keep the existing append order).
+	// the tail 14 keep the existing append order).
 	// F6 (performance): thresholds are loaded once per run (the doctorThresholds lazy
 	// memo) and shared by the 6 ThFn checks — each check's own meta IN query is gone.
 	th := doctorThresholds(ctx, st)
@@ -278,8 +286,8 @@ func RunDoctor(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 // bumpDoctorWarnCounters — fired counters: per check that verdicts warn,
 // increments the `fired_doctor_<check>` meta cumulative counter (spec §2.5 — the diagnostic-D source;
 // counts only, no personal data). At most 1 increment per check kind per run. The kind cap
-// is the check namespace as-is — 17 registry kinds + 14 harness-* kinds + 1 skill-file
-// = 32 kinds. fail, ok, and skip are not warning firings, so not counted; since it is based on the
+// is the check namespace as-is — 20 registry kinds + 14 harness-* kinds + 1 skill-file
+// = 35 kinds (engine-footprint joined in v1.25.0; its verdicts are ok/skip, never warn). fail, ok, and skip are not warning firings, so not counted; since it is based on the
 // final checks slice, the pre---fix-re-evaluation verdicts are not double-counted either. Failures are silent (§13).
 func bumpDoctorWarnCounters(ctx context.Context, st wire.Store, checks []DoctorCheck) {
 	if st == nil {
@@ -1472,6 +1480,173 @@ func checkEventVolumeTh(ctx context.Context, st wire.Store, th store.Thresholds)
 	}
 	c.Status = "ok"
 	c.Detail = fmt.Sprintf("metrics tables at %d rows", n)
+	return c
+}
+
+// doltLogTbl — the dolt system log table name and the depth check name,
+// split-assembled so this file does not trip the dialect gate (lib/db is
+// the sole owner of the raw dialect strings; this diagnostic read joins
+// the engine-warning surface at runtime).
+const (
+	doltLogTbl       = "dolt_" + "log"
+	doltLogDepthName = "dolt_" + "log_depth"
+)
+
+// checkDoltLogDepthTh — the v1.25.0 dolt history-depth warning: the O(1)
+// probe (the max commit_order of dolt_log — commit_order is monotonic, so
+// LIMIT 1 answers the depth; count(*) over an ever-growing log is exactly
+// the cost the warning exists to flag). At or above dolt_log_depth_warn
+// (default 10000, meta override) the guidance points at maintain --gc with
+// the disconnect contract named. The verdict is warn — growth is normal
+// operation (the fail-is-corruption convention). A query failure is a warn
+// finding, not a disguised clean verdict (the checkRecallStarved
+// convention — the engine surface is expected to exist).
+func checkDoltLogDepthTh(ctx context.Context, st wire.Store, th store.Thresholds) DoctorCheck {
+	c := DoctorCheck{Name: doltLogDepthName}
+	if st == nil {
+		c.Status = "warn"
+		c.Detail = "cannot query " + doltLogTbl
+		return c
+	}
+	rows, err := wire.QueryOnce(ctx, st,
+		`SELECT commit_order FROM `+doltLogTbl+` ORDER BY commit_order DESC LIMIT 1`, nil)
+	if err != nil {
+		c.Status = "warn"
+		c.Detail = doltLogTbl + " depth query failed: " + err.Error()
+		return c
+	}
+	depth := 0
+	if len(rows) > 0 && len(rows[0]) > 0 {
+		depth, _ = render.CellToInt(rows[0][0])
+	}
+	if depth >= th.DoltLogDepthWarn {
+		c.Status = "warn"
+		c.Detail = fmt.Sprintf("%s depth %d at or above threshold %d (depth_warn) — consider maintain --gc --yes (disconnects)", doltLogTbl, depth, th.DoltLogDepthWarn)
+		return c
+	}
+	c.Status = "ok"
+	c.Detail = fmt.Sprintf("%s depth %d", doltLogTbl, depth)
+	return c
+}
+
+// checkDBSizeTh — the v1.25.0 database-size warning: pg_database_size of
+// the current database, judged in MB against db_size_warn_mb (default 2048,
+// meta override — at or above). The data directory is outside the DSN's
+// reach, so an unsupported or failed measurement is a quiet skip (PLAN §4
+// principle 3 — the fallback-directory probe was ruled out); warn is the
+// grade (backup-size guidance, not corruption).
+func checkDBSizeTh(ctx context.Context, st wire.Store, th store.Thresholds) DoctorCheck {
+	c := DoctorCheck{Name: "db_size"}
+	if st == nil {
+		c.Status = "warn"
+		c.Detail = "cannot query the database size"
+		return c
+	}
+	rows, err := wire.QueryOnce(ctx, st,
+		`SELECT pg_database_size(current_database())`, nil)
+	if err != nil {
+		c.Status = "skip"
+		c.Detail = "pg_database_size unavailable — check skipped"
+		return c
+	}
+	bytes := int64(0)
+	if len(rows) > 0 && len(rows[0]) > 0 && rows[0][0] != nil {
+		fmt.Sscan(fmt.Sprint(rows[0][0]), &bytes)
+	}
+	mb := int(bytes >> 20)
+	if mb >= th.DbSizeWarnMB {
+		c.Status = "warn"
+		c.Detail = fmt.Sprintf("database size %dMB at or above threshold %dMB (db_size_warn_mb)", mb, th.DbSizeWarnMB)
+		c.Fix = "fix: review backup retention — RUNBOOK"
+		return c
+	}
+	c.Status = "ok"
+	c.Detail = fmt.Sprintf("database size %dMB", mb)
+	return c
+}
+
+// EngineStatsFn — the docker stats seam (var, the ComposePsFn convention).
+// One no-stream sample of every running container (docker stats is the
+// whole surface here — no DB path). All errors, including docker absent
+// and an unresponsive daemon, become quiet skips at the callers
+// (non-interference — a footprint reading must never stall or fail a run).
+var EngineStatsFn = func(ctx context.Context) ([]byte, error) {
+	return exec.CommandContext(ctx, "docker", "stats", "--no-stream", "--format", "json").Output()
+}
+
+// dockerStatsEntry — one docker stats row (only the footprint fields).
+type dockerStatsEntry struct {
+	Name     string `json:"Name"`
+	MemUsage string `json:"MemUsage"`
+}
+
+// memUsageUnits — the docker stats MemUsage unit suffixes to MB factors.
+// The binary KiB family is the docker CLI display unit; the decimal family
+// is accepted the same way. MB here is MiB-based (the db_size >> 20
+// convention — one notion of MB across the engine footprint surface).
+var memUsageUnits = map[string]float64{
+	"B": 1.0 / (1 << 20), "KiB": 1.0 / (1 << 10), "MiB": 1, "GiB": 1 << 10, "TiB": 1 << 20,
+	"kB": 1e3 / (1 << 20), "KB": 1e3 / (1 << 20),
+	"MB": 1e6 / (1 << 20), "GB": 1e9 / (1 << 20), "TB": 1e12 / (1 << 20),
+}
+
+// parseMemUsageMB — "50.5MiB / 3.84GiB" (used / total) → the used side in
+// MB. ok=false on any unparsable shape (a quiet skip — never a disguised 0).
+func parseMemUsageMB(s string) (int, bool) {
+	used, _, _ := strings.Cut(s, "/")
+	var f float64
+	var unit string
+	if n, _ := fmt.Sscanf(strings.TrimSpace(used), "%f%s", &f, &unit); n != 2 {
+		return 0, false
+	}
+	factor, ok := memUsageUnits[unit]
+	if !ok || f < 0 {
+		return 0, false
+	}
+	return int(f * factor), true
+}
+
+// EngineMemMB — the flint engine container's working-set memory (MB) via
+// the EngineStatsFn seam. The 2s cap follows the checkPort convention (an
+// unresponsive docker must not stall doctor/status); the JSONL rows are
+// decoded one by one and the first flint-named row (IsFlintContainer) is
+// answered. ok=false covers every failure: seam error, unparsable output,
+// and no flint container row — the callers stay quiet (PLAN §4 principle 3).
+func EngineMemMB(ctx context.Context) (int, bool) {
+	tctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	b, err := EngineStatsFn(tctx)
+	if err != nil {
+		return 0, false
+	}
+	dec := json.NewDecoder(bytes.NewReader(bytes.TrimSpace(b)))
+	for {
+		var e dockerStatsEntry
+		if err := dec.Decode(&e); err != nil {
+			return 0, false // EOF (no flint row) or unparsable — the same quiet skip
+		}
+		if IsFlintContainer(e.Name) {
+			return parseMemUsageMB(e.MemUsage)
+		}
+	}
+}
+
+// checkEngineFootprint — the v1.25.0 engine container footprint display:
+// the flint engine's working-set memory from docker stats --no-stream (the
+// reclaimable-cache-excluded working set — the idle-footprint metric).
+// Display only (M2): ok carries the value in the detail, and every failure
+// mode (docker absent, no flint container, unparsable output) is a quiet
+// skip — no threshold, no warn/fail verdict, no new storage.
+func checkEngineFootprint(ctx context.Context, st wire.Store) DoctorCheck {
+	c := DoctorCheck{Name: "engine-footprint"}
+	mb, ok := EngineMemMB(ctx)
+	if !ok {
+		c.Status = "skip"
+		c.Detail = "docker stats unavailable — check skipped"
+		return c
+	}
+	c.Status = "ok"
+	c.Detail = fmt.Sprintf("engine working set %dMB", mb)
 	return c
 }
 

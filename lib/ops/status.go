@@ -147,6 +147,17 @@ type statusV1211Output struct {
 	ScanSuggestP95Us int `json:"scan_suggest_p95_us"`
 }
 
+// statusV1250Output — the engine footprint row (v1.25.0 M2): the flint
+// engine container's working-set memory (MB) from docker stats, appended
+// after the scan metering row (the additive-append precedent). A failed
+// lookup omits the field entirely (omitempty — display only, no null
+// placeholder, unlike the last_* keys): the value is an indication, it
+// must not break status. No new storage.
+type statusV1250Output struct {
+	statusV1211Output
+	EngineMemMB int `json:"engine_mem_mb,omitempty"`
+}
+
 // vaultLastScanRow — reads meta 'vault_last_scan' into the status vault row.
 // Missing, corrupt (non-JSON), or failing lookups degrade to nil/0/0 (the
 // same principle as lastSeenOrNull). The RFC3339 'at' is surfaced as-is; a
@@ -369,13 +380,17 @@ func RunStatus(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 		// cumulative view, appended after the vault row (the one-arg
 		// loader adapter over the two-arg getKV).
 		sEcho, sSuggest := ScanStatsFromMetaFn(func(k string) (string, error) { return getKV(k, "") })
-		b, _ = json.Marshal(statusV1211Output{statusV1210Output: statusV1210Output{statusV0180Output: statusV0180Output{statusV096Output: base,
+		// the engine footprint row (v1.25.0) — a failed docker stats lookup
+		// is 0/omitted (the metering-indication principle).
+		engineMem, _ := EngineMemMB(ctx)
+		b, _ = json.Marshal(statusV1250Output{statusV1211Output: statusV1211Output{statusV1210Output: statusV1210Output{statusV0180Output: statusV0180Output{statusV096Output: base,
 			ReadCalls14d: winRead, ReadZeroPct14d: winZeroPct, ReadZeroNearPct14d: winNearPct, ReadWindowDays: winDays,
 			HotBytes14d: winHotBytes, ReadBytes14d: winReadBytes,
 			ReadBytesP95: readBytesP95, HotBytesP95: hotBytesP95},
 			VaultIndexedAt: vAt, VaultFiles: vFiles, VaultChanged: vChanged},
 			ScanEchoCalls: sEcho.Calls, ScanEchoP95Us: sEcho.P95,
-			ScanSuggestCalls: sSuggest.Calls, ScanSuggestP95Us: sSuggest.P95})
+			ScanSuggestCalls: sSuggest.Calls, ScanSuggestP95Us: sSuggest.P95},
+			EngineMemMB: engineMem})
 	}
 	fmt.Fprintln(stdout, string(b))
 	return 0

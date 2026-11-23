@@ -66,6 +66,10 @@ func ApplyThresholdsFallback(th store.Thresholds) store.Thresholds {
 		{&th.DailyRetentionD, def.DailyRetentionD, false},
 		{&th.RecallEventRetentionD, def.RecallEventRetentionD, false},
 		{&th.CorrectionDailyMax, def.CorrectionDailyMax, false},
+		// the engine-warning thresholds (v1.25.0) — unset 0 would read as
+		// "warn at depth 0 / size 0" in doctor, so the fallback is mandatory.
+		{&th.DoltLogDepthWarn, def.DoltLogDepthWarn, false},
+		{&th.DbSizeWarnMB, def.DbSizeWarnMB, false},
 	} {
 		if *f.cur == 0 || (!f.allow && *f.cur < 0) {
 			*f.cur = f.def

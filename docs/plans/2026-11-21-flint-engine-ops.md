@@ -116,6 +116,9 @@ docs/RUNBOOK.md(운영 절 신설 분리)
 2. **M2 footprint 표시** — doctor/status 표시·실패 조용히 계약 테스트.
 3. **M3 ANALYZE spike(L0)** — Doltgres 지원 실증. 지원 시 maintain
    --analyze 채택, 미지원 시 폐기 선언을 본 문서에 남긴다.
+   - **완결(2026-11-23)**: 미지원(성공 반환하나 통계 무연산) —
+     `maintain --analyze` 폐기 선언. 실증 원문:
+     2026-11-23-flint-v1250-spike-analyze.md.
 
 ## 5. 미결정 (착수 시 결정)
 
