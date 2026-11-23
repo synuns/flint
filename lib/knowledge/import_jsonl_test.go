@@ -3,7 +3,6 @@ package knowledge
 import (
 	"context"
 	"fmt"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/synuns/flint/internal/testengine"
 	"github.com/synuns/flint/lib/db"
 	"github.com/synuns/flint/lib/render"
 	"github.com/synuns/flint/lib/store"
@@ -748,11 +748,7 @@ func importRealDSN() (string, bool) {
 	if os.Getenv("SUPERLITE_REAL") != "1" {
 		return "", false
 	}
-	dsn := os.Getenv("FLINT_TEST_DSN")
-	if dsn == "" {
-		return "", false
-	}
-	return dsn, true
+	return testengine.ResolveDSN(), true
 }
 
 type importRealStore struct {
@@ -1623,39 +1619,24 @@ func TestRunImportMigrateJSONLRecallReplay(t *testing.T) {
 
 func r42aScratchStore(t *testing.T, ctx context.Context, label, dsn string) *importRealStore {
 	t.Helper()
-	base, err := db.Connect(ctx, dsn)
-	if err != nil {
-		t.Skipf("scratch base connect: %v", err)
-	}
-	t.Cleanup(base.Close)
-	name := fmt.Sprintf("flint_r42a_%s_%d", label, time.Now().UnixNano()%1e9)
-	t.Cleanup(func() { _, _ = base.Exec(ctx, "DROP DATABASE IF EXISTS "+name) })
-	if _, err := base.Exec(ctx, "CREATE DATABASE "+name); err != nil {
-		t.Skipf("CREATE DATABASE %s: %v", name, err)
-	}
-	u, err := url.Parse(dsn)
-	if err != nil {
-		t.Fatalf("DSN 파싱: %v", err)
-	}
-	u.Path = "/" + name
-	dbDSN := u.String()
+	dbDSN := testengine.Scratch(t)
 	repo, err := db.NewRepo(ctx, dbDSN)
 	if err != nil {
-		t.Fatalf("NewRepo %s: %v", name, err)
+		t.Fatalf("NewRepo: %v", err)
 	}
 	pool, err := db.Connect(ctx, dbDSN)
 	if err != nil {
 		repo.Close()
-		t.Fatalf("Connect %s: %v", name, err)
+		t.Fatalf("Connect: %v", err)
 	}
 	st := &importRealStore{Repo: repo, pool: pool}
 	t.Cleanup(st.Close)
 	if err := repo.Migrate(ctx); err != nil {
-		t.Fatalf("Migrate %s: %v", name, err)
+		t.Fatalf("Migrate: %v", err)
 	}
 
 	if err := repo.EnsureSchemaV12(ctx); err != nil {
-		t.Fatalf("EnsureSchemaV12 %s: %v", name, err)
+		t.Fatalf("EnsureSchemaV12: %v", err)
 	}
 	return st
 }

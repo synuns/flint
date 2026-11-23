@@ -14,6 +14,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/synuns/flint/internal/testengine"
 	"github.com/synuns/flint/lib/db"
 )
 
@@ -187,10 +188,10 @@ func TestSupersedeChainsQueryError(t *testing.T) {
 
 func mdSlowDSN(t *testing.T) string {
 	t.Helper()
-	if os.Getenv("SUPERLITE_REAL") != "1" || os.Getenv("FLINT_TEST_DSN") == "" {
+	if os.Getenv("SUPERLITE_REAL") != "1" {
 		t.Skip("SUPERLITE_REAL=1 + FLINT_TEST_DSN required")
 	}
-	return os.Getenv("FLINT_TEST_DSN")
+	return testengine.ResolveDSN()
 }
 
 const mdChainHashPrefix = "mdchain-"

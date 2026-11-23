@@ -62,12 +62,53 @@ func TestPlannedBadgeVersions(t *testing.T) {
 	}
 }
 
+var badgeVersionRe = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+$`)
+
+func versionFileBadge() (string, bool) {
+	b, err := os.ReadFile(docPath("../VERSION"))
+	if err != nil {
+		return "", false
+	}
+	v := strings.TrimSpace(string(b))
+	if !badgeVersionRe.MatchString(v) {
+		return "", false
+	}
+	return "v" + v, true
+}
+
+func allowedBadges(tag string) []string {
+	allowed := plannedBadgeVersions(tag)
+	if v, ok := versionFileBadge(); ok {
+		seen := false
+		for _, c := range allowed {
+			if c == v {
+				seen = true
+				break
+			}
+		}
+		if !seen {
+			allowed = append(allowed, v)
+		}
+	}
+	return allowed
+}
+
+func TestVersionFileBadge(t *testing.T) {
+	v, ok := versionFileBadge()
+	if !ok {
+		t.Fatal("VERSION 파일 후보 파싱 실패 — x.y.z 형식이어야 한다")
+	}
+	if !badgeRe.MatchString("release-" + v) {
+		t.Errorf("후보 %q가 배지 형식과 불일치", v)
+	}
+}
+
 func TestReadmeBadgeIsPlannedVersion(t *testing.T) {
 	tag := latestTag(t)
 	if tag == "" {
 		t.Skip("최신 태그 없음")
 	}
-	allowed := plannedBadgeVersions(tag)
+	allowed := allowedBadges(tag)
 	var seen string
 	for _, p := range []string{"../README.md", "../README.ko.md"} {
 		badge := readmeReleaseBadge(t, p)

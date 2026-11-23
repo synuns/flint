@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/synuns/flint/internal/testengine"
 )
 
 func TestSupersedeExecutesOnLockHeldConnV1202(t *testing.T) {
@@ -54,21 +55,8 @@ func TestSupersedeExecutesOnLockHeldConnV1202(t *testing.T) {
 }
 
 func TestSlowSupersedeParallelBeyondPoolV1202(t *testing.T) {
-	dsn := testDSN(t)
 	ctx := context.Background()
-	admin, err := adminConnectForScratch(t, ctx, dsn)
-	if err != nil {
-		t.Fatalf("scratch 관리 접속: %v", err)
-	}
-	name := pgx.Identifier{scratchDBName(t)}.Sanitize()
-	t.Cleanup(func() {
-		_, _ = admin.Exec(ctx, "DROP DATABASE IF EXISTS "+name)
-	})
-	if _, err := admin.Exec(ctx, "CREATE DATABASE "+name); err != nil {
-		t.Fatalf("scratch 생성: %v", err)
-	}
-
-	scratchDSN := dsnForDatabase(t, dsn, name)
+	scratchDSN := testengine.Scratch(t)
 	cfg, err := PoolConfig(scratchDSN)
 	if err != nil {
 		t.Fatalf("PoolConfig: %v", err)

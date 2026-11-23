@@ -4,15 +4,13 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"fmt"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/synuns/flint/lib/db"
+	"github.com/synuns/flint/internal/testengine"
 )
 
 type fakeStore struct {
@@ -100,28 +98,8 @@ func realStore(t *testing.T) *PoolStore {
 	if os.Getenv("SUPERLITE_REAL") != "1" {
 		t.Fatal("realStore requires SUPERLITE_REAL=1")
 	}
-	dsn := os.Getenv("FLINT_TEST_DSN")
-	if dsn == "" {
-		t.Fatal("realStore requires FLINT_TEST_DSN")
-	}
 	ctx := context.Background()
-	base, err := db.Connect(ctx, dsn)
-	if err != nil {
-		t.Skipf("real store unavailable: %v", err)
-	}
-
-	t.Cleanup(base.Close)
-	name := fmt.Sprintf("flint_t2vault_%d", time.Now().UnixNano()%1e9)
-	if _, err := base.Exec(ctx, "CREATE DATABASE "+name); err != nil {
-		t.Fatalf("CREATE DATABASE: %v", err)
-	}
-	t.Cleanup(func() { _, _ = base.Exec(ctx, "DROP DATABASE IF EXISTS "+name) })
-	u, err := url.Parse(dsn)
-	if err != nil {
-		t.Fatalf("DSN parse: %v", err)
-	}
-	u.Path = "/" + name
-	st, err := Open(ctx, u.String())
+	st, err := Open(ctx, testengine.Scratch(t))
 	if err != nil {
 		t.Fatalf("vault.Open: %v", err)
 	}

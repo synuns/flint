@@ -10,6 +10,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+
+	"github.com/synuns/flint/internal/testengine"
 )
 
 const slowLockKey = "flint_test_slow"
@@ -63,6 +65,7 @@ func TestMain(m *testing.M) {
 	release := lockSlowSuite(testDSN())
 	code := m.Run()
 	release()
+	testengine.RunCleanup(context.Background())
 	os.Exit(code)
 }
 
@@ -73,8 +76,8 @@ func TestSlowLockUsesTestDSN(t *testing.T) {
 		t.Errorf("testDSN = %q, want FLINT_TEST_DSN 우선", got)
 	}
 	t.Setenv("FLINT_TEST_DSN", "")
-	if got := testDSN(); got != "postgresql://flint:flint-dev@localhost:5434/flint_test" {
-		t.Errorf("기본 testDSN = %q, want flint_test(FLINT_DSN 무시)", got)
+	if got := testDSN(); got != testengine.TestDSNDefault() {
+		t.Errorf("기본 testDSN = %q, want 전용 엔진 %q(운영 FLINT_DSN 무시)", got, testengine.TestDSNDefault())
 	}
 }
 

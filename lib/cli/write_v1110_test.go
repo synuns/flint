@@ -5,12 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/url"
 	"strings"
 	"testing"
-	"time"
 
-	"github.com/synuns/flint/lib/db"
+	"github.com/synuns/flint/internal/testengine"
 )
 
 func runScratch(t *testing.T, args []string, stdin string) (string, int) {
@@ -21,39 +19,11 @@ func runScratch(t *testing.T, args []string, stdin string) (string, int) {
 }
 
 func TestWriteCorrectionE2ERealSlow(t *testing.T) {
-	dsn, real := seamRealDSN()
+	_, real := seamRealDSN()
 	if !real {
 		t.Skip("SUPERLITE_REAL=1 + FLINT_TEST_DSN required")
 	}
-	ctx := context.Background()
-	base, err := db.Connect(ctx, dsn)
-	if err != nil {
-		t.Skipf("real store unavailable: %v", err)
-	}
-
-	t.Cleanup(base.Close)
-
-	name := fmt.Sprintf("flint_v1110_t2_%d", time.Now().UnixNano()%1e9)
-	if _, err := base.Exec(ctx, "CREATE DATABASE "+name); err != nil {
-		t.Fatalf("CREATE DATABASE: %v", err)
-	}
-	t.Cleanup(func() {
-
-		var last error
-		for i := 0; i < 3; i++ {
-			if _, last = base.Exec(ctx, "DROP DATABASE IF EXISTS "+name); last == nil {
-				return
-			}
-			time.Sleep(500 * time.Millisecond)
-		}
-		t.Logf("스크래치 DB 잔존(%q): %v", name, last)
-	})
-	u, err := url.Parse(dsn)
-	if err != nil {
-		t.Fatalf("DSN 파싱: %v", err)
-	}
-	u.Path = "/" + name
-	freshDSN := u.String()
+	freshDSN := testengine.Scratch(t)
 
 	prev := newStore
 	newStore = func(ctx context.Context, dsn string) (Store, error) {

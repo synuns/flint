@@ -302,20 +302,29 @@ append-only라 기기 간 자동 병합되고, 동일 지식 행 쓰기 충돌�
   LatestSchemaVersion이라 다운그레이드 시 스키마 버전에 맞는 바이너리로
   매칭해야 한다.
 
-## 테스트 DB 장기 운영 위생 (v0.21.2)
+## 테스트 엔진 위생 — 물리 격리 후 운영 (v1.29.0 재작성, v0.21.2 슈퍼세드)
 
-`make e2e`가 Doltgres 엔진 내부 패닉(interface conversion류)으로 실패하면
-공유 `flint_test`의 **커밋 이력 누적**이 원인일 수 있다 — 모든 쓰기가
-Doltgres 커밋을 만들어 이력이 무한히 자라며, 오래된 DB에서 플래너
-버그를 건드릴 수 있다(2026-11-07 실측 사례). 해결:
+테스트 실DB 접근은 v1.29.0부터 **전용 테스트 엔진**(`docker-compose.test.yml`
+· `127.0.0.1:5499`·휘발 볼륨 — ADR-0019)로 물리 격리된다. 과거의 공유
+`flint_test` 재구축 절차(DROP/CREATE)는 폐기 — 엔진이 테스트 전용이므로
+재구축이 필요하면 엔진 자체를 회수해 재기동한다:
 
 ```sh
-psql postgresql://flint:flint-dev@localhost:5434/flint \
-  -c "DROP DATABASE flint_test" -c "CREATE DATABASE flint_test"
-make e2e   # 신규 DB에서 게이트가 스키마를 재구축한다
+make test-down   # -v: 휘발 볼륨까지 회수
+make test-up     # 신규 엔진 — 게이트가 스키마를 재구축한다
 ```
 
-운영 DB(`flint`)는 해당 없다 — 이력은 시간여행(as-of) 기능의 자산이다.
+- `make e2e`가 엔진 내부 패닉(interface conversion류)으로 실패하면
+  커밋 이력 누적이 원인일 수 있다 — 위 재기동으로 해결한다(이력이
+  무한히 자라며 오래된 DB에서 플래너 버그를 건드릴 수 있다).
+- 운영 엔진(`127.0.0.1:5434`)은 테스트가 **접근하지 않는다** — 운영
+  DB(`flint`)의 이력은 시간여행(as-of) 기능의 자산이므로 건드리지
+  않는다.
+- **ADR-0010 준항목 슈퍼세드**: ADR-0010 "결정"의 `tests 기본 DSN 5434`
+  준항목은 v1.29.0 전용 테스트 엔진 기본값(5499)이 대체한다 — 운영
+  접속의 5434 고정은 그대로 유효하다.
+- 재부팅 뒤에는 자동 기동하지 않는다(`restart: no`) — 필요 시
+  `make test-up`.
 
 ## 비밀 스캔 오탐 완화 — allowlist (v0.26.1)
 
@@ -425,13 +434,74 @@ Doltgres 엔진 이미지 버전업은 아래 순서를 변경 없이 따른다(
 5. **doctor** — `flint doctor`로 스키마 게이트·포트·경고 전반을
    확인한다.
 
-## 실DB 테스트 격리·러너 (v1.0.10 확정)
+## 12. 엔진 메모리 측정 스파이크 (v1.29.0 L0 — 절차·양식)
 
-- 실DB slow 태스크(db·backup·regression 스위트)는 격리 커밋 후 파견 —
-  공유 flint_test 경합(40001·flaky)이 재현 경로. 감사 D2 결정.
+전용 테스트 엔진에서 합성 부하 전후의 상주 메모리를 재고
+Go 런타임 상한 후보(`GOMEMLIMIT`·`GOGC`)의 효과를 관찰하는
+절차다. **기본값 적용은 v1.30.0(compose 내장)에 위임** — 본 절은
+측정 절차와 기록 양식만 정의하며, 실측은 최초 1회 수행 후 아래
+표에 기록한다.
+
+절차(순서 고정):
+
+1. **기동** — `make test-up`으로 전용 테스트 엔진을 띄운다
+   (`make test-down`으로 회수 — 휘발 취급).
+2. **베이스라인** — `flint doctor --check engine-footprint`(또는
+   `docker stats --no-stream`)로 부하 전 상주 메모리를 기록한다.
+   detail의 `restarts N`으로 비정상 재시작 없음을 함께 확인한다.
+3. **합성 부하** — `FLINT_TEST_DSN`을 가리킨 실DB slow 스위트
+   등 **합성 데모 데이터** 부하를 1회 통과시킨다(운영 DB 접근 금지).
+4. **부하 직후·안정** — 직후와 5분 후 메모리를 각각 기록한다.
+5. **후보 적용 반복** — 엔진 컨테이너 환경에 후보값
+   (`GOMEMLIMIT=…MiB`·`GOGC=…`)을 임시 주입하고 2~4를 반복한다.
+   후보는 1~2개로 제한한다.
+
+기록 양식(전 회차 누적):
+
+| 후보 | 베이스라인 MB | 부하 직후 MB | 안정 MB | 판정 |
+|---|---|---|---|---|
+| (예: 기본값) | — | — | — | — |
+| (예: GOMEMLIMIT=512MiB) | — | — | — | — |
+
+판정 기준: **채택** = 안정 상주 메모리가 유의미하게 감소하고 부하
+타임아웃·오류·재시작 증가가 없음. **기각** = 감소 효과가 미미하거나
+부하 소요가 눈에 띄게 증가. **보류** = 판정 근거 부족(재측정 필요).
+채택 여부와 무관하게 기본값 반영은 v1.30.0에서 별도로 결정한다.
+
+## 실DB 테스트 격리·러너 (v1.0.10 확정 · v1.29.0 물리 격리 반영)
+
+- **DSN 해소**: `FLINT_TEST_DSN` 설정 시 그대로 사용, 미설정 시 전용
+  엔진 기본값. **운영 DSN 폴백 금지** — `FLINT_DSN`을 향하지 않는다.
+- **엔진 보장(lazy)**: 실DB 테스트가 처음 접속할 때 미기동이면
+  `internal/testengine`이 `make test-up`과 동일한 compose 기동을
+  1회 시도한다(프로세스 간 flock으로 직렬화). 로컬 실패는 skip +
+  경고 1행, CI(`FLINT_REALDB_REQUIRED=1`)는 fail — skip 0건 센티널로
+  확인한다.
+- **스크래치 수명주기**: 스크래치 DB는 생성 시 등록되고 런 종료에
+  연결 종료 → DROP 재시도(백오프) → 실패 이름 1행 보고. 해소 출처가
+  전용 엔진 기본값일 때만 런 종료에 `dolt_purge_dropped_databases()`
+  를 1회 실행한다(오버라이드 DSN이면 미실행).
+- 소스 가드: `*_test.go`의 `FLINT_DSN` 직접 읽기 0건 — 실DB 테스트는
+  `internal/testengine` 해소만 쓴다(프로덕션 패키지의 import는 차단).
 - Go 워크트리에서 sl run_tests(pytest 기반)는 부적합 — `go test ./...
   -count=1` 직접 실행이 표준(v1.0.1 룰링 승계, 여기에 문서화).
 - CI `make ci`는 `-count=1` 고정 — 로컬과 동일 경로 보장.
+
+## 13. 기존 기기 1회 정리 절차 (v1.29.0 — 자동 실행 없음)
+
+물리 격리 전에 공유 `flint_test`로 테스트하던 기기는 보존 영역(DROP된
+DB 잔재)과 레거시 DB가 운영 엔진에 남아 있다. **사람 운영자가 1회만**
+수동 정리한다(어떤 자동화도 이 절차를 실행하지 않는다):
+
+1. **purge** — `flint maintain --purge-dropped --yes`: dry-run 목록을
+   먼저 확인하고(기본 동작), 되돌릴 필요가 없는 잔재만 반영한다.
+2. **레거시 DROP** — `psql postgresql://flint:flint-dev@localhost:5434/flint
+   -c "DROP DATABASE flint_test"` (존재할 때만. 이후 테스트는 전용
+   엔진을 쓰므로 재생성하지 않는다).
+3. **재 purge** — `flint maintain --purge-dropped --yes`로 2의 잔재까지
+   회수한다.
+4. **확인** — `flint doctor --check stray_dbs`·`--check dropped_dbs`로
+   경고 해소를 확인한다.
 
 ## 지식화 파이프라인 1단계 — 사용자 교정 채널 (v1.11.0)
 

@@ -89,6 +89,9 @@ type Thresholds struct {
 	DoltLogDepthWarn int
 	DbSizeWarnMB     int
 
+	DroppedDBsWarn int
+	StrayDBsWarn   int
+
 	UpdateCacheAgeH int
 }
 
@@ -171,6 +174,9 @@ const (
 	defaultDoltLogDepthWarn = 10000
 	defaultDbSizeWarnMB     = 2048
 
+	defaultDroppedDBsWarn = 1
+	defaultStrayDBsWarn   = 0
+
 	defaultUpdateCacheAgeH = 72
 )
 
@@ -252,6 +258,9 @@ func DefaultThresholds() Thresholds {
 
 		DoltLogDepthWarn: defaultDoltLogDepthWarn,
 		DbSizeWarnMB:     defaultDbSizeWarnMB,
+
+		DroppedDBsWarn: defaultDroppedDBsWarn,
+		StrayDBsWarn:   defaultStrayDBsWarn,
 
 		UpdateCacheAgeH: defaultUpdateCacheAgeH,
 	}
@@ -419,6 +428,12 @@ func ParseThresholds(rows [][2]any) (Thresholds, error) {
 		case "db_size_warn_mb":
 
 			th.DbSizeWarnMB = parseIntOrDefault(val, defaultDbSizeWarnMB, ks)
+		case "dropped_dbs_warn":
+
+			th.DroppedDBsWarn = parseIntOrDefault(val, defaultDroppedDBsWarn, ks)
+		case "stray_dbs_warn":
+
+			th.StrayDBsWarn = parseIntOrDefault(val, defaultStrayDBsWarn, ks)
 		case "update_cache_age_h":
 
 			th.UpdateCacheAgeH = parseIntOrDefault(val, defaultUpdateCacheAgeH, ks)

@@ -186,8 +186,8 @@ func TestDoctorListChecks(t *testing.T) {
 	if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &m); err != nil {
 		t.Fatalf("JSON 아님: %q", out)
 	}
-	if len(m.Checks) != 21 {
-		t.Errorf("checks %d종, want 21종(코어6+tail15): %v", len(m.Checks), m.Checks)
+	if len(m.Checks) != 23 {
+		t.Errorf("checks %d종, want 23종(코어6+tail17): %v", len(m.Checks), m.Checks)
 	}
 	if m.Checks[0] != "hook-file" || m.Checks[4] != "last-seen" || m.Checks[5] != "port" {
 		t.Errorf("코어 6종 순서 회귀: %v", m.Checks)
@@ -1408,5 +1408,200 @@ func TestDoctorEngineStatsTimeout5s(t *testing.T) {
 	}
 	if budget < 4950*time.Millisecond {
 		t.Errorf("docker stats 시간 예산=%v, want ≥4.95s (r109-5 — 2s는 샘플링 창보다 짧다)", budget)
+	}
+}
+
+func withStrayDSNV1290(t *testing.T, dsn string) {
+	t.Helper()
+	old := PurgeDSNFn
+	PurgeDSNFn = func() string { return dsn }
+	t.Cleanup(func() { PurgeDSNFn = old })
+}
+
+func TestEngineDBWarnThresholdsSixSitesV1290(t *testing.T) {
+	def := store.DefaultThresholds()
+	if def.DroppedDBsWarn != 1 || def.StrayDBsWarn != 0 {
+		t.Fatalf("기본값: dropped=%d stray=%d, want 1·0", def.DroppedDBsWarn, def.StrayDBsWarn)
+	}
+	th, err := store.ParseThresholds([][2]any{
+		{"dropped_dbs_warn", "4"},
+		{"stray_dbs_warn", "2"},
+	})
+	if err != nil {
+		t.Fatalf("ParseThresholds err: %v", err)
+	}
+	if th.DroppedDBsWarn != 4 || th.StrayDBsWarn != 2 {
+		t.Errorf("오버라이드: dropped=%d stray=%d, want 4·2", th.DroppedDBsWarn, th.StrayDBsWarn)
+	}
+	fb := wire.ApplyThresholdsFallback(store.Thresholds{})
+	if fb.DroppedDBsWarn != 1 || fb.StrayDBsWarn != 0 {
+		t.Errorf("폴백: dropped=%d stray=%d, want 1·0", fb.DroppedDBsWarn, fb.StrayDBsWarn)
+	}
+	keys := map[string]bool{}
+	for _, k := range wire.ThresholdsKeys() {
+		keys[k] = true
+	}
+	if !keys["dropped_dbs_warn"] || !keys["stray_dbs_warn"] {
+		t.Errorf("ThresholdsKeys에 신규 키 부재: %v", wire.ThresholdsKeys())
+	}
+	metaDefaults := map[string]any{}
+	for _, m := range wire.ThresholdMetas() {
+		metaDefaults[m.Key] = m.Default
+	}
+	if metaDefaults["dropped_dbs_warn"] != 1 || metaDefaults["stray_dbs_warn"] != 0 {
+		t.Errorf("등록표 기본값 불일치: dropped=%v stray=%v",
+			metaDefaults["dropped_dbs_warn"], metaDefaults["stray_dbs_warn"])
+	}
+	for _, name := range []string{"dropped_dbs", "stray_dbs"} {
+		s, ok := doctorSpec(name)
+		if !ok {
+			t.Fatalf("등록표에 %s 부재", name)
+		}
+		if s.Chain != "tail" || s.ThFn == nil {
+			t.Errorf("%s: chain=%q thFn nil=%t, want tail·ThFn", name, s.Chain, s.ThFn == nil)
+		}
+	}
+	if !KnownMetaKey("stray_dbs_allow") {
+		t.Error("stray_dbs_allow 미등록(metaKnownKeys)")
+	}
+}
+
+func TestDoctorDroppedDBsCheckV1290(t *testing.T) {
+	ctx := context.Background()
+	listErr := errors.New("ERROR: no database name specified. available databases that can be undropped: demo_a, demo_b (SQLSTATE XX000)")
+	emptyErr := errors.New("ERROR: no database name specified. there are no databases currently available to be undropped (SQLSTATE XX000)")
+
+	f := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		return nil, listErr
+	}}
+	c := checkDroppedDBsTh(ctx, f, store.DefaultThresholds())
+	if c.Status != "warn" {
+		t.Fatalf("status=%q detail=%q, want warn", c.Status, c.Detail)
+	}
+	if !strings.Contains(c.Detail, "2") || !strings.Contains(c.Detail, "dropped_dbs_warn") {
+		t.Errorf("detail=%q", c.Detail)
+	}
+	if !strings.Contains(c.Fix, "maintain --purge-dropped --yes") {
+		t.Errorf("fix=%q, want purge 안내", c.Fix)
+	}
+
+	c = checkDroppedDBsTh(ctx, f, store.Thresholds{DroppedDBsWarn: 3})
+	if c.Status != "ok" {
+		t.Fatalf("임계 상회 ok: status=%q detail=%q", c.Status, c.Detail)
+	}
+
+	empty := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		return nil, emptyErr
+	}}
+	if c = checkDroppedDBsTh(ctx, empty, store.DefaultThresholds()); c.Status != "ok" {
+		t.Fatalf("빈 보존 영역: status=%q, want ok", c.Status)
+	}
+
+	unsupported := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		return nil, nil
+	}}
+	if c = checkDroppedDBsTh(ctx, unsupported, store.DefaultThresholds()); c.Status != "skip" {
+		t.Fatalf("미지원: status=%q, want skip", c.Status)
+	}
+	if c = checkDroppedDBsTh(ctx, nil, store.DefaultThresholds()); c.Status != "skip" {
+		t.Fatalf("st nil: status=%q, want skip", c.Status)
+	}
+}
+
+func doctorStrayFnV1290(dbs [][]any, allow string, allowErr error) func(string, []any) ([][]any, error) {
+	return func(sql string, args []any) ([][]any, error) {
+		if strings.Contains(sql, "pg_database") {
+			return dbs, nil
+		}
+		if len(args) == 1 && args[0] == strayDBsAllowKey {
+			if allowErr != nil {
+				return nil, allowErr
+			}
+			if allow == "" {
+				return nil, nil
+			}
+			return [][]any{{allow}}, nil
+		}
+		return nil, nil
+	}
+}
+
+func TestDoctorStrayDBsCheckV1290(t *testing.T) {
+	ctx := context.Background()
+	withStrayDSNV1290(t, "postgresql://flint:flint-dev@localhost:5434/flint")
+
+	dbs := [][]any{{"flint"}, {"postgres"}, {"template0"}, {"template1"}, {"flint_test"}, {"extra_demo"}}
+
+	f := &fakeStore{queryFn: doctorStrayFnV1290(dbs, "", nil)}
+	c := checkStrayDBsTh(ctx, f, store.DefaultThresholds())
+	if c.Status != "warn" {
+		t.Fatalf("status=%q detail=%q, want warn", c.Status, c.Detail)
+	}
+	if !strings.Contains(c.Detail, "flint_test") || !strings.Contains(c.Detail, "legacy shared test DB") {
+		t.Errorf("레거시 안내 부재: %q", c.Detail)
+	}
+	if !strings.Contains(c.Detail, "extra_demo") {
+		t.Errorf("미면제 DB 미표시: %q", c.Detail)
+	}
+	if !strings.Contains(c.Fix, "maintain --purge-dropped --yes") {
+		t.Errorf("fix=%q, want purge 안내", c.Fix)
+	}
+
+	allowed := &fakeStore{queryFn: doctorStrayFnV1290(dbs, "extra_demo , flint_test", nil)}
+	if c = checkStrayDBsTh(ctx, allowed, store.DefaultThresholds()); c.Status != "ok" {
+		t.Fatalf("면제 후: status=%q detail=%q, want ok", c.Status, c.Detail)
+	}
+
+	capped := &fakeStore{queryFn: doctorStrayFnV1290(dbs, "", nil)}
+	if c = checkStrayDBsTh(ctx, capped, store.Thresholds{StrayDBsWarn: 2}); c.Status != "ok" {
+		t.Fatalf("임계 상회: status=%q detail=%q, want ok", c.Status, c.Detail)
+	}
+
+	metaErr := &fakeStore{queryFn: doctorStrayFnV1290(dbs, "", errors.New("meta down"))}
+	if c = checkStrayDBsTh(ctx, metaErr, store.DefaultThresholds()); c.Status != "warn" {
+		t.Fatalf("meta 오류는 skip 아님(면제 목록만 무시): status=%q", c.Status)
+	}
+
+	pgErr := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		return nil, errors.New("pg_database unavailable")
+	}}
+	if c = checkStrayDBsTh(ctx, pgErr, store.DefaultThresholds()); c.Status != "skip" {
+		t.Fatalf("조회 실패: status=%q, want skip", c.Status)
+	}
+	if c = checkStrayDBsTh(ctx, nil, store.DefaultThresholds()); c.Status != "skip" {
+		t.Fatalf("st nil: status=%q, want skip", c.Status)
+	}
+}
+
+func withRestartCountV1290(t *testing.T, fn func() (int, error)) {
+	t.Helper()
+	old := RestartCountFn
+	RestartCountFn = fn
+	t.Cleanup(func() { RestartCountFn = old })
+}
+
+func TestDoctorEngineFootprintRestartsV1290(t *testing.T) {
+	withEngineStats(t, func(context.Context) ([]byte, error) {
+		return []byte("{\"Name\":\"flint-doltgres-1\",\"MemUsage\":\"50.5MiB / 3.84GiB\"}\n"), nil
+	})
+	withRestartCountV1290(t, func() (int, error) { return 3, nil })
+	c := checkEngineFootprint(context.Background(), nil)
+	if c.Status != "ok" {
+		t.Fatalf("status=%q, want ok", c.Status)
+	}
+	if !strings.Contains(c.Detail, "restarts 3") {
+		t.Fatalf("detail=%q, want restarts 3 표시", c.Detail)
+	}
+
+	withRestartCountV1290(t, func() (int, error) { return 0, errors.New("docker inspect failed") })
+	c = checkEngineFootprint(context.Background(), nil)
+	if c.Status != "ok" {
+		t.Fatalf("에러 시에도 ok: status=%q", c.Status)
+	}
+	if strings.Contains(c.Detail, "restarts") {
+		t.Fatalf("에러 시 restarts 미표시 아님: %q", c.Detail)
+	}
+	if !strings.Contains(c.Detail, "50MB") {
+		t.Fatalf("에러 시에도 메모리 표시 유지: %q", c.Detail)
 	}
 }

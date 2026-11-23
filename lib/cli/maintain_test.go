@@ -6,11 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/url"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/synuns/flint/internal/testengine"
 	"github.com/synuns/flint/lib/db"
 	"github.com/synuns/flint/lib/knowledge"
 	"github.com/synuns/flint/lib/ops"
@@ -422,27 +422,12 @@ func TestMaintainReaffirmDelegation(t *testing.T) {
 }
 
 func TestMaintainReaffirmRealSlow(t *testing.T) {
-	dsn, ok := seamRealDSN()
+	_, ok := seamRealDSN()
 	if !ok {
 		t.Skip("SUPERLITE_REAL=1 + FLINT_TEST_DSN required")
 	}
 	ctx := context.Background()
-	base, err := db.Connect(ctx, dsn)
-	if err != nil {
-		t.Skipf("real store unavailable: %v", err)
-	}
-	name := fmt.Sprintf("flint_t3raf_%d", time.Now().UnixNano()%1e9)
-	if _, err := base.Exec(ctx, "CREATE DATABASE "+name); err != nil {
-		t.Fatalf("CREATE DATABASE: %v", err)
-	}
-	t.Cleanup(func() { _, _ = base.Exec(ctx, "DROP DATABASE IF EXISTS "+name) })
-	base.Close()
-	u, err := url.Parse(dsn)
-	if err != nil {
-		t.Fatalf("DSN 파싱: %v", err)
-	}
-	u.Path = "/" + name
-	st, err := newRealStore(ctx, u.String())
+	st, err := newRealStore(ctx, testengine.Scratch(t))
 	if err != nil {
 		t.Skipf("real store unavailable: %v", err)
 	}
@@ -657,27 +642,12 @@ func TestMaintainGCFlagModeGuardCLI(t *testing.T) {
 }
 
 func TestMaintainGCRealSlow(t *testing.T) {
-	dsn, real := seamRealDSN()
+	_, real := seamRealDSN()
 	if !real {
 		t.Skip("SUPERLITE_REAL=1 + FLINT_TEST_DSN required")
 	}
 	ctx := context.Background()
-	base, err := db.Connect(ctx, dsn)
-	if err != nil {
-		t.Skipf("real store unavailable: %v", err)
-	}
-	t.Cleanup(base.Close)
-	name := fmt.Sprintf("flint_v1250_gc_%d", time.Now().UnixNano()%1e9)
-	if _, err := base.Exec(ctx, "CREATE DATABASE "+name); err != nil {
-		t.Fatalf("CREATE DATABASE: %v", err)
-	}
-	t.Cleanup(func() { _, _ = base.Exec(ctx, "DROP DATABASE IF EXISTS "+name) })
-	u, err := url.Parse(dsn)
-	if err != nil {
-		t.Fatalf("DSN parse: %v", err)
-	}
-	u.Path = "/" + name
-	st, err := newRealStore(ctx, u.String())
+	st, err := newRealStore(ctx, testengine.Scratch(t))
 	if err != nil {
 		t.Fatalf("newRealStore: %v", err)
 	}

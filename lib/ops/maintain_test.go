@@ -5,12 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/url"
-	"os"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/synuns/flint/internal/testengine"
 	"github.com/synuns/flint/lib/db"
 	"github.com/synuns/flint/lib/knowledge"
 	"github.com/synuns/flint/lib/wire"
@@ -388,31 +387,13 @@ func staleSeedRec(topic, hash, status, tags string) map[string]any {
 }
 
 func TestStaleScoreRealSlow(t *testing.T) {
-	if os.Getenv("FLINT_TEST_DSN") == "" {
-		t.Skip("FLINT_TEST_DSN required")
-	}
 	ctx := context.Background()
-	dsn := os.Getenv("FLINT_TEST_DSN")
-	base, err := db.Connect(ctx, dsn)
-	if err != nil {
-		t.Skipf("real store unavailable: %v", err)
-	}
-	defer base.Close()
-	name := fmt.Sprintf("flint_t3stale_%d", time.Now().UnixNano()%1e9)
-	if _, err := base.Exec(ctx, "CREATE DATABASE "+name); err != nil {
-		t.Fatalf("CREATE DATABASE: %v", err)
-	}
-	t.Cleanup(func() { _, _ = base.Exec(ctx, "DROP DATABASE IF EXISTS "+name) })
-	u, err := url.Parse(dsn)
-	if err != nil {
-		t.Fatalf("DSN 파싱: %v", err)
-	}
-	u.Path = "/" + name
-	repo, err := db.NewRepo(ctx, u.String())
+	scratchDSN := testengine.Scratch(t)
+	repo, err := db.NewRepo(ctx, scratchDSN)
 	if err != nil {
 		t.Fatalf("NewRepo: %v", err)
 	}
-	pool, err := db.Connect(ctx, u.String())
+	pool, err := db.Connect(ctx, scratchDSN)
 	if err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
@@ -1026,31 +1007,13 @@ func TestMaintainUsageLineMentionsReaffirm(t *testing.T) {
 }
 
 func TestMaintainRecheckAgeAuditRealSlow(t *testing.T) {
-	if os.Getenv("FLINT_TEST_DSN") == "" {
-		t.Skip("FLINT_TEST_DSN required")
-	}
 	ctx := context.Background()
-	dsn := os.Getenv("FLINT_TEST_DSN")
-	base, err := db.Connect(ctx, dsn)
-	if err != nil {
-		t.Skipf("real store unavailable: %v", err)
-	}
-	defer base.Close()
-	name := fmt.Sprintf("flint_t3recheck_%d", time.Now().UnixNano()%1e9)
-	if _, err := base.Exec(ctx, "CREATE DATABASE "+name); err != nil {
-		t.Fatalf("CREATE DATABASE: %v", err)
-	}
-	t.Cleanup(func() { _, _ = base.Exec(ctx, "DROP DATABASE IF EXISTS "+name) })
-	u, err := url.Parse(dsn)
-	if err != nil {
-		t.Fatalf("DSN 파싱: %v", err)
-	}
-	u.Path = "/" + name
-	repo, err := db.NewRepo(ctx, u.String())
+	scratchDSN := testengine.Scratch(t)
+	repo, err := db.NewRepo(ctx, scratchDSN)
 	if err != nil {
 		t.Fatalf("NewRepo: %v", err)
 	}
-	pool, err := db.Connect(ctx, u.String())
+	pool, err := db.Connect(ctx, scratchDSN)
 	if err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
@@ -1264,31 +1227,13 @@ func (s *slowMaintStore) SetRecheckConditions(ctx context.Context, id int, condi
 }
 
 func TestMaintainRecheckSourceClearRealSlow(t *testing.T) {
-	if os.Getenv("FLINT_TEST_DSN") == "" {
-		t.Skip("FLINT_TEST_DSN required")
-	}
 	ctx := context.Background()
-	dsn := os.Getenv("FLINT_TEST_DSN")
-	base, err := db.Connect(ctx, dsn)
-	if err != nil {
-		t.Skipf("real store unavailable: %v", err)
-	}
-	defer base.Close()
-	name := fmt.Sprintf("flint_v1240t2_%d", time.Now().UnixNano()%1e9)
-	if _, err := base.Exec(ctx, "CREATE DATABASE "+name); err != nil {
-		t.Fatalf("CREATE DATABASE: %v", err)
-	}
-	t.Cleanup(func() { _, _ = base.Exec(ctx, "DROP DATABASE IF EXISTS "+name) })
-	u, err := url.Parse(dsn)
-	if err != nil {
-		t.Fatalf("DSN parse: %v", err)
-	}
-	u.Path = "/" + name
-	repo, err := db.NewRepo(ctx, u.String())
+	scratchDSN := testengine.Scratch(t)
+	repo, err := db.NewRepo(ctx, scratchDSN)
 	if err != nil {
 		t.Fatalf("NewRepo: %v", err)
 	}
-	pool, err := db.Connect(ctx, u.String())
+	pool, err := db.Connect(ctx, scratchDSN)
 	if err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
@@ -1566,31 +1511,13 @@ func TestMaintainMergeAuditRejectsForeignFlags(t *testing.T) {
 }
 
 func TestMaintainMergeAuditRealSlow(t *testing.T) {
-	if os.Getenv("FLINT_TEST_DSN") == "" {
-		t.Skip("FLINT_TEST_DSN required")
-	}
 	ctx := context.Background()
-	dsn := os.Getenv("FLINT_TEST_DSN")
-	base, err := db.Connect(ctx, dsn)
-	if err != nil {
-		t.Skipf("real store unavailable: %v", err)
-	}
-	defer base.Close()
-	name := fmt.Sprintf("flint_t3merge_%d", time.Now().UnixNano()%1e9)
-	if _, err := base.Exec(ctx, "CREATE DATABASE "+name); err != nil {
-		t.Fatalf("CREATE DATABASE: %v", err)
-	}
-	t.Cleanup(func() { _, _ = base.Exec(ctx, "DROP DATABASE IF EXISTS "+name) })
-	u, err := url.Parse(dsn)
-	if err != nil {
-		t.Fatalf("DSN 파싱: %v", err)
-	}
-	u.Path = "/" + name
-	repo, err := db.NewRepo(ctx, u.String())
+	scratchDSN := testengine.Scratch(t)
+	repo, err := db.NewRepo(ctx, scratchDSN)
 	if err != nil {
 		t.Fatalf("NewRepo: %v", err)
 	}
-	pool, err := db.Connect(ctx, u.String())
+	pool, err := db.Connect(ctx, scratchDSN)
 	if err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
@@ -1917,31 +1844,13 @@ func TestMaintainRecallAuditLimitInt4CeilingV1241(t *testing.T) {
 }
 
 func TestMaintainRecallAuditRealSlow(t *testing.T) {
-	if os.Getenv("FLINT_TEST_DSN") == "" {
-		t.Skip("FLINT_TEST_DSN required")
-	}
 	ctx := context.Background()
-	dsn := os.Getenv("FLINT_TEST_DSN")
-	base, err := db.Connect(ctx, dsn)
-	if err != nil {
-		t.Skipf("real store unavailable: %v", err)
-	}
-	defer base.Close()
-	name := fmt.Sprintf("flint_t4recall_%d", time.Now().UnixNano()%1e9)
-	if _, err := base.Exec(ctx, "CREATE DATABASE "+name); err != nil {
-		t.Fatalf("CREATE DATABASE: %v", err)
-	}
-	t.Cleanup(func() { _, _ = base.Exec(ctx, "DROP DATABASE IF EXISTS "+name) })
-	u, err := url.Parse(dsn)
-	if err != nil {
-		t.Fatalf("DSN 파싱: %v", err)
-	}
-	u.Path = "/" + name
-	repo, err := db.NewRepo(ctx, u.String())
+	scratchDSN := testengine.Scratch(t)
+	repo, err := db.NewRepo(ctx, scratchDSN)
 	if err != nil {
 		t.Fatalf("NewRepo: %v", err)
 	}
-	pool, err := db.Connect(ctx, u.String())
+	pool, err := db.Connect(ctx, scratchDSN)
 	if err != nil {
 		t.Fatalf("Connect: %v", err)
 	}

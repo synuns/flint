@@ -1,9 +1,11 @@
 package cli
 
 import (
-	"context"
+	"os"
 	"strings"
 	"testing"
+
+	"github.com/synuns/flint/internal/testengine"
 )
 
 func TestSeamRealDSNGate(t *testing.T) {
@@ -11,18 +13,8 @@ func TestSeamRealDSNGate(t *testing.T) {
 	t.Setenv("FLINT_TEST_DSN", "")
 	t.Setenv("FLINT_DSN", "")
 	dsn, real := seamRealDSN()
-	if real || dsn != "" {
-		t.Fatalf("seamRealDSN = (%q, %v), want (\"\", false) — 미설정 시 fake 폴백", dsn, real)
-	}
-
-	f := &fakeStore{}
-	withFake(t, f)
-	st, err := newStore(context.Background(), "unused")
-	if err != nil {
-		t.Fatalf("newStore(fake): %v", err)
-	}
-	if got, ok := st.(*fakeStore); !ok || got != f {
-		t.Fatalf("설치된 store = %T, want *fakeStore — 실구현 경로로 동작함", st)
+	if !real || dsn != testengine.TestDSNDefault() {
+		t.Fatalf("seamRealDSN = (%q, %v), want (%q, true) — 전용 엔진 폴백", dsn, real, testengine.TestDSNDefault())
 	}
 
 	const want = "postgresql://flint:t@h:5434/flint_ci"
@@ -32,10 +24,8 @@ func TestSeamRealDSNGate(t *testing.T) {
 	}
 }
 
-func TestSeamFakePathRunsWithoutRealDSN(t *testing.T) {
-	t.Setenv("SUPERLITE_REAL", "1")
-	t.Setenv("FLINT_TEST_DSN", "")
-	t.Setenv("FLINT_DSN", "")
+func TestSeamFakePathRunsWithoutRealGate(t *testing.T) {
+	os.Unsetenv("SUPERLITE_REAL")
 	f := &fakeStore{}
 	withFake(t, f)
 	out, code := mustRun(t, []string{"write", "knowledge"},

@@ -56,6 +56,9 @@ func ApplyThresholdsFallback(th store.Thresholds) store.Thresholds {
 		{&th.DoltLogDepthWarn, def.DoltLogDepthWarn, false},
 		{&th.DbSizeWarnMB, def.DbSizeWarnMB, false},
 
+		{&th.DroppedDBsWarn, def.DroppedDBsWarn, false},
+		{&th.StrayDBsWarn, def.StrayDBsWarn, false},
+
 		{&th.UpdateCacheAgeH, def.UpdateCacheAgeH, false},
 	} {
 		if *f.cur == 0 || (!f.allow && *f.cur < 0) {

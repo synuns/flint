@@ -1,12 +1,14 @@
 package db
 
 import (
+	"context"
 	"fmt"
-	"net/url"
 	"os"
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/synuns/flint/internal/testengine"
 )
 
 var scratchDropFailures []string
@@ -29,6 +31,7 @@ func scratchDropWarning(names []string) string {
 
 func TestMain(m *testing.M) {
 	code := m.Run()
+	testengine.RunCleanup(context.Background())
 	scratchDropFailuresMu.Lock()
 	names := scratchDropFailures
 	scratchDropFailuresMu.Unlock()
@@ -39,28 +42,7 @@ func TestMain(m *testing.M) {
 }
 
 func testDSN(tb testing.TB) string {
-	dsn, ok := testDSNFromEnv(os.Getenv("FLINT_TEST_DSN"), os.Getenv("FLINT_DSN"))
-	if !ok {
-		tb.Skip("no test DSN: set FLINT_TEST_DSN, or FLINT_DSN to a *test* database DSN")
-	}
-	return dsn
-}
-
-func testDSNFromEnv(testDsn, flintDsn string) (dsn string, ok bool) {
-	if testDsn != "" {
-		return testDsn, true
-	}
-	if flintDsn == "" {
-		return "", false
-	}
-	u, err := url.Parse(flintDsn)
-	if err != nil {
-		return "", false
-	}
-	if !strings.Contains(strings.TrimPrefix(u.Path, "/"), "test") {
-		return "", false
-	}
-	return flintDsn, true
+	return testengine.ResolveDSN()
 }
 
 func TestScratchDropWarningNone(t *testing.T) {
@@ -114,26 +96,10 @@ func TestDSNReturnsEnv(t *testing.T) {
 	}
 }
 
-func TestDSNFromEnvGuard(t *testing.T) {
-	cases := []struct {
-		name              string
-		testDsn, flintDsn string
-		wantDsn           string
-		wantOK            bool
-	}{
-		{"test 우선 — 운영 FLINT_DSN 무시", "postgresql://f:f@h:5434/flint_test", "postgresql://flint:flint-dev@localhost:5433/flint", "postgresql://f:f@h:5434/flint_test", true},
-		{"폴백 — DB명에 test 포함", "", "postgresql://flint:flint-dev@localhost:5434/flint_test", "postgresql://flint:flint-dev@localhost:5434/flint_test", true},
-		{"폴백 — 운영 DB명은 스킵", "", "postgresql://flint:flint-dev@localhost:5433/flint", "", false},
-		{"폴백 — 파싱 불가 DSN은 스킵", "", "://bad dsn", "", false},
-		{"둘 다 비면 스킵", "", "", "", false},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got, ok := testDSNFromEnv(tc.testDsn, tc.flintDsn)
-			if ok != tc.wantOK || got != tc.wantDsn {
-				t.Errorf("testDSNFromEnv(%q, %q) = (%q, %v), want (%q, %v)",
-					tc.testDsn, tc.flintDsn, got, ok, tc.wantDsn, tc.wantOK)
-			}
-		})
+func TestDSNIgnoresOpsFLINTDSN(t *testing.T) {
+	t.Setenv("FLINT_TEST_DSN", "")
+	t.Setenv("FLINT_DSN", "postgresql://flint:flint-dev@localhost:5434/flint_test")
+	if got := testDSN(t); got != testengine.TestDSNDefault() {
+		t.Errorf("testDSN = %q, want 전용 엔진 기본값 %q(운영 FLINT_DSN 폴백 없음)", got, testengine.TestDSNDefault())
 	}
 }

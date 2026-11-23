@@ -85,6 +85,9 @@ var thresholdMetas = []ThresholdMeta{
 	{"DoltLogDepthWarn", "dolt_" + "log_depth_warn", 10000, "doctor depth warning", ""},
 	{"DbSizeWarnMB", "db_size_warn_mb", 2048, "doctor db_size", ""},
 
+	{"DroppedDBsWarn", "dropped_dbs_warn", 1, "doctor dropped_dbs", ""},
+	{"StrayDBsWarn", "stray_dbs_warn", 0, "doctor stray_dbs", ""},
+
 	{"UpdateCacheAgeH", "update_cache_age_h", 72, "doctor versions cache age", ""},
 }
 

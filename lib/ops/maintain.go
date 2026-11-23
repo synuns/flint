@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"net/url"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -75,10 +77,11 @@ var maintainModeFlags = map[string]map[string]bool{
 
 	"--recheck": {"--conditions": true},
 
-	"--gc": {},
+	"--gc":            {},
+	"--purge-dropped": {},
 }
 
-var maintainYesModes = map[string]bool{"--invalidate": true, "--invalidate-stale": true, "--reaffirm": true, "--gc": true}
+var maintainYesModes = map[string]bool{"--invalidate": true, "--invalidate-stale": true, "--reaffirm": true, "--gc": true, "--purge-dropped": true}
 
 var maintainCommitModes = map[string]bool{"--expire-pending": true, "--prune-invalidated": true}
 
@@ -90,7 +93,7 @@ func retryWrite(ctx context.Context, fn func() error) error {
 	return db.Retry(ctx, fn, MaintainRetryDelaysFn())
 }
 
-const maintainUsageLine = "usage: flint maintain --check | --dup-suspects [--limit M] | --conflict-suspects [--limit M] | --stale [--days N] [--limit M] | --invalidate-stale [--yes] [--days N] [--limit M] | --invalidate (--id N --reason S | --ids 1,2,3 --yes) | --merge --from N --to M | --supersede OLD --by NEW | --expire-pending N [--commit] | --meta-audit | --prune-invalidated [N] [--commit] | --decay-audit [--limit M] | --age-audit [--limit M] | --merge-audit [--limit M] | --recall-audit [--limit M] | --reaffirm (--id N | --ids 1,2) --yes | --recheck N [--conditions S --yes] | --gc [--shallow] --yes | --tui (opt-in, run alone)"
+const maintainUsageLine = "usage: flint maintain --check | --dup-suspects [--limit M] | --conflict-suspects [--limit M] | --stale [--days N] [--limit M] | --invalidate-stale [--yes] [--days N] [--limit M] | --invalidate (--id N --reason S | --ids 1,2,3 --yes) | --merge --from N --to M | --supersede OLD --by NEW | --expire-pending N [--commit] | --meta-audit | --prune-invalidated [N] [--commit] | --decay-audit [--limit M] | --age-audit [--limit M] | --merge-audit [--limit M] | --recall-audit [--limit M] | --reaffirm (--id N | --ids 1,2) --yes | --recheck N [--conditions S --yes] | --gc [--shallow] --yes | --purge-dropped [--yes] | --tui (opt-in, run alone)"
 
 func maintainUsageErrf(format string, a ...any) *wire.UsageError {
 	return wire.UsageErrorf(format+" — "+maintainUsageLine, a...)
@@ -117,7 +120,7 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 			{Name: "--id", Value: true}, {Name: "--from", Value: true}, {Name: "--to", Value: true},
 			{Name: "--reason", Value: true}, {Name: "--supersede", Value: true}, {Name: "--by", Value: true},
 			{Name: "--ids", Value: true}, {Name: "--conditions", Value: true},
-			{Name: "--gc"}, {Name: "--shallow"},
+			{Name: "--gc"}, {Name: "--shallow"}, {Name: "--purge-dropped"},
 			{Name: "--commit"}, {Name: "--yes"},
 		},
 		Usage: maintainUsageLine,
@@ -145,7 +148,8 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 		case "--check", "--dup-suspects", "--conflict-suspects", "--merge", "--stale",
 			"--invalidate", "--invalidate-stale", "--meta-audit", "--expire-pending",
 			"--prune-invalidated", "--supersede", "--decay-audit", "--age-audit",
-			"--merge-audit", "--recall-audit", "--reaffirm", "--recheck", "--gc":
+			"--merge-audit", "--recall-audit", "--reaffirm", "--recheck", "--gc",
+			"--purge-dropped":
 			mode = name
 		}
 	}
@@ -359,6 +363,8 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 		return maintainRecheck(ctx, ms, stdout, recheckID)
 	case "--gc":
 		return maintainGC(ctx, ms, stdout, res.Given("--shallow"), yes)
+	case "--purge-dropped":
+		return RunPurgeDropped(ctx, ms, yes, stdout)
 	case "--prune-invalidated":
 		return maintainPruneInvalidated(ctx, ms, stdout, expireDays, commit)
 	case "--dup-suspects":
@@ -1716,6 +1722,81 @@ func maintainGC(ctx context.Context, ms wire.Store, stdout io.Writer, shallow, y
 	return 0
 }
 
+const purgeDroppedListMarker = "available databases that can be undropped:"
+const purgeDroppedEmptyMarker = "there are no databases currently available to be undropped"
+
+var purgeDroppedSQLStateRe = regexp.MustCompile(`\(SQLSTATE [0-9A-Z]{5}\)`)
+
+var PurgeDSNFn = wire.ResolveDSN
+
+func purgeDroppedLoopback(dsn string) bool {
+	u, err := url.Parse(dsn)
+	if err != nil {
+		return false
+	}
+	h := u.Hostname()
+	return h == "localhost" || h == "127.0.0.1"
+}
+
+func listDroppedDatabases(ctx context.Context, st wire.Store) ([]string, bool) {
+	_, err := st.Query(ctx, `SELECT dolt_undrop()`)
+	if err == nil {
+		return nil, false
+	}
+	msg := err.Error()
+	if strings.Contains(msg, purgeDroppedEmptyMarker) {
+		return []string{}, true
+	}
+	i := strings.Index(msg, purgeDroppedListMarker)
+	if i < 0 {
+		return nil, false
+	}
+	rest := purgeDroppedSQLStateRe.ReplaceAllString(msg[i+len(purgeDroppedListMarker):], "")
+	names := []string{}
+	for _, p := range strings.Split(rest, ",") {
+		n := strings.TrimSpace(p)
+		if n != "" {
+			names = append(names, n)
+		}
+	}
+	return names, true
+}
+
+func RunPurgeDropped(ctx context.Context, st wire.Store, yes bool, stdout io.Writer) int {
+	if !purgeDroppedLoopback(PurgeDSNFn()) {
+		fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf(
+			"maintain: --purge-dropped: loopback-only — resolved DSN host is not 127.0.0.1/localhost")))
+		return 3
+	}
+	names, ok := listDroppedDatabases(ctx, st)
+	if !ok {
+		fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf(
+			"maintain: --purge-dropped: dropped-database listing unsupported on this engine — purge refused (dolt catalog query failed)")))
+		return 3
+	}
+	if !yes {
+		out, mErr := json.Marshal(struct {
+			Status    string   `json:"status"`
+			Dropped   int      `json:"dropped"`
+			Databases []string `json:"databases"`
+			Summary   string   `json:"summary"`
+		}{Status: "dry_run", Dropped: len(names), Databases: names,
+			Summary: fmt.Sprintf("%d restorable — apply with maintain --purge-dropped --yes (irreversible)", len(names))})
+		if mErr != nil {
+			fmt.Fprintln(stdout, wire.ErrLine(mErr))
+			return 1
+		}
+		fmt.Fprintln(stdout, string(out))
+		return 0
+	}
+	if _, err := st.Query(ctx, `SELECT dolt_purge_dropped_databases()`); err != nil {
+		fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("maintain: --purge-dropped: %w", err)))
+		return store.MapExit(err)
+	}
+	fmt.Fprintf(stdout, `{"status":"purged","dropped":%d}`+"\n", len(names))
+	return 0
+}
+
 func AnyToTime(v any) (time.Time, bool) {
 	switch t := v.(type) {
 	case time.Time:
@@ -1866,6 +1947,7 @@ func buildMetaKnownKeys() map[string]bool {
 		"last_shadow_at":       true,
 		"last_gc_at":           true,
 		"last_gc_mode":         true,
+		"stray_dbs_allow":      true,
 	}
 	for _, k := range meteringFreshnessGateKeys {
 		m[k] = true

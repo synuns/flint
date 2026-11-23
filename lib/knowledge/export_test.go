@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/synuns/flint/internal/testengine"
 	"github.com/synuns/flint/lib/db"
 	"github.com/synuns/flint/lib/store"
 	"github.com/synuns/flint/lib/wire"
@@ -197,10 +198,7 @@ func exportRealStore(t *testing.T) wire.Store {
 	if os.Getenv("SUPERLITE_REAL") != "1" {
 		return nil
 	}
-	dsn := os.Getenv("FLINT_TEST_DSN")
-	if dsn == "" {
-		return nil
-	}
+	dsn := testengine.ResolveDSN()
 	if repo, rerr := db.NewRepo(context.Background(), dsn); rerr == nil {
 		gerr := repo.EnsureSchemaV11(context.Background())
 		repo.Close()

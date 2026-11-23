@@ -4,12 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/url"
-	"os"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/synuns/flint/internal/testengine"
 	"github.com/synuns/flint/lib/db"
 	"github.com/synuns/flint/lib/wire"
 )
@@ -178,38 +177,13 @@ func TestAsOfSpecNaturalLanguageRejected(t *testing.T) {
 }
 
 func TestReadAsOfPreFlintScratchRealSlow(t *testing.T) {
-	dsn, real := seamRealDSN()
+	_, real := seamRealDSN()
 	if !real {
 		t.Skip("SUPERLITE_REAL=1 + FLINT_TEST_DSN required")
 	}
 	ctx := context.Background()
-	base, err := db.Connect(ctx, dsn)
-	if err != nil {
-		t.Skipf("real store unavailable: %v", err)
-	}
-
-	t.Cleanup(base.Close)
-	name := fmt.Sprintf("flint_v1196_r82_%d", time.Now().UnixNano()%1e9)
-	if _, err := base.Exec(ctx, "CREATE DATABASE "+name); err != nil {
-		t.Fatalf("CREATE DATABASE: %v", err)
-	}
-	t.Cleanup(func() {
-
-		var last error
-		for i := 0; i < 3; i++ {
-			if _, last = base.Exec(ctx, "DROP DATABASE IF EXISTS "+name); last == nil {
-				return
-			}
-			time.Sleep(500 * time.Millisecond)
-		}
-		t.Logf("스크래치 DB 잔존(%q): %v", name, last)
-	})
-	u, err := url.Parse(dsn)
-	if err != nil {
-		t.Fatalf("DSN 파싱: %v", err)
-	}
-	u.Path = "/" + name
-	st, err := newRealStore(ctx, u.String())
+	scratchDSN := testengine.Scratch(t)
+	st, err := newRealStore(ctx, scratchDSN)
 	if err != nil {
 		t.Fatalf("newRealStore(scratch): %v", err)
 	}
@@ -272,7 +246,7 @@ func TestReadAsOfPreFlintScratchRealSlow(t *testing.T) {
 	if _, err := st.InsertBatch(ctx, recs2); err != nil {
 		t.Fatalf("InsertBatch(r82): %v", err)
 	}
-	scr, err := db.Connect(ctx, u.String())
+	scr, err := db.Connect(ctx, scratchDSN)
 	if err != nil {
 		t.Fatalf("스크래치 원시 연결: %v", err)
 	}
@@ -315,10 +289,10 @@ func nonRelativeWindow(t *testing.T, hash string) string {
 }
 
 func TestParseAsOfSpecRealPrefix(t *testing.T) {
-	dsn := os.Getenv("FLINT_DSN")
-	if dsn == "" {
-		t.Skip("FLINT_DSN 미설정 — 실DB 회귀 건너뜀")
+	if err := testengine.EnsureEngine(context.Background()); err != nil {
+		t.Skipf("전용 테스트 엔진 기동 불가: %v", err)
 	}
+	dsn := testengine.ResolveDSN()
 	ctx := context.Background()
 	real, err := newRealStore(ctx, dsn)
 	if err != nil {

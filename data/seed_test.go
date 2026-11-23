@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/synuns/flint/internal/testengine"
 	"github.com/synuns/flint/lib/cli"
 	"github.com/synuns/flint/lib/db"
 	"github.com/synuns/flint/lib/store"
@@ -147,10 +148,7 @@ func TestSeedIdempotentV4(t *testing.T) {
 }
 
 func seedDSN() string {
-	if d := os.Getenv("FLINT_DSN"); d != "" {
-		return d
-	}
-	return "postgresql://flint:flint-dev@localhost:5433/flint"
+	return testengine.ResolveDSN()
 }
 
 func seedSharedDBLock(t *testing.T) {
