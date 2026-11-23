@@ -13,6 +13,7 @@ import (
 
 const (
 	bootstrapSuperuserDSN = "postgresql://postgres:password@127.0.0.1:5434/postgres"
+	bootstrapDatabaseName = "flint"
 	bootstrapRoleName     = "flint"
 	bootstrapRolePassword = "pw"
 	bootstrapDefaultDSN   = "postgresql://flint:pw@127.0.0.1:5434/flint"
@@ -66,6 +67,18 @@ func BootstrapCredentials(ctx context.Context) error {
 		createSQL := fmt.Sprintf("CREATE ROLE %s LOGIN PASSWORD '%s'", bootstrapRoleName, bootstrapRolePassword)
 		if _, err := super.Exec(ctx, createSQL); err != nil {
 			return fmt.Errorf("engine: create role: %w", err)
+		}
+	}
+
+	var dbExists bool
+	dbLookup := "SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = $1)"
+	if err := super.QueryRow(ctx, dbLookup, bootstrapDatabaseName).Scan(&dbExists); err != nil {
+		return fmt.Errorf("engine: database lookup: %w", err)
+	}
+	if !dbExists {
+		createDB := fmt.Sprintf("CREATE DATABASE %s OWNER %s", bootstrapDatabaseName, bootstrapRoleName)
+		if _, err := super.Exec(ctx, createDB); err != nil {
+			return fmt.Errorf("engine: create database: %w", err)
 		}
 	}
 
