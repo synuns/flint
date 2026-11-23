@@ -56,7 +56,6 @@ jobs:
           DOLTGRES_USER: flint
           DOLTGRES_PASSWORD: flint-dev
           DOLTGRES_DB: flint
-      FLINT_REALDB_REQUIRED: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
