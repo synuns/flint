@@ -478,6 +478,12 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 			fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("%s", errors.New("maintain: --merge requires --from and --to"))))
 			return 1
 		}
+		// v1.24.1 (r104) — the D4 disposed observation rides the merge
+		// write too: the merge-audit summary delegates disposal to
+		// --merge/--supersede alike, and FROM (the merged-away row) is
+		// still active here — the same pre-write point as the --invalidate·
+		// --supersede calls (quiet §13).
+		recallAuditDisposed(ctx, ms, []int{from})
 		if err := ms.Merge(ctx, from, to); err != nil {
 			return adminErrLine(stdout, err)
 		}

@@ -746,6 +746,24 @@ func withEcho(line string, cands []EchoCandidate) string {
 	return string(b)
 }
 
+// persistEchoCands — the D1 echo-candidate persistence seam (schema v19,
+// wired v1.24.1 r104): maps the scan candidates onto db.EchoCandRow and
+// appends them through db.InsertEchoCandidates keyed by echoID (the
+// StampKnowledgeKind convention — the write SQL literal lives in the db
+// layer; the Store satisfies db.Querier structurally). A failure is
+// quiet §13: the observation is metering-class, never a write result —
+// a lost row beats a failed write (the BumpCurationCounter convention).
+func persistEchoCands(ctx context.Context, st wire.Store, echoID int, cands []EchoCandidate) {
+	if echoID <= 0 || len(cands) == 0 {
+		return
+	}
+	rows := make([]db.EchoCandRow, 0, len(cands))
+	for _, c := range cands {
+		rows = append(rows, db.EchoCandRow{CandidateID: c.ID, Relation: c.Relation, Score: c.Score})
+	}
+	_ = db.InsertEchoCandidates(ctx, st, echoID, rows)
+}
+
 // RunWrite — processes multiple stdin JSON/JSONL entries. The commit is one
 // per batch; dedup skips duplicate lines·partially commits the new lines
 // (all-duplicate means a zero-row commit). Since v1.6.0 T3, the
@@ -859,6 +877,12 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 	dupID := 0     // the existing row id for a single-line duplicate (R3) — stays 0 for unsupported Stores·multi-line
 	dupTopic := "" // the existing row's topic·state — resender feedback
 	dupState := ""
+	// dupEcho — the echo candidates of a single-line duplicate resend
+	// (v1.24.1 r104, the D1 persistence): persisted keyed by the existing
+	// row (DupMeta.ID) like the resent relations, but NEVER attached to
+	// the duplicate output — the no-double-report ruling (exact-hash
+	// duplicates answer with DuplicateMeta) keeps the response shape.
+	var dupEcho []EchoCandidate
 	// echoCands — the echo candidates of the new single-line knowledge
 	// write (nil on every other path: exact-hash duplicates answer with
 	// DuplicateMeta — no double report; the multi-line aggregate keeps its
@@ -1056,6 +1080,12 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 				if len(payloads) == 1 {
 					dupID = existsMeta.ID // single-line resend: expose the existing row metadata (R3·R1)
 					dupTopic, dupState = existsMeta.Topic, existsMeta.State
+					// v1.24.1 (r104) — the duplicate path echo accrual: the
+					// resent body's near rows persist keyed by the existing
+					// row (DupMeta.ID — the same id the resent relations
+					// land on). Output shape unchanged (dupEcho never rides
+					// the duplicate line).
+					dupEcho = scanEcho(ctx, st, n, th)
 				}
 				// v1.20.0 T5 — the duplicate path still accrues the
 				// resent relations onto the existing row (link-loss
@@ -1165,6 +1195,11 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 		return 0
 	}
 	emitDuplicate := func() int {
+		// v1.24.1 (r104) — the duplicate-path echo candidates persist
+		// first so they ride the relations commit when one follows; a bare
+		// duplicate leaves them staged for the next commit (the RecordUsage
+		// convention on this path). Quiet §13 inside.
+		persistEchoCands(ctx, st, dupID, dupEcho)
 		if code := flushDupLinks(true); code != 0 {
 			return code
 		}
@@ -1271,6 +1306,11 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 				if len(payloads) == 1 {
 					dupID = existsMeta.ID // the race-recheck path also exposes the existing row metadata (R3·R1)
 					dupTopic, dupState = existsMeta.Topic, existsMeta.State
+					// v1.24.1 (r104) — the race-recheck duplicate carries the
+					// echo candidates its pre-dedup scan already computed
+					// (the row was new when scanned); they persist keyed by
+					// the concurrently inserted row (DupMeta.ID).
+					dupEcho = echoCands
 				}
 				if len(specs) > 0 {
 					// v1.20.0 T5 — the race-recheck duplicate also lands its
@@ -1357,6 +1397,16 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 				return store.MapExit(err)
 			}
 		}
+	}
+	// v1.24.1 (r104) — the D1 echo-candidate persistence (schema v19,
+	// wired): the single-line write's echo candidates (scanEcho at the
+	// dedup-passed point) land in echo_candidates keyed by the fresh row
+	// id, at the same pre-commit point as the kind stamp — rows·links·
+	// stamps·echo rows ride one dolt commit. Multi-line batches keep the
+	// aggregate shape (no echo scan, no accrual — the echoCands scope);
+	// a failure is quiet §13 (persistEchoCands).
+	if len(payloads) == 1 && kind == "knowledge" && len(ids) > 0 {
+		persistEchoCands(ctx, st, ids[0], echoCands)
 	}
 	// D4 (R33): the commit title — project prefers name (knowledge lacks
 	// name, so summary). If both are absent, the "%v" <nil> fallback (the

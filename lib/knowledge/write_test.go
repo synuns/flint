@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/url"
 	"os"
 	"strconv"
@@ -1792,6 +1793,117 @@ func TestWriteEchoThresholdSeam(t *testing.T) {
 	m, _ = runWriteEcho(t, st, echoWTestTopic, echoWDupSummary, 0.9)
 	if _, ok := m["echo"]; ok {
 		t.Errorf("min_score 0.99에서 echo 부재해야 함: %v", m)
+	}
+}
+
+// ── v1.24.1 (r104) — the D1 echo-candidate persistence (schema v19
+// echo_candidates): the write-time echo candidates land as rows keyed by
+// the write's row id — the fresh row on a committed write, DupMeta.ID on
+// a duplicate resend. All synthetic demo data. ──
+
+// echoInsertCalls — the recorded INSERT INTO echo_candidates Query calls
+// of one run (SQL + full args).
+func echoInsertCalls(f *fakeStore) []writeQueryCall {
+	var out []writeQueryCall
+	for _, c := range f.queryLog {
+		if strings.Contains(c.SQL, "INSERT INTO echo_candidates") {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// TestWriteEchoCandsAccruedOnNewRowV1241 — a committed single-line write
+// with one echo candidate persists exactly one echo_candidates row:
+// echo_id = the fresh row id (1 from the fake InsertBatch),
+// candidate_id = the near row (7), relation·score carried verbatim.
+func TestWriteEchoCandsAccruedOnNewRowV1241(t *testing.T) {
+	st := &fakeStore{rows: [][]any{{int64(7), echoWTestTopic, echoWDupSummary}}}
+	m, _ := runWriteEcho(t, st, echoWTestTopic, echoWDupSummary, 0.9)
+	if m["status"] != "committed" {
+		t.Fatalf("status=%v, want committed", m["status"])
+	}
+	calls := echoInsertCalls(st)
+	if len(calls) != 1 {
+		t.Fatalf("echo_candidates INSERT %d회, want 1(후보 수와 동일): %+v", len(calls), calls)
+	}
+	c := calls[0]
+	if !strings.Contains(c.SQL, "INSERT INTO echo_candidates") {
+		t.Fatalf("SQL=%q", c.SQL)
+	}
+	// args layout per row: (candidate_id, echo_id, relation, score).
+	if len(c.Args) != 4 {
+		t.Fatalf("인자 %d개, want 4(후보 1건×4열): %v", len(c.Args), c.Args)
+	}
+	if got, _ := c.Args[0].(int); got != 7 {
+		t.Errorf("candidate_id=%v, want 7(근접 행)", c.Args[0])
+	}
+	if got, _ := c.Args[1].(int); got != 1 {
+		t.Errorf("echo_id=%v, want 1(신규 행 id)", c.Args[1])
+	}
+	if rel, _ := c.Args[2].(string); rel != "duplicates" {
+		t.Errorf("relation=%q, want duplicates", rel)
+	}
+	if score, _ := c.Args[3].(float64); math.Abs(score-1.0) > 1e-9 {
+		t.Errorf("score=%v, want 1.0(동일 문면)", c.Args[3])
+	}
+}
+
+// echoDupMetaStore — a DupMetaStore fake answering one existing row
+// (id 42) for every hash: the single-line duplicate-resend path.
+type echoDupMetaStore struct {
+	*fakeStore
+}
+
+func (d *echoDupMetaStore) DupRowByHash(ctx context.Context, hash string) (DupMeta, bool, error) {
+	return DupMeta{ID: 42, Topic: echoWTestTopic, State: "active"}, true, nil
+}
+
+// TestWriteEchoCandsAccruedOnDupResendV1241 — a duplicate resend also
+// accrues: the resent body's near row persists keyed by the EXISTING row
+// (DupMeta.ID=42, the link-loss-prevention id), while the duplicate
+// output keeps its shape (no echo field — the no-double-report ruling).
+func TestWriteEchoCandsAccruedOnDupResendV1241(t *testing.T) {
+	st := &echoDupMetaStore{fakeStore: &fakeStore{rows: [][]any{{int64(7), echoWTestTopic, echoWDupSummary}}}}
+	m, _ := runWriteEcho(t, st, echoWTestTopic, echoWDupSummary, 0.9)
+	if m["status"] != "duplicate" {
+		t.Fatalf("status=%v, want duplicate", m["status"])
+	}
+	if _, ok := m["echo"]; ok {
+		t.Errorf("중복 응답에 echo 부재해야 함(적립은 응답 불변): %v", m)
+	}
+	if len(st.inserted) != 0 {
+		t.Fatalf("중복 재전송에 적립 발생: %d건", len(st.inserted))
+	}
+	calls := echoInsertCalls(st.fakeStore)
+	if len(calls) != 1 {
+		t.Fatalf("echo_candidates INSERT %d회, want 1(기존 id 기준 적립): %+v", len(calls), calls)
+	}
+	c := calls[0]
+	if len(c.Args) != 4 {
+		t.Fatalf("인자 %d개, want 4: %v", len(c.Args), c.Args)
+	}
+	if got, _ := c.Args[0].(int); got != 7 {
+		t.Errorf("candidate_id=%v, want 7", c.Args[0])
+	}
+	if got, _ := c.Args[1].(int); got != 42 {
+		t.Errorf("echo_id=%v, want 42(DupMeta.ID — 기존 행 기준)", c.Args[1])
+	}
+	if rel, _ := c.Args[2].(string); rel != "duplicates" {
+		t.Errorf("relation=%q, want duplicates", rel)
+	}
+}
+
+// TestWriteEchoCandsZeroWhenNoEchoV1241 — a write with zero echo
+// candidates persists zero echo_candidates rows (no empty INSERT).
+func TestWriteEchoCandsZeroWhenNoEchoV1241(t *testing.T) {
+	st := &fakeStore{rows: [][]any{{int64(9), echoWOtherTopic, echoWOtherSummar}}}
+	m, _ := runWriteEcho(t, st, echoWTestTopic, echoWDupSummary, 0.9)
+	if m["status"] != "committed" {
+		t.Fatalf("status=%v, want committed", m["status"])
+	}
+	if calls := echoInsertCalls(st); len(calls) != 0 {
+		t.Fatalf("후보 0건 write에 INSERT %d회, want 0: %+v", len(calls), calls)
 	}
 }
 

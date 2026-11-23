@@ -552,6 +552,12 @@ var versionDocContracts = []struct {
 	{name: "TestVersion01240Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.24.0", "curation-residual",
 	}},
+	// v1.24.1 패치 계약행 — r104: echo 후보 적립 회로(write 커밋 경로·
+	// dup 재전송 DupMeta.ID 기준)·merge-audit active 한정·--merge D4
+	// 계상·비교 기준 주석 정정.
+	{name: "TestVersion01241Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.24.1", "r104",
+	}},
 	{name: "TestVersion0170Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.7.0", "sync",
 	}},
