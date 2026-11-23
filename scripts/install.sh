@@ -1,18 +1,4 @@
 #!/usr/bin/env bash
-# install.sh — one-line installer for flint prebuilt release binaries
-# (v1.15.0 T1). Follows the zoxide installer pattern: detect the platform
-# with uname, select the matching archive from GitHub releases/latest,
-# verify its sha256 against the release checksums.txt, then install the
-# binary into a bin directory.
-#
-# Requirements: curl, tar, and a sha256 tool (shasum preferred, sha256sum
-# as fallback). No Go toolchain or other build tools are needed — this
-# installs a prebuilt binary. flint requires a Doltgres server at runtime;
-# see docker-compose.yml in the repository.
-#
-# Usage:
-#   curl -fsSL https://raw.githubusercontent.com/synuns/flint/main/scripts/install.sh | bash
-#   bash install.sh [--bin-dir DIR]    (default: ~/.local/bin)
 set -eu
 
 REPO="synuns/flint"
@@ -64,7 +50,6 @@ while [ "$#" -gt 0 ]; do
 	esac
 done
 
-# ── platform detection ──
 os="$(uname -s)"
 case "$os" in
 	Darwin) os="darwin" ;;
@@ -78,15 +63,12 @@ case "$arch" in
 	*) err "unsupported architecture: $arch (supported: arm64, amd64)" ;;
 esac
 
-# ── resolve the latest release and pick the matching archive asset ──
 printf '==> Looking up the latest flint release for %s/%s ...\n' "$os" "$arch"
 json="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest")" \
 	|| err "failed to fetch release metadata from the GitHub API"
 tag="$(printf '%s\n' "$json" | sed -n 's/.*"tag_name"[^"]*"\([^"]*\)".*/\1/p' | head -n 1)"
 [ -n "$tag" ] || err "could not parse tag_name from the release metadata"
 
-# Match only the tar.gz archive for this os/arch — the release also ships
-# .mcpb bundles and a plugin zip that share the naming prefix.
 asset_url="$(printf '%s\n' "$json" | grep -o 'https://[^"]*' \
 	| grep "_${os}_${arch}\.tar\.gz$" | head -n 1)"
 [ -n "$asset_url" ] || err "no release asset found for ${os}/${arch}"
@@ -94,12 +76,9 @@ asset="$(basename "$asset_url")"
 
 checksums_url="$(printf '%s\n' "$json" | grep -o 'https://[^"]*' \
 	| grep '/checksums\.txt$' | head -n 1)"
-# No checksums.txt in the release means no verification is possible —
-# refuse rather than install unverified (no bypass path).
 [ -n "$checksums_url" ] \
 	|| err "release ${tag} has no checksums.txt asset; refusing to install without checksum verification"
 
-# ── download the archive and checksums into a scratch dir ──
 tmp="$(mktemp -d)" || err "mktemp failed"
 trap 'rm -rf "$tmp"' EXIT
 
@@ -107,17 +86,11 @@ printf '==> Downloading %s ...\n' "$asset"
 ensure curl -fsSL -o "$tmp/$asset" "$asset_url"
 ensure curl -fsSL -o "$tmp/checksums.txt" "$checksums_url"
 
-# ── verify the sha256 of the single downloaded asset ──
-# checksums.txt covers every release asset (tarballs, plugin zip, .mcpb),
-# so filter to the one line for this asset instead of verifying all files.
 grep " ${asset}\$" "$tmp/checksums.txt" > "$tmp/check.line" \
 	|| err "checksums.txt has no entry for ${asset}"
 [ "$(wc -l < "$tmp/check.line" | tr -d ' ')" -eq 1 ] \
 	|| err "checksums.txt has multiple entries for ${asset}"
 
-# Prefer shasum (macOS/BSD); fall back to sha256sum (Linux minimal
-# images). Only a missing tool (exit 127) falls back — any checksum
-# mismatch or I/O error is fatal and must not be bypassed.
 verify_checksum() {
 	set +e
 	shasum -a 256 -c "$1"
@@ -136,7 +109,6 @@ verify_checksum() {
 	|| err "sha256 verification failed for ${asset} — the download may be corrupted or tampered with; refusing to install"
 printf '==> sha256 verified against checksums.txt\n'
 
-# ── extract and install ──
 mkdir -p "$tmp/extract" "$bin_dir"
 ensure tar -xzf "$tmp/$asset" -C "$tmp/extract"
 bin="$(find "$tmp/extract" -type f -name flint | head -n 1)"
@@ -148,7 +120,6 @@ printf '==> Installed flint %s to %s\n' "$tag" "$bin_dir/flint"
 printf '==> No build tools required — a prebuilt release binary was installed.\n'
 printf '==> Runtime prerequisite: flint talks to a Doltgres server (see docker-compose.yml in the repository).\n'
 
-# ── PATH guidance ──
 case ":$PATH:" in
 	*":$bin_dir:"*) ;;
 	*)

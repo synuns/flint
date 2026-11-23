@@ -6,6 +6,32 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.26.3 patch (2026-11-23) — comment gate: commentlint·csweep·scripts sweep
+
+User directive (2026-11-23, second): the sweep was followed by
+re-introduced comments in new code — self-restraint failed, the CI
+gate enforces. G2 review: 3 rounds, 7 findings + 3 minor, all
+resolved; APPROVED.
+
+- **internal/commentlint** (Go): a plain go/parser test scanning every
+  repo .go file — any non-directive comment fails `go test ./...`
+  (directives kept: `//go:*`, `//nolint[:...]`, `// +build`).
+  Injection and directive-allowance tests included.
+- **scripts/csweep.go** (`go run scripts/csweep.go [-n]`): the v1.26.2
+  AST sweep tool committed to the repo — manual one-shot fix path,
+  deliberately outside make (gate and fixer stay separate).
+- **scripts/check_comments.py** (bash·python): git-tracked `*.sh`·
+  `*.py` full coverage via `git ls-files` (scripts, scripts/verify,
+  flint-plugin/hooks, tests — gitignored paths auto-excluded). bash:
+  word-boundary `#` detection with quote/heredoc state machine
+  (`$#`, `${...}`, `#!` tokens, embedded shebangs excluded). python:
+  tokenize COMMENT tokens (docstrings untouched). Wired into
+  `make ci`.
+- **227 script comments removed** — make_mcpb.sh usage() rewritten as
+  a heredoc first (the old one parsed its own header comments;
+  output verified byte-identical). bash -n + py_compile + hook
+  contract tests green.
+
 ### v1.26.2 patch (2026-11-23) — comment sweep: all narrative comments removed (directive-only comments remain)
 
 User directive (2026-11-23): comments are garbage. AST-based sweep

@@ -1,23 +1,4 @@
 #!/usr/bin/env bash
-# install_test.sh — contract tests for scripts/install.sh (v1.15.0 T1).
-#
-# Seam: fake `uname` and `curl` (and, per case, fake `shasum` /
-# `sha256sum`) are prepended to PATH. The fake curl serves a synthetic
-# GitHub release (tag v9.9.9, demo binary) from a fixtures directory, so
-# the whole suite runs offline and never touches the network. Cases
-# without a shasum stub exercise the real system sha256 tool.
-#
-# Covered contracts:
-#   - platform mapping (uname -s/-m -> darwin/linux, arm64/amd64)
-#   - asset selection from the release JSON (correct os/arch tarball)
-#   - checksum line filtering (only the downloaded asset's line is
-#     verified; other lines carry bogus digests and must be ignored)
-#   - checksum mismatch rejection with no partial install
-#   - no-bypass failures: missing checksums.txt asset, missing line,
-#     download error
-#   - shasum preferred over sha256sum; fallback when shasum is absent;
-#     failure when neither tool exists
-#   - PATH guidance, --help, --bin-dir override
 set -u
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -38,7 +19,6 @@ FAIL=0
 ok() { PASS=$((PASS + 1)); printf 'ok   %s\n' "$1"; }
 bad() { FAIL=$((FAIL + 1)); printf 'FAIL %s — %s\n' "$1" "$2"; }
 
-# Real digest helper for fixture checksums (test-side, not the seam).
 sha256_of() {
 	if command -v shasum >/dev/null 2>&1; then
 		shasum -a 256 "$1" | awk '{print $1}'
@@ -55,7 +35,6 @@ write_stubs() {
 	mkdir -p "$FAKEBIN"
 	cat > "$FAKEBIN/uname" <<'EOF'
 #!/usr/bin/env bash
-# fake uname — platform under test comes from env.
 case "${1:-}" in
 	-s) echo "${FLINT_FAKE_UNAME_S:-Darwin}" ;;
 	-m) echo "${FLINT_FAKE_UNAME_M:-arm64}" ;;
@@ -64,8 +43,6 @@ esac
 EOF
 	cat > "$FAKEBIN/curl" <<'EOF'
 #!/usr/bin/env bash
-# fake curl — serves release files from $FLINT_FIXTURES by URL basename.
-# Unknown basename -> exit 22 (curl's HTTP error exit code).
 out=""
 url=""
 args=("$@")
@@ -95,8 +72,6 @@ EOF
 	chmod +x "$FAKEBIN/uname" "$FAKEBIN/curl"
 }
 
-# Synthetic release JSON — one asset per line so tests can strip single
-# entries with grep -v.
 write_release_json() {
 	{
 		printf '{"tag_name":"v9.9.9",\n"assets":[\n'
@@ -116,10 +91,6 @@ write_release_json() {
 	} > "$FIXTURES/latest"
 }
 
-# make_release <os> <arch> — build the synthetic v9.9.9 release fixtures
-# for the target platform. checksums.txt carries the correct digest only
-# on the target line; every other line is bogus, so a run that verifies
-# the whole file instead of filtering to the one downloaded asset fails.
 make_release() {
 	tos="$1"
 	tarch="$2"
@@ -165,19 +136,15 @@ reset_case() {
 	export FLINT_FAKE_UNAME_M=arm64
 }
 
-# run_install [args...] — runs the installer with the fake PATH prepended.
-# Captures combined output in OUT and the exit status in ST.
 run_install() {
 	OUT="$(PATH="$FAKEBIN:$PATH" "$BASH" "$INSTALL" "$@" 2>&1)"
 	ST=$?
 }
 
-# add_shasum_stub <ok|absent> — "absent" exits 127 like a missing command.
 add_shasum_stub() {
 	mode="$1"
 	cat > "$FAKEBIN/shasum" <<EOF
 #!/usr/bin/env bash
-# fake shasum — records the call; "absent" simulates a missing tool.
 printf 'shasum %s\n' "\$*" >> "\$FLINT_SHASUM_LOG"
 [ "$mode" = absent ] && exit 127
 exit 0
@@ -189,7 +156,6 @@ add_sha256sum_stub() {
 	mode="$1"
 	cat > "$FAKEBIN/sha256sum" <<EOF
 #!/usr/bin/env bash
-# fake sha256sum — records the call; "absent" simulates a missing tool.
 printf 'sha256sum %s\n' "\$*" >> "\$FLINT_SHA256SUM_LOG"
 [ "$mode" = absent ] && exit 127
 exit 0
@@ -197,7 +163,6 @@ EOF
 	chmod +x "$FAKEBIN/sha256sum"
 }
 
-# ── 1. --help: usage, zero network requests ──
 reset_case
 run_install --help
 if [ "$ST" = 0 ] && printf '%s' "$OUT" | grep -q -- '--bin-dir' && [ ! -s "$FLINT_CURL_LOG" ]; then
@@ -206,9 +171,6 @@ else
 	bad "--help" "exit=$ST"
 fi
 
-# ── 2. darwin/arm64: matching asset, real checksum verify, runnable
-#      binary, Doltgres + prebuilt notes. Other checksum lines are bogus,
-#      so success here also proves single-asset line filtering. ──
 reset_case
 make_release darwin arm64
 run_install --bin-dir "$BIN"
@@ -225,7 +187,6 @@ else
 	bad "darwin/arm64" "exit=$ST out=$OUT"
 fi
 
-# ── 3. linux/amd64 mapping (uname Linux/x86_64) ──
 reset_case
 make_release linux amd64
 export FLINT_FAKE_UNAME_S=Linux
@@ -240,8 +201,6 @@ else
 	bad "linux/amd64" "exit=$ST out=$OUT"
 fi
 
-# ── 4. PATH guidance: printed when the bin dir is outside PATH, silent
-#      when it is on PATH ──
 reset_case
 make_release darwin arm64
 run_install --bin-dir "$BIN"
@@ -255,7 +214,6 @@ else
 	bad "PATH guidance" "nopath_exit=$ST"
 fi
 
-# ── 5. unsupported OS ──
 reset_case
 make_release darwin arm64
 export FLINT_FAKE_UNAME_S=Windows_NT
@@ -266,7 +224,6 @@ else
 	bad "unsupported OS" "exit=$ST"
 fi
 
-# ── 6. unsupported architecture ──
 reset_case
 make_release darwin arm64
 export FLINT_FAKE_UNAME_M=i686
@@ -277,7 +234,6 @@ else
 	bad "unsupported arch" "exit=$ST"
 fi
 
-# ── 7. no matching asset in the release ──
 reset_case
 make_release darwin arm64
 grep -v '"name":"flint_9.9.9_darwin_arm64.tar.gz"' "$FIXTURES/latest" > "$FIXTURES/latest.new"
@@ -289,7 +245,6 @@ else
 	bad "missing asset" "exit=$ST"
 fi
 
-# ── 8. release without checksums.txt — must refuse (no bypass) ──
 reset_case
 make_release darwin arm64
 grep -v '"name":"checksums.txt"' "$FIXTURES/latest" > "$FIXTURES/latest.new"
@@ -301,7 +256,6 @@ else
 	bad "missing checksums asset" "exit=$ST"
 fi
 
-# ── 9. checksum mismatch — reject, no partial install (real shasum) ──
 reset_case
 make_release darwin arm64
 awk -v t="flint_9.9.9_darwin_arm64.tar.gz" -v h="$(bogus_hash)" \
@@ -315,7 +269,6 @@ else
 	bad "checksum mismatch" "exit=$ST out=$OUT"
 fi
 
-# ── 10. checksums.txt lacks the line for this asset — must refuse ──
 reset_case
 make_release darwin arm64
 grep -v '  flint_9.9.9_darwin_arm64.tar.gz$' "$FIXTURES/checksums.txt" > "$FIXTURES/checksums.new"
@@ -327,7 +280,6 @@ else
 	bad "missing checksum line" "exit=$ST"
 fi
 
-# ── 11. archive download failure (HTTP error from curl) ──
 reset_case
 make_release darwin arm64
 rm "$FIXTURES/flint_9.9.9_darwin_arm64.tar.gz"
@@ -338,7 +290,6 @@ else
 	bad "download failure" "exit=$ST"
 fi
 
-# ── 12. shasum preferred when both tools exist ──
 reset_case
 make_release darwin arm64
 add_shasum_stub ok
@@ -352,7 +303,6 @@ else
 	bad "shasum preference" "exit=$ST"
 fi
 
-# ── 13. sha256sum fallback when shasum is absent (exit 127) ──
 reset_case
 make_release darwin arm64
 add_shasum_stub absent
@@ -366,7 +316,6 @@ else
 	bad "sha256sum fallback" "exit=$ST"
 fi
 
-# ── 14. neither tool available — fail, no bypass ──
 reset_case
 make_release darwin arm64
 add_shasum_stub absent

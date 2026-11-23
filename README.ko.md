@@ -26,7 +26,7 @@
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 하네스">
   <a href="https://github.com/synuns/flint/actions/workflows/ci.yml"><img src="https://github.com/synuns/flint/actions/workflows/ci.yml/badge.svg" alt="CI 상태"></a>
-  <img src="https://img.shields.io/badge/release-v1.26.2-blue" alt="v1.26.2">
+  <img src="https://img.shields.io/badge/release-v1.26.3-blue" alt="v1.26.3">
 </p>
 <p align="center">
   <sub>8종은 자동 등록(A급) 하니스 기준 — 전체 지원 목록은 아래 <a href="#에이전트--어댑터">어댑터 표</a>에 있습니다.</sub>
@@ -48,6 +48,7 @@ flint는 이걸 바꿉니다. 에이전트가 무언가 배우면 — 결정, �
 
 사람은 Obsidian에 노트를 남깁니다. 에이전트는 flint에 기억을 남깁니다 — 불과 도구를 얻기 위해 두드리는 부싯돌처럼.
 
+> v1.26.3 · 패치 — 주석 게이트: `internal/commentlint`(지시어 외 Go 주석이면 go test 실패)·`scripts/csweep.go`(AST 스윕 도구 repo 편입)·`make ci`의 `scripts/check_comments.py`(git 추적 셸·파이썬 전수·따옴표/heredoc 인식)·스크립트 주석 227건 삭제 · [전체 변경로그](docs/HISTORY.md)
 > v1.26.2 · r113 패치 — 주석 스윕: 556파일·23,960 서술 주석 삭제(go/parser AST — 문자열 리터럴 미페이지·`//go:*`·`//nolint`·`// +build` 지시어 보존) · README 하이라이트 이력 복원(범프 스크립트 결함이 37줄 전량 라벨 교체) · 범프 스크립트는 배지만 동기(하이라이트 미조정) · release-gate 하이라이트 라벨 유일 검사 추가 · [전체 변경로그](docs/HISTORY.md)
 > v1.26.1 · r111-r112 패치 — 명시적 검사의 캐시 갱신(`flint update --check`·doctor `--check update`가 latest·ETag·checked_at 기록 — doctor Fix 안내가 실제로 참) · 키워드형 DSN 파생 거부(exit 3 + FLINT_DEMO_DSN 안내) · FLINT_DEMO_DSN 오버라이드 시 base 서버 ensure 생략 · 오프라인 registry 폴백(캐시 사본+나이, 경고 아님) · 42P04 duplicate_database 관용(병렬 초회 seed) · [전체 변경로그](docs/HISTORY.md)
 > v1.26.0 · 표면 신뢰 — 업데이트 캐시 3원칙(ETag 조건부 재검증: 304면 캐시 latest 승계·모순 검출기: 실행 버전보다 오래된 캐시는 즉시 재 fetch·`checked_at` `report --text` 노출)·`flint seed --demo`(내장 합성 데이터셋을 격리 `_demo` DB에 적재·`--reset --yes`는 데모 행만 삭제)·doctor `versions`(자가 버전·캐시 latest·PATH·mcp-registry 나란히)·threshold `update_cache_age_h` · [전체 변경 이력](docs/HISTORY.md)

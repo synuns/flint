@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-# T43: CI YAML 구조 검증 — make ci 첫 단계에서 실행.
-# 파싱 실패·구조 위반 시 0이 아닌 exit(워크플로 조기 실패).
-# 실행: python3 scripts/validate_yaml.py (대상 2건: ci.yml, .goreleaser.yml)
+                                         
+                                       
+                                                                       
 import json
 import sys
 from pathlib import Path
@@ -19,7 +19,7 @@ def check(name, cond, msg):
 
 
 def main():
-    # 1) Actions 워크플로 — 파싱 + 필수 잡 구조
+                                    
     wf_path = ROOT / ".github" / "workflows" / "ci.yml"
     try:
         wf = yaml.safe_load(wf_path.read_text(encoding="utf-8"))
@@ -39,7 +39,7 @@ def main():
     dolt = services.get("doltgres") or {}
     check("ci.yml", "5434" in str(dolt.get("ports")), "포트 5434 매핑 없음")
 
-    # 2) GoReleaser — 파싱 + darwin 빌드 타깃
+                                       
     gr_path = ROOT / ".goreleaser.yml"
     try:
         gr = yaml.safe_load(gr_path.read_text(encoding="utf-8"))
@@ -59,7 +59,7 @@ def main():
     ldflags = " ".join(str(f) for b in builds for f in (b.get("ldflags") or []))
     check(".goreleaser.yml", "flint/lib/cli.version" in ldflags, "버전 주입 ldflags 없음")
 
-    # 3) 플러그인 매니페스트 — 파싱 1회(결과 재사용) + name/version/마켓플레이스 구조
+                                                            
     manifests = {}
     for label, path in [
         ("plugin.json", ROOT / "flint-plugin" / ".claude-plugin" / "plugin.json"),
@@ -87,7 +87,7 @@ def main():
             "plugins[0].source != ./flint-plugin",
         )
 
-    # v0.16.1: release 잡 구조 — 테스트 그린 후 발행·Release 쓰기 권한.
+                                                        
     release_job = jobs.get("deploy") or {}
     check("ci.yml", bool(release_job), "deploy 잡 없음")
     needs = release_job.get("needs")
@@ -96,7 +96,7 @@ def main():
     perms = release_job.get("permissions") or {}
     check("ci.yml", perms.get("contents") == "write", "release 잡 contents: write 없음")
 
-    # v0.16.1: 플러그인 hooks.json — 훅 3종 존재(PATH 기반 flint 호출).
+                                                           
     hooks_path = ROOT / "flint-plugin" / "hooks" / "hooks.json"
     try:
         hooks = json.loads(hooks_path.read_text(encoding="utf-8"))
