@@ -1785,7 +1785,9 @@ func TestRunReadRelatedTargetMissingExit3(t *testing.T) {
 // parse (exit 3). The pre-patch path reached the existence probe, whose
 // int8→int4 encoding failure is QUIET (§13) — the read fell through with
 // the bogus fusion id instead of refusing (the probe-death shape faked
-// here; the not-found probe case is the test above).
+// here; the not-found probe case is the test above). The boundary
+// 2147483647 (MaxInt32, the last legal int4) parses through to the
+// probe — the guard is a ceiling, not a tightening.
 func TestRunReadRelatedInt4CeilingV1241(t *testing.T) {
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "FROM knowledge WHERE id = $1") {
@@ -1801,6 +1803,19 @@ func TestRunReadRelatedInt4CeilingV1241(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "int4 ceiling") {
 		t.Fatalf("출력에 int4 상한 안내 부재: %s", out.String())
+	}
+
+	// The boundary value parses through — the probe answers exists and
+	// the read completes (exit 0).
+	var out2 strings.Builder
+	st2 := &fakeStore{queryFn: relatedQueryFn(hitRowsFixture, nil)}
+	code2 := RunRead(context.Background(), st2,
+		[]string{"백업 정책", "--related", "2147483647"}, strings.NewReader(""), &out2)
+	if code2 != 0 {
+		t.Fatalf("경계값(2147483647) exit = %d, want 0(파싱 통과): %s", code2, out2.String())
+	}
+	if !strings.Contains(out2.String(), "백업 정책|") {
+		t.Fatalf("경계값 read 결과 미출력: %q", out2.String())
 	}
 }
 

@@ -2170,7 +2170,9 @@ func TestMaintainMergeDisposedCounterV1241(t *testing.T) {
 // --limit past the int4 range is refused at parse (exit 3, the --days
 // ceiling convention) before any audit query fires — the pre-patch path
 // flowed the value into the audit LIMIT $2 parameter, where the encoding
-// fails opaquely at query time.
+// fails opaquely at query time. The boundary 2147483647 (MaxInt32, the
+// last legal int4) parses through — the guard is a ceiling, not a
+// tightening.
 func TestMaintainRecallAuditLimitInt4CeilingV1241(t *testing.T) {
 	f := &fakeMaintStore{fakeStore: &fakeStore{}}
 	out, code := runMaintainArgs(t, f, "--recall-audit", "--limit", "2147483648")
@@ -2184,6 +2186,16 @@ func TestMaintainRecallAuditLimitInt4CeilingV1241(t *testing.T) {
 		if strings.Contains(sql, "AS bad_recall") {
 			t.Errorf("사전 거부 전 audit 질의 발화: %s", sql)
 		}
+	}
+
+	// The boundary value parses through and the report runs (exit 0).
+	f2 := &fakeMaintStore{fakeStore: &fakeStore{}}
+	out2, code2 := runMaintainArgs(t, f2, "--recall-audit", "--limit", "2147483647")
+	if code2 != 0 {
+		t.Fatalf("경계값(2147483647) exit = %d, want 0(파싱 통과): %s", code2, out2)
+	}
+	if !strings.Contains(out2, `"status":"recall-audit"`) {
+		t.Fatalf("경계값 보고 미생성: %s", out2)
 	}
 }
 
