@@ -238,9 +238,10 @@ func TestDistillRowsSlowRealDB(t *testing.T) {
 		}
 	}
 	// floor 1.0 (the default): a (score 0) excluded, b·c selected in id order.
-	rows, err := DistillRows(ctx, st, 1.0)
-	if err != nil {
-		t.Fatalf("DistillRows: %v", err)
+	// Warm-up listing before the reads are seeded (the value is not
+	// consumed yet; the post-seed listing below is the assertion target).
+	if _, err := DistillRows(ctx, st, 1.0); err != nil {
+		t.Fatalf("DistillRows warm-up: %v", err)
 	}
 	// v1.24.0 T2 — the survived merge on the real path: row b gets 2
 	// knowledge_reads in one session (one survived point); its listing

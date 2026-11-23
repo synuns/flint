@@ -775,12 +775,6 @@ func truncateRunes(s string, max int) string {
 // never reorder them.
 const RelatedMaxRows = VaultMaxRows
 
-// relatedColumns — the columns BuildRelatedRead SELECTs (fixed order).
-// The FormatRelatedRows field-name -> position basis: the neighbor's
-// id·topic·summary plus the link's relation label and the traversal
-// direction (forward = N → neighbor, reverse = neighbor → N).
-var relatedColumns = []string{"id", "topic", "summary", "relation", "direction"}
-
 // BuildRelatedRead — assembles the bidirectional knowledge_links neighbor
 // query (v1.24.0 T5): the forward arm (from_id = $1, neighbor = to_id)
 // UNION ALL the reverse arm (to_id = $1, neighbor = from_id) — the
