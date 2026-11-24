@@ -89,6 +89,15 @@ func doctorChecks() []CheckSpec {
 		{Name: "engine", Chain: "tail", OnStoreNil: "", Fn: checkEngine},
 
 		{Name: "versions", Chain: "tail", OnStoreNil: "", ThFn: checkVersionsTh},
+
+		{Name: "hook-path", Chain: "tail", OnStoreNil: "",
+			Fn: func(ctx context.Context, st wire.Store) DoctorCheck { return CheckHookPath() }},
+		{Name: "dsn-class", Chain: "tail", OnStoreNil: "",
+			Fn: func(ctx context.Context, st wire.Store) DoctorCheck { return CheckDSNClass() }},
+		{Name: "collection-freshness", Chain: "tail", OnStoreNil: "warn", ThFn: CheckFreshnessTh},
+		{Name: "plugin-version-gap", Chain: "tail", OnStoreNil: "", ThFn: CheckPluginGapTh},
+		{Name: "service-remnant", Chain: "tail", OnStoreNil: "",
+			Fn: func(ctx context.Context, st wire.Store) DoctorCheck { return CheckServiceRemnant() }},
 	}
 }
 

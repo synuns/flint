@@ -115,7 +115,12 @@ type BarSeg struct {
 	Title string
 }
 
+func DeprecationNotice(flag string) string {
+	return fmt.Sprintf("%s is deprecated — use `flint report --serve` (removed in a later release)", flag)
+}
+
 func runReportHTML(ctx context.Context, st wire.Store, days int, out string, stdout io.Writer) int {
+	fmt.Fprintln(stdout, DeprecationNotice("--html"))
 
 	if err := st.Ping(ctx); err != nil {
 		fmt.Fprintln(stdout, wire.ErrLine(err))

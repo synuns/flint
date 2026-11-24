@@ -94,6 +94,9 @@ type Thresholds struct {
 	StrayDBsWarn   int
 
 	UpdateCacheAgeH int
+
+	CollectionFreshnessH   int
+	PluginVersionGapMinors int
 }
 
 type ThresholdMeta struct {
@@ -188,6 +191,14 @@ var thresholdMetas = []ThresholdMeta{
 	{"StrayDBsWarn", "stray_dbs_warn", 0, "int", true, false, "doctor stray_dbs", ""},
 
 	{"UpdateCacheAgeH", "update_cache_age_h", 72, "int", true, false, "doctor versions cache age", ""},
+
+	{"CollectionFreshnessH", "collection_freshness_hours", 72, "int", true, false, "doctor collection-freshness (session_starts recency)", ""},
+	{"PluginVersionGapMinors", "plugin_version_gap_minors", 2, "int", true, false, "doctor plugin-version-gap", ""},
+}
+
+var thresholdIntRanges = map[string][2]int{
+	"collection_freshness_hours": {6, 168},
+	"plugin_version_gap_minors":  {1, 10},
 }
 
 func ThresholdMetas() []ThresholdMeta {
@@ -201,6 +212,31 @@ func ThresholdAutoGrade(key string) string {
 		}
 	}
 	return ""
+}
+
+func ThresholdMetaByKey(key string) (ThresholdMeta, bool) {
+	for _, m := range thresholdMetas {
+		if m.Key == key {
+			return m, true
+		}
+	}
+	return ThresholdMeta{}, false
+}
+
+func ClampThresholdInt(key string, n int) int {
+	r, ok := thresholdIntRanges[key]
+	if !ok {
+		return n
+	}
+	if n < r[0] || n > r[1] {
+		def := 0
+		if m, ok := ThresholdMetaByKey(key); ok {
+			def = metaDefaultInt(m.Default)
+		}
+		log.Printf("[flint] thresholds: %s=%d outside %d..%d — default %d", key, n, r[0], r[1], def)
+		return def
+	}
+	return n
 }
 
 func ThresholdAutoWhitelist() map[string]string {

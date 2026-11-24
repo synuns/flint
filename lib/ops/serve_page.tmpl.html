@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>flint report</title>
+<link rel="stylesheet" href="/hand.css">
+</head>
+<body data-poll="{{.Poll}}">
+<header>
+<h1>flint report</h1>
+<span class="meta">{{.GeneratedAt}} &middot; {{.Days}}d window</span>
+<button id="refresh" type="button">Refresh</button>
+</header>
+<main>
+{{range .Areas}}
+<section data-area="{{.ID}}">
+<h2>{{.Title}}</h2>
+<dl>
+{{range .Rows}}<div class="row"><dt>{{.Label}}</dt><dd>{{.Value}}</dd></div>
+{{end}}</dl>
+</section>
+{{end}}
+</main>
+<p class="hint">Manual refresh by default. Opt-in polling: append <code>?poll=&lt;seconds&gt;</code>.</p>
+<script>
+(function () {
+  function apply(html) {
+    var next = new DOMParser().parseFromString(html, 'text/html').querySelector('main');
+    var cur = document.querySelector('main');
+    if (next && cur) { cur.replaceWith(next); }
+  }
+  function refresh() {
+    fetch(location.href).then(function (r) { return r.text(); }).then(apply);
+  }
+  document.getElementById('refresh').addEventListener('click', refresh);
+  var poll = parseInt(document.body.dataset.poll, 10);
+  if (poll > 0) { setInterval(refresh, poll * 1000); }
+})();
+</script>
+</body>
+</html>

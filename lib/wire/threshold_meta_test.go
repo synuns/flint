@@ -53,6 +53,8 @@ var frozenThresholdKeys = []string{
 	"dropped_dbs_warn", "stray_dbs_warn",
 
 	"update_cache_age_h",
+
+	"collection_freshness_hours", "plugin_version_gap_minors",
 }
 
 func TestStaleThresholdDefaultsOverride(t *testing.T) {

@@ -1,0 +1,65 @@
+:root {
+  --flint-bg: canvas;
+  --flint-fg: canvastext;
+  --flint-muted: graytext;
+  --flint-accent: accentcolor;
+  --flint-border: buttonborder;
+  --flint-card: canvas;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0 auto;
+  max-width: 60rem;
+  padding: 1rem;
+  font-family: system-ui, sans-serif;
+  background: var(--flint-bg);
+  color: var(--flint-fg);
+}
+
+header {
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
+  border-bottom: 1px solid var(--flint-border);
+  padding-bottom: 0.5rem;
+}
+
+header .meta { color: var(--flint-muted); }
+
+main {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+section {
+  border: 1px solid var(--flint-border);
+  padding: 0.75rem;
+  background: var(--flint-card);
+}
+
+section h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+  color: var(--flint-accent);
+}
+
+dl {
+  margin: 0;
+  display: grid;
+  gap: 0.25rem;
+}
+
+.row {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+dt { color: var(--flint-muted); }
+dd { margin: 0; font-variant-numeric: tabular-nums; }
+
+.hint { color: var(--flint-muted); font-size: 0.85rem; }

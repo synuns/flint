@@ -1,0 +1,107 @@
+{
+ "projection_note": "projection: fixed forecast saved at lint 2026-11-24T16:34:21 (plan edited since)",
+ "headline": {
+  "wall_min": {
+   "projected": 2.514,
+   "actual": null
+  },
+  "cost_usd_agents": {
+   "projected": 0.788762,
+   "actual": 0
+  },
+  "task_min": {
+   "projected": 16.872,
+   "actual": 0
+  },
+  "agents": {
+   "projected": 8,
+   "actual": 0
+  }
+ },
+ "cost_split": {
+  "agents_usd": 0,
+  "rework_usd": 0,
+  "coordinator_usd": null,
+  "total_usd": 0.0
+ },
+ "concurrency": {
+  "peak": 0,
+  "projected_peak": 8
+ },
+ "critical_path": {
+  "actual": [],
+  "projected": [
+   "T6"
+  ],
+  "projected_min": 2.514
+ },
+ "model_mix": {},
+ "coordinator_cost_by_model": null,
+ "quality": {
+  "tests": {
+   "passed": 12,
+   "failed": 50,
+   "skipped": 0,
+   "seconds": 131.8,
+   "mode": "full",
+   "failures": [
+    "-::TestDrillDoesNotTouchPublicSequence: failed",
+    "-::TestDrillWithoutMaintenanceRuns: failed",
+    "-::TestDrillReplayDoesNotContaminateOriginalPool: failed",
+    "-::TestDrillRestoresAndCleans: failed",
+    "-::TestDrillFailureCleansSchema: failed",
+    "-::TestDrillDropRetriesTransientFailure: failed",
+    "-::TestDrillIsolatedInDedicatedDatabase: failed",
+    "-::TestDrillDropExhaustionFailsExplicitly: failed",
+    "-::TestDropDBVerifiesResidue: failed",
+    "-::TestCleanupUsesIndependentContext: failed",
+    "-::TestDumpRestoreRoundtrip: failed",
+    "-::TestV13FreshSchemaDirect: failed",
+    "-::TestV14GateUpgradeFromV13: failed",
+    "-::TestV14FreshSchemaDirect: failed",
+    "-::TestV17GateUpgradeFromV16: failed",
+    "-::TestV18GateUpgradeFromV17: failed",
+    "-::TestV19GateUpgradeFromV18: failed",
+    "-::TestV16GateUpgradeFromV15: failed",
+    "-::TestSlowV15GateDedupeUniqueIndex: failed",
+    "-::TestSlowParallelLinkInsertSingleRowV1201: failed",
+    "-::TestSlowSupersedeCrossRaceV1201: failed",
+    "-::TestSlowSupersedeChainDepthCapV1201: failed",
+    "-::TestQueryAsOfSlowAssembly: failed",
+    "-::TestQueryAsOfSlowViewFallback: failed",
+    "-::TestActiveKnowledgeRestoredAfterViewFallback: failed",
+    "-::TestShadowOffZeroCost: failed",
+    "-::TestShadowGate24h: failed",
+    "-::TestShadowRoundFires: failed",
+    "-::TestShadowRoundNoFire: failed",
+    "-::TestShadowStreakLifecycle: failed",
+    "-::TestShadowOffPreservesState: failed",
+    "-::TestShadowProposalStaysInRange: failed",
+    "-::TestShadowUnregisteredZeroCost: failed",
+    "-::TestShadowWhitelistEmptySkips: failed",
+    "-::TestShadowSilentFailure: failed",
+    "-::TestShadowRoundsCounterSplit: failed",
+    "-::TestShadowBoundaryFireBumpsFired: failed",
+    "-::TestShadowNearScoreDomainGuard: failed",
+    "-::TestShadowCounterCorruptReset: failed",
+    "-::TestDiffRowsSlowTypes: failed",
+    "-::TestDiffStatSlowSummary: failed",
+    "-::TestDiffCommitsSlowRange: failed",
+    "-::TestDualDeviceRecallAppendOnlyRealSlow: failed",
+    "-::TestLogEntriesSlowModes: failed",
+    "-::TestMigrateGatesViewReapply: failed",
+    "-::TestCommitNothingStagedSucceeds: failed",
+    "-::TestPatternRepeatSuccess: failed",
+    "-::TestPatternFailThenSuccess: failed",
+    "-::TestPatternCapTwenty: failed",
+    "-::TestConnectReal: failed"
+   ],
+   "skipped_tests": []
+  },
+  "first_time_pass": 0,
+  "first_time_n": 0,
+  "rework_dispatches": 0,
+  "open_incidents": 0
+ },
+ "tasks": []
+}
