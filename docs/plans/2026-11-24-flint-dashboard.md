@@ -77,6 +77,15 @@
   실측 — Basecoat과 shadcn/ui는 동일 토큰 체계라 전환 시 시각 연속.
 - 차트: 디자인 단계 결정(ApexCharts 테마·lightweight-charts·커스텀
   SVG 후보).
+- **디자인 진행물·인계(2026-11-24)**: 방향 v1을 Pencil 캔버스(.pen —
+  저장 경로 지정 필요)와 visual companion 목업(`.superpowers/brainstorm/
+  39031-1795496497/content/design-v1.html`)으로 구성 완료 — 디자인
+  반복은 별도 세션에서 계속한다. 남은 디자인 과제: ①pending 행
+  미리보기·다음 행동 안내(읽기 전용 유지) ②최근 bad_recall 행 목록
+  ③온도 산식 정의(recall_score·age·변동성 — 기획 공백 보완) ④볼트
+  브리지 상태를 지식 위생에 편입·echo 3종을 판정 분포 미니바로 축소
+  ⑤용어 확정(한글 우선+기계 용어 병기 제안 중 — 단일 소스 용어표
+  등록 + 계약 테스트).
 
 ## 6. 비목표
 
