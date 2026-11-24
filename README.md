@@ -26,7 +26,7 @@
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 harnesses">
   <a href="https://github.com/synuns/flint/actions/workflows/ci.yml"><img src="https://github.com/synuns/flint/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
-  <img src="https://img.shields.io/badge/release-v1.31.3-blue" alt="v1.31.3">
+  <img src="https://img.shields.io/badge/release-v1.32.0-blue" alt="v1.32.0">
 </p>
 <p align="center">
   <sub>8 counts the auto-registration (tier A) harnesses — the full support list is in the <a href="#agents--adapters">adapter table</a> below.</sub>
@@ -48,6 +48,7 @@ It adds up. Week one, it learns the stack. By week four, it remembers why you ch
 
 Humans take notes in Obsidian. Agents take notes in flint — the stone you strike to make fire and tools.
 
+> v1.32.0 · structure-cleanup — context deadlines where blocking was unbounded (command cap 300s with FLINT_COMMAND_TIMEOUT override · hooks session paths stay unlimited · service-manager output probe 5s) · MCP Serve reframes over-long lines in a loop instead of recursing (the whole line is skipped — remnant bytes no longer re-parse as requests) · QueryOnce returns context.Canceled immediately (retry is transient-only, 117 call sites unchanged) · thresholds single source (one thresholdMetas row drives defaults·parsing·fallback via reflect) · maintain split 2,190→446 lines into a registration slice + 6 mode files (byte-identical handler moves) · doctor split 2,052→345 + 8 files (7 checks + hookfix, registry intact) · RunWrite 536→19 lines (parse→validate→dedupe→persist→render) · schema gate stage 1 (3 canonical queries in lib/db + TestSchemaSealedOutsideDB) · errLine single path + printErr helper · seam rules documented (docs/contracts/seam.md) · [full changelog](docs/HISTORY.md)
 > v1.31.3 · r126 patch — UpgradeRoundTrip gains an entry guard (partial wiring returns ErrNotWired up front — the download-success path no longer panics on a nil seam) · success-path nil-seam regression test committed · [full changelog](docs/HISTORY.md)
 > v1.31.2 · r125 patch — UpgradeRoundTrip rollback guards nil service seams (a partial wiring panicked instead of returning the error) · failure-path regression test committed (setup --engine native keeps the prior mode when the pipeline fails) · unused constant removed · [full changelog](docs/HISTORY.md)
 > v1.31.1 · native-service — `flint engine status|start|stop` now reach the registered service in production wiring (managed container compose · native launchd/systemd-user) · macOS stop terminates the service (bootout) instead of triggering a KeepAlive restart · `setup --engine` records the mode only after the pipeline succeeds · the CI macOS smoke passes FLINT_CONFIG_DIR/FLINT_HOME through doctor and session-start · doctor count corrected to 24 · [full changelog](docs/HISTORY.md)

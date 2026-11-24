@@ -1683,11 +1683,28 @@ func TestDoctorStrayDBsCheckV1290(t *testing.T) {
 	}
 }
 
-func withRestartCountV1290(t *testing.T, fn func() (int, error)) {
+func withRestartCountV1290(t *testing.T, fn func(context.Context) (int, error)) {
 	t.Helper()
 	old := RestartCountFn
 	RestartCountFn = fn
 	t.Cleanup(func() { RestartCountFn = old })
+}
+
+func TestDoctorRestartCountFnHonorsCtxV1320(t *testing.T) {
+	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
+	t.Setenv("FLINT_DSN", "postgresql://flint:flint-dev@localhost:5434/flint")
+	withComposePs(t, func(context.Context) ([]byte, error) {
+		return []byte(`{"Name":"flint-doltgres-1","State":"running","Publishers":[{"PublishedPort":5434}]}`), nil
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	start := time.Now()
+	if _, err := RestartCountFn(ctx); err == nil {
+		t.Fatal("취소 ctx에서 RestartCountFn 성공 — ctx 전파 실패")
+	}
+	if el := time.Since(start); el > 2*time.Second {
+		t.Fatalf("종료까지 %s — 취소 ctx는 즉시 에러여야 함", el)
+	}
 }
 
 func TestDoctorEngineFootprintRestartsV1290(t *testing.T) {
@@ -1699,7 +1716,7 @@ func TestDoctorEngineFootprintRestartsV1290(t *testing.T) {
 	withEngineStats(t, func(context.Context) ([]byte, error) {
 		return []byte("{\"Name\":\"flint-doltgres-1\",\"MemUsage\":\"50.5MiB / 3.84GiB\"}\n"), nil
 	})
-	withRestartCountV1290(t, func() (int, error) { return 3, nil })
+	withRestartCountV1290(t, func(context.Context) (int, error) { return 3, nil })
 	c := checkEngineFootprint(context.Background(), nil)
 	if c.Status != "ok" {
 		t.Fatalf("status=%q, want ok", c.Status)
@@ -1708,7 +1725,7 @@ func TestDoctorEngineFootprintRestartsV1290(t *testing.T) {
 		t.Fatalf("detail=%q, want restarts 3 표시", c.Detail)
 	}
 
-	withRestartCountV1290(t, func() (int, error) { return 0, errors.New("docker inspect failed") })
+	withRestartCountV1290(t, func(context.Context) (int, error) { return 0, errors.New("docker inspect failed") })
 	c = checkEngineFootprint(context.Background(), nil)
 	if c.Status != "ok" {
 		t.Fatalf("에러 시에도 ok: status=%q", c.Status)

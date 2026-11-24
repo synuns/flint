@@ -284,6 +284,82 @@ func TestRecallAuditThresholdKeys(t *testing.T) {
 	}
 }
 
+func TestThresholdMetaAppendPropagatesParse(t *testing.T) {
+	restore := ThresholdMetasAppendForTest(ThresholdMeta{
+		Field: "StaleDays", Key: "zz_t3_append_probe", Default: 77,
+		Type: "int", Fallback: true, Desc: "t3 append probe",
+	})
+
+	th, err := ParseThresholds([][2]any{{"zz_t3_append_probe", "9"}})
+	if err != nil {
+		t.Fatalf("ParseThresholds err: %v", err)
+	}
+	if th.StaleDays != 9 {
+		t.Errorf("주입 키 오버라이드: stale_days=%d, want 9", th.StaleDays)
+	}
+
+	bad, err := ParseThresholds([][2]any{{"zz_t3_append_probe", "garbage"}})
+	if err != nil {
+		t.Fatalf("ParseThresholds err: %v", err)
+	}
+	if bad.StaleDays != 77 {
+		t.Errorf("주입 키 무효값 폴백: stale_days=%d, want 77", bad.StaleDays)
+	}
+
+	restore()
+	after, err := ParseThresholds([][2]any{{"zz_t3_append_probe", "9"}})
+	if err != nil {
+		t.Fatalf("ParseThresholds err: %v", err)
+	}
+	if after.StaleDays != 0 {
+		t.Errorf("제거 후 잔류: stale_days=%d, want 0", after.StaleDays)
+	}
+}
+
+func TestThresholdMetaReplaceSingleSource(t *testing.T) {
+	restore := ThresholdMetasReplaceForTest(ThresholdMeta{
+		Field: "StaleDays", Key: "stale_days", Default: 77,
+		Type: "int", Fallback: true, Seed: true, Desc: "t3 replace probe",
+	})
+
+	if def := DefaultThresholds(); def.StaleDays != 77 {
+		t.Errorf("교체 행 기본값: stale_days=%d, want 77", def.StaleDays)
+	}
+
+	seeded, err := ParseThresholds(nil)
+	if err != nil {
+		t.Fatalf("ParseThresholds(nil) err: %v", err)
+	}
+	if seeded.StaleDays != 77 {
+		t.Errorf("교체 행 시드: stale_days=%d, want 77", seeded.StaleDays)
+	}
+
+	bad, err := ParseThresholds([][2]any{{"stale_days", "garbage"}})
+	if err != nil {
+		t.Fatalf("ParseThresholds err: %v", err)
+	}
+	if bad.StaleDays != 77 {
+		t.Errorf("교체 행 무효값 폴백: stale_days=%d, want 77", bad.StaleDays)
+	}
+
+	over, err := ParseThresholds([][2]any{{"stale_days", "5"}})
+	if err != nil {
+		t.Fatalf("ParseThresholds err: %v", err)
+	}
+	if over.StaleDays != 5 {
+		t.Errorf("교체 행 오버라이드: stale_days=%d, want 5", over.StaleDays)
+	}
+
+	restore()
+	if def := DefaultThresholds(); def.StaleDays != 90 {
+		t.Errorf("복원 후 기본값: stale_days=%d, want 90", def.StaleDays)
+	}
+	seeded2, _ := ParseThresholds(nil)
+	if seeded2.StaleDays != 0 {
+		t.Errorf("복원 후 시드: stale_days=%d, want 0", seeded2.StaleDays)
+	}
+}
+
 func TestEngineWarnThresholdKeys(t *testing.T) {
 	def := DefaultThresholds()
 	if def.DoltLogDepthWarn != 10000 {

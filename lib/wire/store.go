@@ -1,6 +1,9 @@
 package wire
 
-import "context"
+import (
+	"context"
+	"errors"
+)
 
 type Store interface {
 	Migrate(ctx context.Context) error
@@ -21,8 +24,9 @@ type Store interface {
 
 func QueryOnce(ctx context.Context, st Store, sql string, args []any) ([][]any, error) {
 	rows, err := st.Query(ctx, sql, args...)
-	if err != nil {
-		rows, err = st.Query(ctx, sql, args...)
+	if err == nil || errors.Is(err, context.Canceled) {
+		return rows, err
 	}
+	rows, err = st.Query(ctx, sql, args...)
 	return rows, err
 }

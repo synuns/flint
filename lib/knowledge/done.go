@@ -440,6 +440,7 @@ type lazyDumpFile struct {
 	hw      *hashFile
 	aw      io.WriteCloser
 	failed  bool
+	initErr error
 }
 
 type hashFile struct {
@@ -459,6 +460,7 @@ func (l *lazyDumpFile) Write(p []byte) (int, error) {
 	l.once.Do(func() {
 		if err := os.MkdirAll(l.dir, 0o700); err != nil {
 			l.failed = true
+			l.initErr = fmt.Errorf("backup auto: mkdir %s: %w", l.dir, err)
 			return
 		}
 		ext := ".sql"
@@ -470,16 +472,19 @@ func (l *lazyDumpFile) Write(p []byte) (int, error) {
 		if l.encrypt {
 			if BackupKeyPathFn == nil {
 				l.failed = true
+				l.initErr = errors.New("backup auto: backup key path unavailable")
 				return
 			}
 			key := BackupKeyPathFn()
 			if key == "" {
 				l.failed = true
+				l.initErr = errors.New("backup auto: backup key path empty")
 				return
 			}
 			id, err := ensureKeyFn(key)
 			if err != nil {
 				l.failed = true
+				l.initErr = fmt.Errorf("backup auto: load backup key %s: %w", key, err)
 				return
 			}
 			recipient = id.Recipient()
@@ -490,6 +495,7 @@ func (l *lazyDumpFile) Write(p []byte) (int, error) {
 		f, err := os.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 		if err != nil {
 			l.failed = true
+			l.initErr = fmt.Errorf("backup auto: create dump file %s: %w", name, err)
 			return
 		}
 		l.f = f
@@ -499,12 +505,16 @@ func (l *lazyDumpFile) Write(p []byte) (int, error) {
 			aw, aerr := age.Encrypt(l.hw, recipient)
 			if aerr != nil {
 				l.failed = true
+				l.initErr = fmt.Errorf("backup auto: age encrypt init: %w", aerr)
 				return
 			}
 			l.aw = aw
 		}
 	})
 	if l.failed {
+		if l.initErr != nil {
+			return 0, l.initErr
+		}
 		return 0, errors.New("backup auto: cannot create dump file")
 	}
 
@@ -525,6 +535,9 @@ func (l *lazyDumpFile) Write(p []byte) (int, error) {
 
 func (l *lazyDumpFile) close() error {
 	if l.f == nil {
+		if l.initErr != nil {
+			return l.initErr
+		}
 		return nil
 	}
 	name := l.f.Name()
@@ -534,7 +547,7 @@ func (l *lazyDumpFile) close() error {
 			_ = l.f.Close()
 			l.f = nil
 			_ = os.Remove(name)
-			return errors.New("backup auto: age close failed — partial dump discarded")
+			return fmt.Errorf("backup auto: age close failed — partial dump discarded: %w", aerr)
 		}
 		l.aw = nil
 	}
@@ -543,6 +556,9 @@ func (l *lazyDumpFile) close() error {
 
 	if l.failed {
 		_ = os.Remove(name)
+		if l.initErr != nil {
+			return fmt.Errorf("backup auto: partial dump discarded: %w", l.initErr)
+		}
 		return errors.New("backup auto: partial dump discarded")
 	}
 	if closeErr != nil {

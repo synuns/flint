@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/synuns/flint/lib/db"
 	"github.com/synuns/flint/lib/knowledge"
 	"github.com/synuns/flint/lib/query"
 	"github.com/synuns/flint/lib/render"
@@ -194,8 +195,7 @@ func ReadZeroPct(calls, zero int) int {
 }
 
 func LoadReadStatsFromMeta(ctx context.Context, st wire.Store) (calls int, zero int) {
-	rows, err := wire.QueryOnce(ctx, st,
-		`SELECT count(*), count(CASE WHEN zero THEN 1 END) FROM read_events`, nil)
+	rows, err := db.ReadEventsCount(ctx, st)
 	if err != nil {
 		return 0, 0
 	}
@@ -418,8 +418,7 @@ func ScanStatsFromMeta(getKV func(string) (string, error)) (echo, suggest ScanKi
 }
 
 func KnowledgeSummaryLens(ctx context.Context, st wire.Store) map[int]int {
-	rows, err := wire.QueryOnce(ctx, st,
-		`SELECT id, length(summary) FROM knowledge`, nil)
+	rows, err := db.KnowledgeCount(ctx, st)
 	if err != nil {
 		return nil
 	}
@@ -478,8 +477,7 @@ func DerivedHotStats(ctx context.Context, st wire.Store) (calls, p95 int) {
 }
 
 func legacyHotStats(ctx context.Context, st wire.Store) (calls, p95 int) {
-	rows, err := wire.QueryOnce(ctx, st,
-		`SELECT key, value FROM meta WHERE key IN ('hot_stats')`, nil)
+	rows, err := db.MetaLookup(ctx, st)
 	if err != nil {
 		return 0, 0
 	}

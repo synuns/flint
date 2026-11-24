@@ -385,6 +385,49 @@ func TestNewKeyPropagates(t *testing.T) {
 	}
 }
 
+func TestApplyThresholdsFallbackSingleSource(t *testing.T) {
+	restore := wire.ThresholdMetasReplaceForTest(store.ThresholdMeta{
+		Field: "StaleDays", Key: "stale_days", Default: 77,
+		Type: "int", Fallback: true, Desc: "t3 fallback probe",
+	})
+
+	fb := wire.ApplyThresholdsFallback(store.Thresholds{})
+	if fb.StaleDays != 77 {
+		t.Errorf("교체 행 폴백: stale_days=%d, want 77", fb.StaleDays)
+	}
+	kept := wire.ApplyThresholdsFallback(store.Thresholds{StaleDays: 5})
+	if kept.StaleDays != 5 {
+		t.Errorf("0이 아닌 값 유지: stale_days=%d, want 5", kept.StaleDays)
+	}
+	neg := wire.ApplyThresholdsFallback(store.Thresholds{StaleDays: -3})
+	if neg.StaleDays != 77 {
+		t.Errorf("int 음수 폴백: stale_days=%d, want 77", neg.StaleDays)
+	}
+
+	restore()
+	fb2 := wire.ApplyThresholdsFallback(store.Thresholds{})
+	if fb2.StaleDays != 90 {
+		t.Errorf("복원 후 폴백: stale_days=%d, want 90", fb2.StaleDays)
+	}
+}
+
+func TestApplyThresholdsFallbackRegistryScope(t *testing.T) {
+	fb := wire.ApplyThresholdsFallback(store.Thresholds{})
+	if fb.PendingMax != 0 {
+		t.Errorf("폴백 미대상 침범: pending_max=%d, want 0", fb.PendingMax)
+	}
+	if fb.EchoTopK != 0 {
+		t.Errorf("폴백 미대상 침범: echo_top_k=%d, want 0", fb.EchoTopK)
+	}
+	if fb.VaultSkipDirs != "" {
+		t.Errorf("폴백 미대상 침범: vault_skip_dirs=%q, want \"\"", fb.VaultSkipDirs)
+	}
+	if fb.DroppedDBsWarn != 1 || fb.StrayDBsWarn != 0 || fb.UpdateCacheAgeH != 72 {
+		t.Errorf("폴백 대상 누락: dropped=%d stray=%d update=%d, want 1·0·72",
+			fb.DroppedDBsWarn, fb.StrayDBsWarn, fb.UpdateCacheAgeH)
+	}
+}
+
 func TestThresholdAutoWhitelist(t *testing.T) {
 	grades := map[string]bool{"": true, "shadow": true}
 	want := map[string]string{"suggest_min_score": "shadow"}

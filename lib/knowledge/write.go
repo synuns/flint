@@ -496,12 +496,72 @@ func persistEchoCands(ctx context.Context, st wire.Store, echoID int, cands []Ec
 	_ = db.InsertEchoCandidates(ctx, st, echoID, rows)
 }
 
-func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader, stdout io.Writer) int {
+type pendLink struct {
+	from int
+	spec []linkSpec
+}
 
+type writeState struct {
+	ctx      context.Context
+	st       wire.Store
+	stdout   io.Writer
+	kind     string
+	session  string
+	source   string
+	payloads []map[string]any
+	th       store.Thresholds
+	floor    float64
+
+	recs            []map[string]any
+	dropped         map[string]bool
+	warnings        []string
+	correctionQuota int
+	capWarned       bool
+	hash            string
+	state           string
+	dups            int
+	dupID           int
+	dupTopic        string
+	dupState        string
+	dupEcho         []EchoCandidate
+	echoCands       []EchoCandidate
+	seen            map[string]bool
+	batched         bool
+	stagedN         []map[string]any
+	stagedH         []string
+	stagedL         [][]linkSpec
+	stagedK         []string
+	recLinks        [][]linkSpec
+	recKinds        []string
+	pendLinks       []pendLink
+	dupLinkSpecs    []linkSpec
+}
+
+func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader, stdout io.Writer) int {
+	r, code := parseWriteRequest(ctx, st, args, stdin, stdout)
+	if r == nil {
+		return code
+	}
+	if code != 0 {
+		return code
+	}
+	if code := r.validateAndDedupe(); code != 0 {
+		return code
+	}
+	if code := r.resolveStaged(); code != 0 {
+		return code
+	}
+	if code := r.precheckLinks(); code != 0 {
+		return code
+	}
+	return r.persist()
+}
+
+func parseWriteRequest(ctx context.Context, st wire.Store, args []string, stdin io.Reader, stdout io.Writer) (*writeState, int) {
 	for _, a := range args {
 		if a == "--help" || a == "-h" {
 			fmt.Fprintf(stdout, i18n.T("usage.write")+"\n", sourceList())
-			return 0
+			return nil, 0
 		}
 	}
 
@@ -515,7 +575,7 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 	})
 	if perr != nil {
 		fmt.Fprintln(stdout, wire.ErrLine(perr))
-		return 3
+		return nil, 3
 	}
 	kind, session := "", res.Value("--session")
 	if pos := res.Positional(); len(pos) > 0 {
@@ -524,35 +584,42 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 	source, err := ParseSourceFlag(args)
 	if err != nil {
 		fmt.Fprintln(stdout, wire.ErrLine(err))
-		return 3
+		return nil, 3
 	}
 
 	payloads, err := readPayloads(stdin)
 	if err != nil {
 		fmt.Fprintln(stdout, wire.ErrLine(err))
-		return 3
+		return nil, 3
 	}
 	if len(payloads) == 0 {
 		fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{Field: "payload", Expect: "non-empty JSON/JSONL on stdin"}))
-		return 3
+		return nil, 3
 	}
 
 	if code := enforceWriteMaxRows(ctx, st, stdout, len(payloads)); code != 0 {
-		return code
+		return nil, code
 	}
 
 	th := WriteThresholds(ctx, st)
-	floor := th.ConfFloor
+	r := &writeState{
+		ctx: ctx, st: st, stdout: stdout,
+		kind: kind, session: session, source: source,
+		payloads: payloads, th: th, floor: th.ConfFloor,
+		recs: make([]map[string]any, 0, len(payloads)), dropped: map[string]bool{},
+		seen: map[string]bool{}, batched: len(payloads) > 1,
+		state: "active", correctionQuota: -1,
+	}
 
 	if rows, err := wire.QueryOnce(ctx, st,
 		`SELECT key, value FROM meta WHERE key IN ('vocab_tags','vocab_domains')`, nil); err == nil {
 		var tags, domains []string
-		for _, r := range rows {
-			if len(r) != 2 {
+		for _, r2 := range rows {
+			if len(r2) != 2 {
 				continue
 			}
-			vals := strings.Split(fmt.Sprint(r[1]), ",")
-			if fmt.Sprint(r[0]) == "vocab_tags" {
+			vals := strings.Split(fmt.Sprint(r2[1]), ",")
+			if fmt.Sprint(r2[0]) == "vocab_tags" {
 				tags = vals
 			} else {
 				domains = vals
@@ -560,122 +627,93 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 		}
 		store.SetVocabExtras(tags, domains)
 	}
-	recs := make([]map[string]any, 0, len(payloads))
-	dropped := map[string]bool{}
-	var warnings []string
 
-	correctionQuota := -1
 	if source == "correction" && kind == "knowledge" {
-		correctionQuota = th.CorrectionDailyMax - correctionTodayCount(ctx, st)
-		if correctionQuota < 0 {
-			correctionQuota = 0
+		r.correctionQuota = th.CorrectionDailyMax - correctionTodayCount(ctx, st)
+		if r.correctionQuota < 0 {
+			r.correctionQuota = 0
 		}
 	}
-	capWarned := false
-	hash, state := "", "active"
-	dups := 0
-	dupID := 0
-	dupTopic := ""
-	dupState := ""
+	return r, 0
+}
 
-	var dupEcho []EchoCandidate
-
-	var echoCands []EchoCandidate
-
-	seen := map[string]bool{}
-
-	batched := len(payloads) > 1
-	var stagedN []map[string]any
-	var stagedH []string
-	var stagedL [][]linkSpec
-	var stagedK []string
-
-	var recLinks [][]linkSpec
-
-	var recKinds []string
-
-	type pendLink struct {
-		from int
-		spec []linkSpec
+func (r *writeState) finalizeRec(n map[string]any, specs []linkSpec, kval string) {
+	if r.correctionQuota == 0 {
+		if !r.capWarned {
+			r.warnings = append(r.warnings, fmt.Sprintf(
+				"correction daily max reached (correction_daily_max=%d) — line skipped", r.th.CorrectionDailyMax))
+			r.capWarned = true
+		}
+		return
 	}
-	var pendLinks []pendLink
-	dupLinkSpecs := []linkSpec{}
-
-	finalizeRec := func(n map[string]any, specs []linkSpec, kval string) {
-		if correctionQuota == 0 {
-			if !capWarned {
-				warnings = append(warnings, fmt.Sprintf(
-					"correction daily max reached (correction_daily_max=%d) — line skipped", th.CorrectionDailyMax))
-				capWarned = true
-			}
-			return
-		}
-		if correctionQuota > 0 {
-			correctionQuota--
-		}
-		n["kind"] = kind
-		for k := range n {
-			if !kindColumns[kind][k] && k != "kind" {
-				delete(n, k)
-				dropped[k] = true
-			}
-		}
-		recs = append(recs, n)
-		recLinks = append(recLinks, specs)
-		recKinds = append(recKinds, kval)
+	if r.correctionQuota > 0 {
+		r.correctionQuota--
 	}
-	for _, p := range payloads {
+	n["kind"] = r.kind
+	for k := range n {
+		if !kindColumns[r.kind][k] && k != "kind" {
+			delete(n, k)
+			r.dropped[k] = true
+		}
+	}
+	r.recs = append(r.recs, n)
+	r.recLinks = append(r.recLinks, specs)
+	r.recKinds = append(r.recKinds, kval)
+}
 
-		if source == "correction" && kind == "knowledge" {
-			applyCorrectionDefaults(p, th.CorrectionConfidence)
+func (r *writeState) validateAndDedupe() int {
+	for _, p := range r.payloads {
+
+		if r.source == "correction" && r.kind == "knowledge" {
+			applyCorrectionDefaults(p, r.th.CorrectionConfidence)
 		}
 
 		if se := validateFieldBytes(p); se != nil {
-			fmt.Fprintln(stdout, wire.ErrLine(se))
+			fmt.Fprintln(r.stdout, wire.ErrLine(se))
 			return 3
 		}
-		if se := store.Validate(kind, p); se != nil {
-			fmt.Fprintln(stdout, wire.ErrLine(se))
+		if se := store.Validate(r.kind, p); se != nil {
+			fmt.Fprintln(r.stdout, wire.ErrLine(se))
 			return 3
 		}
 
 		var specs []linkSpec
 
 		kval := ""
-		if kind == "knowledge" {
+		if r.kind == "knowledge" {
 			var lse *store.SchemaError
 			specs, lse = parseLinkSpecs(p)
 			if lse != nil {
-				fmt.Fprintln(stdout, wire.ErrLine(lse))
+				fmt.Fprintln(r.stdout, wire.ErrLine(lse))
 				return 3
 			}
 
 			if cse := validateConditions(p); cse != nil {
-				fmt.Fprintln(stdout, wire.ErrLine(cse))
+				fmt.Fprintln(r.stdout, wire.ErrLine(cse))
 				return 3
 			}
 
 			var kse *store.SchemaError
 			kval, kse = parseKnowledgeKind(p)
 			if kse != nil {
-				fmt.Fprintln(stdout, wire.ErrLine(kse))
+				fmt.Fprintln(r.stdout, wire.ErrLine(kse))
 				return 3
 			}
 			if sse := validateSourcePath(p); sse != nil {
-				fmt.Fprintln(stdout, wire.ErrLine(sse))
+				fmt.Fprintln(r.stdout, wire.ErrLine(sse))
 				return 3
 			}
 		}
 
-		warnings = append(warnings, SanitizePayload(p)...)
+		r.warnings = append(r.warnings, SanitizePayload(p)...)
 
-		if kind == "knowledge" {
+		if r.kind == "knowledge" {
 			if sp, ok := p["source_path"].(string); ok && strings.TrimSpace(sp) == "" {
 				delete(p, "source_path")
 			}
 		}
-		n := store.Normalize(kind, p)
-		if kind == "knowledge" {
+		n := store.Normalize(r.kind, p)
+		if r.kind == "knowledge" {
 
 			if raw, ok := p["tags"].([]any); ok {
 				tags := make([]string, 0, len(raw))
@@ -687,347 +725,361 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 				domain, _ := n["domain"].(string)
 				for _, w := range store.CheckVocabulary(tags, domain) {
 					if strings.HasPrefix(w, rejectedTagPrefix) {
-						fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{Field: "tags", Expect: w}))
+						fmt.Fprintln(r.stdout, wire.ErrLine(&store.SchemaError{Field: "tags", Expect: w}))
 						return 3
 					}
-					warnings = append(warnings, w)
+					r.warnings = append(r.warnings, w)
 				}
 			}
 
 			h := store.ContentHash(store.HashCanonical(n))
 
-			if source == "correction" {
+			if r.source == "correction" {
 				applyCorrectionOrigin(p, n)
 			}
-			if seen[h] {
-				dups++
+			if r.seen[h] {
+				r.dups++
 				continue
 			}
-			seen[h] = true
-			if batched {
+			r.seen[h] = true
+			if r.batched {
 
 				n["content_hash"] = h
-				stagedN = append(stagedN, n)
-				stagedH = append(stagedH, h)
-				stagedL = append(stagedL, specs)
-				stagedK = append(stagedK, kval)
+				r.stagedN = append(r.stagedN, n)
+				r.stagedH = append(r.stagedH, h)
+				r.stagedL = append(r.stagedL, specs)
+				r.stagedK = append(r.stagedK, kval)
 				continue
 			}
-			existsMeta, exists, err := lookupHash(ctx, st, h)
+			existsMeta, exists, err := lookupHash(r.ctx, r.st, h)
 			if err != nil {
-				fmt.Fprintln(stdout, wire.ErrLine(err))
+				fmt.Fprintln(r.stdout, wire.ErrLine(err))
 				return store.MapExit(err)
 			}
 			if exists {
-				dups++
-				if len(payloads) == 1 {
-					dupID = existsMeta.ID
-					dupTopic, dupState = existsMeta.Topic, existsMeta.State
+				r.dups++
+				if len(r.payloads) == 1 {
+					r.dupID = existsMeta.ID
+					r.dupTopic, r.dupState = existsMeta.Topic, existsMeta.State
 
-					dupEcho = scanEcho(ctx, st, n, th)
+					r.dupEcho = scanEcho(r.ctx, r.st, n, r.th)
 				}
 
 				if len(specs) > 0 {
-					pendLinks = append(pendLinks, pendLink{from: existsMeta.ID, spec: specs})
-					if len(payloads) == 1 {
-						dupLinkSpecs = append(dupLinkSpecs, specs...)
+					r.pendLinks = append(r.pendLinks, pendLink{from: existsMeta.ID, spec: specs})
+					if len(r.payloads) == 1 {
+						r.dupLinkSpecs = append(r.dupLinkSpecs, specs...)
 					}
 				}
 				continue
 			}
 			conf, _ := n["confidence"].(float64)
 
-			echoCands = scanEcho(ctx, st, n, th)
-			state = store.Classify(kind, conf, floor)
+			r.echoCands = scanEcho(r.ctx, r.st, n, r.th)
+			r.state = store.Classify(r.kind, conf, r.floor)
 			n["content_hash"] = h
-			n["status"] = state
-			hash = h
+			n["status"] = r.state
+			r.hash = h
 		}
-		if kind == "project" {
+		if r.kind == "project" {
 
 			name, _ := n["name"].(string)
-			if seen["project:"+name] {
-				dups++
+			if r.seen["project:"+name] {
+				r.dups++
 				continue
 			}
-			seen["project:"+name] = true
-			exists, err := st.ExistsProject(ctx, name)
+			r.seen["project:"+name] = true
+			exists, err := r.st.ExistsProject(r.ctx, name)
 			if err != nil {
-				fmt.Fprintln(stdout, wire.ErrLine(err))
+				fmt.Fprintln(r.stdout, wire.ErrLine(err))
 				return store.MapExit(err)
 			}
 			if exists {
-				dups++
+				r.dups++
 				continue
 			}
 		}
-		n["kind"] = kind
-		finalizeRec(n, specs, kval)
+		n["kind"] = r.kind
+		r.finalizeRec(n, specs, kval)
 	}
+	return 0
+}
 
-	if len(stagedH) > 0 {
-		existing, err := lookupHashBatch(ctx, st, stagedH)
+func (r *writeState) resolveStaged() int {
+	if len(r.stagedH) > 0 {
+		existing, err := lookupHashBatch(r.ctx, r.st, r.stagedH)
 		if err != nil {
-			fmt.Fprintln(stdout, wire.ErrLine(err))
+			fmt.Fprintln(r.stdout, wire.ErrLine(err))
 			return store.MapExit(err)
 		}
-		for i, n := range stagedN {
-			if meta, dup := existing[stagedH[i]]; dup {
-				dups++
-				if len(stagedL[i]) > 0 {
+		for i, n := range r.stagedN {
+			if meta, dup := existing[r.stagedH[i]]; dup {
+				r.dups++
+				if len(r.stagedL[i]) > 0 {
 
-					pendLinks = append(pendLinks, pendLink{from: meta.ID, spec: stagedL[i]})
+					r.pendLinks = append(r.pendLinks, pendLink{from: meta.ID, spec: r.stagedL[i]})
 				}
 				continue
 			}
 			conf, _ := n["confidence"].(float64)
-			state = store.Classify(kind, conf, floor)
-			n["status"] = state
-			hash = stagedH[i]
-			finalizeRec(n, stagedL[i], stagedK[i])
+			r.state = store.Classify(r.kind, conf, r.floor)
+			n["status"] = r.state
+			r.hash = r.stagedH[i]
+			r.finalizeRec(n, r.stagedL[i], r.stagedK[i])
 		}
 	}
+	return 0
+}
 
-	flushDupLinks := func(ownCommit bool) int {
-		accrued := false
-		for _, pl := range pendLinks {
-			if err := insertKnowledgeLinks(ctx, st, pl.from, pl.spec); err != nil {
-				fmt.Fprintln(stdout, wire.ErrLine(err))
-				return store.MapExit(err)
-			}
-			accrued = true
-		}
-		if accrued && ownCommit {
-			if _, err := st.Commit(ctx, "knowledge: relations accrual (duplicate resend)"); err != nil {
-				fmt.Fprintln(stdout, wire.ErrLine(err))
-				return store.MapExit(err)
-			}
-		}
-		return 0
-	}
-	emitDuplicate := func() int {
-
-		persistEchoCands(ctx, st, dupID, dupEcho)
-		if code := flushDupLinks(true); code != 0 {
-			return code
-		}
-		RecordUsage(ctx, st, "write", source)
-		RecordDups(ctx, st, source, dups)
-		out := store.DuplicateMetaJSON(dupID, dupTopic, dupState)
-		out = withRelations(out, dupLinkSpecs)
-		if len(dropped) > 0 || len(warnings) > 0 {
-			out = withWarnings(out, dropped, warnings)
-		}
-		fmt.Fprintln(stdout, out)
-		return 0
-	}
-
+func (r *writeState) precheckLinks() int {
 	var allSpecs []linkSpec
-	for _, s := range recLinks {
+	for _, s := range r.recLinks {
 		allSpecs = append(allSpecs, s...)
 	}
 
-	for _, pl := range pendLinks {
+	for _, pl := range r.pendLinks {
 		for _, s := range pl.spec {
 			if s.To == pl.from {
-				fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{Field: "relations",
+				fmt.Fprintln(r.stdout, wire.ErrLine(&store.SchemaError{Field: "relations",
 					Expect: fmt.Sprintf("self-referencing link refused (id=%d)", pl.from)}))
 				return 3
 			}
 		}
 		allSpecs = append(allSpecs, pl.spec...)
 	}
-	se, perr := precheckLinkTargets(ctx, st, allSpecs)
+	se, perr := precheckLinkTargets(r.ctx, r.st, allSpecs)
 	if se != nil {
-		fmt.Fprintln(stdout, wire.ErrLine(se))
+		fmt.Fprintln(r.stdout, wire.ErrLine(se))
 		return 3
 	}
 	if perr != nil {
-		fmt.Fprintln(stdout, wire.ErrLine(perr))
+		fmt.Fprintln(r.stdout, wire.ErrLine(perr))
 		return store.MapExit(perr)
 	}
+	return 0
+}
 
-	if len(recs) == 0 {
-		return emitDuplicate()
+func (r *writeState) flushDupLinks(ownCommit bool) int {
+	accrued := false
+	for _, pl := range r.pendLinks {
+		if err := insertKnowledgeLinks(r.ctx, r.st, pl.from, pl.spec); err != nil {
+			fmt.Fprintln(r.stdout, wire.ErrLine(err))
+			return store.MapExit(err)
+		}
+		accrued = true
 	}
-	ids, err := st.InsertBatch(ctx, recs)
+	if accrued && ownCommit {
+		if _, err := r.st.Commit(r.ctx, "knowledge: relations accrual (duplicate resend)"); err != nil {
+			fmt.Fprintln(r.stdout, wire.ErrLine(err))
+			return store.MapExit(err)
+		}
+	}
+	return 0
+}
+
+func (r *writeState) emitDuplicate() int {
+
+	persistEchoCands(r.ctx, r.st, r.dupID, r.dupEcho)
+	if code := r.flushDupLinks(true); code != 0 {
+		return code
+	}
+	RecordUsage(r.ctx, r.st, "write", r.source)
+	RecordDups(r.ctx, r.st, r.source, r.dups)
+	out := store.DuplicateMetaJSON(r.dupID, r.dupTopic, r.dupState)
+	out = withRelations(out, r.dupLinkSpecs)
+	if len(r.dropped) > 0 || len(r.warnings) > 0 {
+		out = withWarnings(out, r.dropped, r.warnings)
+	}
+	fmt.Fprintln(r.stdout, out)
+	return 0
+}
+
+func (r *writeState) persist() int {
+	if len(r.recs) == 0 {
+		return r.emitDuplicate()
+	}
+	ids, err := r.st.InsertBatch(r.ctx, r.recs)
 	if err != nil {
 		if !errors.Is(err, store.ErrDuplicate) {
-			fmt.Fprintln(stdout, wire.ErrLine(err))
+			fmt.Fprintln(r.stdout, wire.ErrLine(err))
 			return store.MapExit(err)
 		}
 
-		survive := make([]map[string]any, 0, len(recs))
-		surviveLinks := make([][]linkSpec, 0, len(recLinks))
-		surviveKinds := make([]string, 0, len(recKinds))
-		for i, r := range recs {
-			specs := recLinks[i]
+		survive := make([]map[string]any, 0, len(r.recs))
+		surviveLinks := make([][]linkSpec, 0, len(r.recLinks))
+		surviveKinds := make([]string, 0, len(r.recKinds))
+		for i, rec := range r.recs {
+			specs := r.recLinks[i]
 			kval := ""
-			if i < len(recKinds) {
-				kval = recKinds[i]
+			if i < len(r.recKinds) {
+				kval = r.recKinds[i]
 			}
-			if r["kind"] == "project" {
+			if rec["kind"] == "project" {
 
-				name, _ := r["name"].(string)
-				exists, err2 := st.ExistsProject(ctx, name)
+				name, _ := rec["name"].(string)
+				exists, err2 := r.st.ExistsProject(r.ctx, name)
 				if err2 != nil {
-					fmt.Fprintln(stdout, wire.ErrLine(err2))
+					fmt.Fprintln(r.stdout, wire.ErrLine(err2))
 					return store.MapExit(err2)
 				}
 				if exists {
-					dups++
+					r.dups++
 					continue
 				}
-				survive = append(survive, r)
+				survive = append(survive, rec)
 				surviveLinks = append(surviveLinks, specs)
 				surviveKinds = append(surviveKinds, kval)
 				continue
 			}
-			h, _ := r["content_hash"].(string)
+			h, _ := rec["content_hash"].(string)
 			if h == "" {
-				survive = append(survive, r)
+				survive = append(survive, rec)
 				surviveLinks = append(surviveLinks, specs)
 				surviveKinds = append(surviveKinds, kval)
 				continue
 			}
-			existsMeta, exists, err2 := lookupHash(ctx, st, h)
+			existsMeta, exists, err2 := lookupHash(r.ctx, r.st, h)
 			if err2 != nil {
-				fmt.Fprintln(stdout, wire.ErrLine(err2))
+				fmt.Fprintln(r.stdout, wire.ErrLine(err2))
 				return store.MapExit(err2)
 			}
 			if exists {
-				dups++
-				if len(payloads) == 1 {
-					dupID = existsMeta.ID
-					dupTopic, dupState = existsMeta.Topic, existsMeta.State
+				r.dups++
+				if len(r.payloads) == 1 {
+					r.dupID = existsMeta.ID
+					r.dupTopic, r.dupState = existsMeta.Topic, existsMeta.State
 
-					dupEcho = echoCands
+					r.dupEcho = r.echoCands
 				}
 				if len(specs) > 0 {
 
-					pendLinks = append(pendLinks, pendLink{from: existsMeta.ID, spec: specs})
+					r.pendLinks = append(r.pendLinks, pendLink{from: existsMeta.ID, spec: specs})
 				}
 				continue
 			}
-			survive = append(survive, r)
+			survive = append(survive, rec)
 			surviveLinks = append(surviveLinks, specs)
 			surviveKinds = append(surviveKinds, kval)
 		}
 		if len(survive) == 0 {
 
-			return emitDuplicate()
+			return r.emitDuplicate()
 		}
-		ids, err = st.InsertBatch(ctx, survive)
+		ids, err = r.st.InsertBatch(r.ctx, survive)
 		if err != nil {
 			if errors.Is(err, store.ErrDuplicate) {
 
 				err = fmt.Errorf("write: batch conflict after dedup recheck: %v", err)
 			}
-			fmt.Fprintln(stdout, wire.ErrLine(err))
+			fmt.Fprintln(r.stdout, wire.ErrLine(err))
 			return store.MapExit(err)
 		}
-		recs = survive
-		recLinks = surviveLinks
-		recKinds = surviveKinds
+		r.recs = survive
+		r.recLinks = surviveLinks
+		r.recKinds = surviveKinds
 	}
 
-	if len(recLinks) > 0 {
-		for i, specs := range recLinks {
+	if len(r.recLinks) > 0 {
+		for i, specs := range r.recLinks {
 			if i >= len(ids) {
 				break
 			}
-			if err := insertKnowledgeLinks(ctx, st, ids[i], specs); err != nil {
-				fmt.Fprintln(stdout, wire.ErrLine(err))
+			if err := insertKnowledgeLinks(r.ctx, r.st, ids[i], specs); err != nil {
+				fmt.Fprintln(r.stdout, wire.ErrLine(err))
 				return store.MapExit(err)
 			}
 		}
 	}
 
-	if code := flushDupLinks(false); code != 0 {
+	if code := r.flushDupLinks(false); code != 0 {
 		return code
 	}
 
-	if kind == "knowledge" && len(ids) > 0 {
+	if r.kind == "knowledge" && len(ids) > 0 {
 		byKind := map[string][]int{}
-		for i := range recs {
-			if i >= len(ids) || i >= len(recKinds) {
+		for i := range r.recs {
+			if i >= len(ids) || i >= len(r.recKinds) {
 				break
 			}
-			if recKinds[i] == "" {
+			if r.recKinds[i] == "" {
 				continue
 			}
-			byKind[recKinds[i]] = append(byKind[recKinds[i]], ids[i])
+			byKind[r.recKinds[i]] = append(byKind[r.recKinds[i]], ids[i])
 		}
 		for _, kv := range knowledgeKindVocabulary {
 			group := byKind[kv]
 			if len(group) == 0 {
 				continue
 			}
-			if err := db.StampKnowledgeKind(ctx, st, group, kv); err != nil {
-				fmt.Fprintln(stdout, wire.ErrLine(err))
+			if err := db.StampKnowledgeKind(r.ctx, r.st, group, kv); err != nil {
+				fmt.Fprintln(r.stdout, wire.ErrLine(err))
 				return store.MapExit(err)
 			}
 		}
 	}
 
-	if len(payloads) == 1 && kind == "knowledge" && len(ids) > 0 {
-		persistEchoCands(ctx, st, ids[0], echoCands)
+	if len(r.payloads) == 1 && r.kind == "knowledge" && len(ids) > 0 {
+		persistEchoCands(r.ctx, r.st, ids[0], r.echoCands)
 	}
 
-	subject := recs[0]["name"]
+	return r.render(ids)
+}
+
+func (r *writeState) render(ids []int) int {
+	subject := r.recs[0]["name"]
 	if subject == nil {
-		subject = recs[0]["summary"]
+		subject = r.recs[0]["summary"]
 	}
-	msg := fmt.Sprintf("%s: %v", kind, subject)
-	if session != "" {
-		msg += fmt.Sprintf(" [session:%s]", session)
+	msg := fmt.Sprintf("%s: %v", r.kind, subject)
+	if r.session != "" {
+		msg += fmt.Sprintf(" [session:%s]", r.session)
 	}
-	commitHash, err := st.Commit(ctx, msg)
+	commitHash, err := r.st.Commit(r.ctx, msg)
 	if err != nil {
-		fmt.Fprintln(stdout, wire.ErrLine(err))
+		fmt.Fprintln(r.stdout, wire.ErrLine(err))
 		return store.MapExit(err)
 	}
 	var out string
-	if len(payloads) == 1 {
+	if len(r.payloads) == 1 {
 
 		id := 0
 		if len(ids) > 0 {
 			id = ids[0]
 		}
-		out = store.OutputJSON("committed", hash, state, id)
-		out = withEcho(out, echoCands)
+		out = store.OutputJSON("committed", r.hash, r.state, id)
+		out = withEcho(out, r.echoCands)
 	} else {
 
-		out = store.MultiCommitOutput(len(recs), dups, commitHash)
+		out = store.MultiCommitOutput(len(r.recs), r.dups, commitHash)
 	}
-	if len(dropped) > 0 || len(warnings) > 0 {
-		out = withWarnings(out, dropped, warnings)
+	if len(r.dropped) > 0 || len(r.warnings) > 0 {
+		out = withWarnings(out, r.dropped, r.warnings)
 	}
-	RecordUsage(ctx, st, "write", source)
-	RecordDups(ctx, st, source, dups)
+	RecordUsage(r.ctx, r.st, "write", r.source)
+	RecordDups(r.ctx, r.st, r.source, r.dups)
 
-	if source == "correction" && kind == "knowledge" && len(recs) > 0 {
-		_ = db.BumpDailyFlatKey(ctx, st, "correction_write", time.Now().UTC().Format("2006-01-02"), len(recs))
+	if r.source == "correction" && r.kind == "knowledge" && len(r.recs) > 0 {
+		_ = db.BumpDailyFlatKey(r.ctx, r.st, "correction_write", time.Now().UTC().Format("2006-01-02"), len(r.recs))
 
 		nPref, nFact := 0, 0
-		for i := range recs {
-			if i >= len(recKinds) {
+		for i := range r.recs {
+			if i >= len(r.recKinds) {
 				break
 			}
-			switch recKinds[i] {
+			switch r.recKinds[i] {
 			case "preference":
 				nPref++
 			case "fact":
 				nFact++
 			}
 		}
-		BumpCurationCounter(ctx, st, "correction_preference", nPref)
-		BumpCurationCounter(ctx, st, "correction_fact", nFact)
+		BumpCurationCounter(r.ctx, r.st, "correction_preference", nPref)
+		BumpCurationCounter(r.ctx, r.st, "correction_fact", nFact)
 	}
-	fmt.Fprintln(stdout, out)
+	fmt.Fprintln(r.stdout, out)
 
 	if PersistScanStatsFn != nil {
-		PersistScanStatsFn(ctx, st)
+		PersistScanStatsFn(r.ctx, r.st)
 	}
 	return 0
 }

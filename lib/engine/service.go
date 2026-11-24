@@ -21,24 +21,30 @@ const launchdLabel = "dev.flint.engine"
 var (
 	serviceOS      = func() string { return runtime.GOOS }
 	userHomeDir    = os.UserHomeDir
-	launchctlCmd   = func(args ...string) error { return runManagerCmd("launchctl", args...) }
-	systemctlCmd   = func(args ...string) error { return runManagerCmd("systemctl", args...) }
-	launchctlQuery = func(args ...string) (string, error) { return runManagerOutput("launchctl", args...) }
-	systemctlQuery = func(args ...string) (string, error) { return runManagerOutput("systemctl", args...) }
+	launchctlCmd   = func(ctx context.Context, args ...string) error { return runManagerCmd(ctx, "launchctl", args...) }
+	systemctlCmd   = func(ctx context.Context, args ...string) error { return runManagerCmd(ctx, "systemctl", args...) }
+	launchctlQuery = func(ctx context.Context, args ...string) (string, error) {
+		return runManagerOutput(ctx, "launchctl", args...)
+	}
+	systemctlQuery = func(ctx context.Context, args ...string) (string, error) {
+		return runManagerOutput(ctx, "systemctl", args...)
+	}
 	serviceStateFn = serviceStateDefault
 )
 
-func runManagerCmd(name string, args ...string) error {
-	_, err := runManagerOutput(name, args...)
+func runManagerCmd(ctx context.Context, name string, args ...string) error {
+	_, err := runManagerOutput(ctx, name, args...)
 	return err
 }
 
-func runManagerOutput(name string, args ...string) (string, error) {
+func runManagerOutput(ctx context.Context, name string, args ...string) (string, error) {
 	bin, err := exec.LookPath(name)
 	if err != nil {
 		return "", fmt.Errorf("engine: %s not found in PATH — the service manager is required to register the native engine; install it or start the engine manually with 'flint engine start': %w", name, err)
 	}
-	c := exec.Command(bin, args...)
+	tctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	c := exec.CommandContext(tctx, bin, args...)
 	out, err := c.CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("engine: %s %s: %w: %s", name, strings.Join(args, " "), err, strings.TrimSpace(string(out)))
@@ -48,7 +54,7 @@ func runManagerOutput(name string, args ...string) (string, error) {
 
 func serviceStateDefault() (string, error) {
 	if serviceOS() == "darwin" {
-		out, err := launchctlQuery("print", guiServiceTarget())
+		out, err := launchctlQuery(context.Background(), "print", guiServiceTarget())
 		if err != nil {
 			return "", err
 		}
@@ -59,7 +65,7 @@ func serviceStateDefault() (string, error) {
 		}
 		return "stopped", nil
 	}
-	out, err := systemctlQuery("--user", "is-active", "flint-engine.service")
+	out, err := systemctlQuery(context.Background(), "--user", "is-active", "flint-engine.service")
 	if err != nil {
 		return "", err
 	}
@@ -168,13 +174,13 @@ func Register() error {
 		return err
 	}
 	if serviceOS() == "darwin" {
-		_ = launchctlCmd("bootout", guiServiceTarget())
-		return launchctlCmd("bootstrap", guiTarget(), path)
+		_ = launchctlCmd(context.Background(), "bootout", guiServiceTarget())
+		return launchctlCmd(context.Background(), "bootstrap", guiTarget(), path)
 	}
-	if err := systemctlCmd("--user", "daemon-reload"); err != nil {
+	if err := systemctlCmd(context.Background(), "--user", "daemon-reload"); err != nil {
 		return err
 	}
-	return systemctlCmd("--user", "enable", "flint-engine.service")
+	return systemctlCmd(context.Background(), "--user", "enable", "flint-engine.service")
 }
 
 func Unregister() error {
@@ -186,11 +192,11 @@ func Unregister() error {
 		return errors.New("engine: native service not registered")
 	}
 	if serviceOS() == "darwin" {
-		if err := launchctlCmd("bootout", guiServiceTarget()); err != nil {
+		if err := launchctlCmd(context.Background(), "bootout", guiServiceTarget()); err != nil {
 			return err
 		}
 	} else {
-		if err := systemctlCmd("--user", "stop", "flint-engine.service"); err != nil {
+		if err := systemctlCmd(context.Background(), "--user", "stop", "flint-engine.service"); err != nil {
 			return err
 		}
 	}
@@ -228,7 +234,7 @@ func NewNativeService() NativeService {
 		Status: nativeStatus,
 		Start: func() error {
 			if serviceOS() != "darwin" {
-				return systemctlCmd("--user", "start", "flint-engine.service")
+				return systemctlCmd(context.Background(), "--user", "start", "flint-engine.service")
 			}
 			path, err := serviceFilePath()
 			if err != nil {
@@ -237,17 +243,17 @@ func NewNativeService() NativeService {
 			if _, serr := os.Stat(path); serr != nil {
 				return errors.New("engine: native service not registered — run flint setup --engine native")
 			}
-			_ = launchctlCmd("bootout", guiServiceTarget())
-			if err := launchctlCmd("bootstrap", guiTarget(), path); err != nil {
+			_ = launchctlCmd(context.Background(), "bootout", guiServiceTarget())
+			if err := launchctlCmd(context.Background(), "bootstrap", guiTarget(), path); err != nil {
 				return err
 			}
-			return launchctlCmd("kickstart", guiServiceTarget())
+			return launchctlCmd(context.Background(), "kickstart", guiServiceTarget())
 		},
 		Stop: func() error {
 			if serviceOS() == "darwin" {
-				return launchctlCmd("bootout", guiServiceTarget())
+				return launchctlCmd(context.Background(), "bootout", guiServiceTarget())
 			}
-			return systemctlCmd("--user", "stop", "flint-engine.service")
+			return systemctlCmd(context.Background(), "--user", "stop", "flint-engine.service")
 		},
 		Version: func() (string, error) {
 			out, err := execVersion(currentBinaryPath())

@@ -12,7 +12,6 @@ var (
 	Lookup     = wire.Lookup
 	unregister = wire.Unregister
 	usageLine  = wire.UsageLine
-	errLine    = wire.ErrLine
 	queryOnce  = wire.QueryOnce
 	runHelp    = wire.RunHelp
 	getMetaKV  = wire.GetMetaKV

@@ -5,9 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/synuns/flint/lib/store"
 )
@@ -153,5 +155,94 @@ func TestUnknownCommandLineEscapesCommand(t *testing.T) {
 	}
 	if _, injected := m["injected"]; injected {
 		t.Errorf("JSON 주입 성공 — 이스케이프 위반: %q", line)
+	}
+}
+
+func fakeStoreFactory(ctx context.Context, dsn string) (Store, error) {
+	return &fakeStore{}, nil
+}
+
+func TestRunCommandTimeoutDeadlineReachedV1320(t *testing.T) {
+	t.Setenv("FLINT_COMMAND_TIMEOUT", "1")
+	probeHandler(t, "ctxprobe", func(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
+		<-ctx.Done()
+		fmt.Fprintf(stdout, "ctxerr=%v", ctx.Err())
+		return 7
+	})
+	start := time.Now()
+	var out bytes.Buffer
+	if code := Run([]string{"ctxprobe"}, strings.NewReader(""), &out, fakeStoreFactory); code != 7 {
+		t.Fatalf("exit=%d, want 7(핸들러 반환 코드 통과)", code)
+	}
+	if !strings.Contains(out.String(), "context deadline exceeded") {
+		t.Fatalf("출력=%q, want 상한 도달 에러 관측", out.String())
+	}
+	if el := time.Since(start); el > 5*time.Second {
+		t.Fatalf("종료까지 %s — 상한 미적용", el)
+	}
+}
+
+func TestRunCommandTimeoutEnvParsingV1320(t *testing.T) {
+	cases := []struct {
+		name string
+		env  string
+		set  bool
+		want time.Duration
+	}{
+		{"미설정 기본 300초", "", false, 300 * time.Second},
+		{"초 파싱", "2", true, 2 * time.Second},
+		{"무효값 기본 적용", "abc", true, 300 * time.Second},
+		{"음수 무효 기본 적용", "-5", true, 300 * time.Second},
+		{"0 무제한", "0", true, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.set {
+				t.Setenv("FLINT_COMMAND_TIMEOUT", tc.env)
+			}
+			var until time.Duration
+			var hasDeadline bool
+			probeHandler(t, "dlprobe", func(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
+				d, ok := ctx.Deadline()
+				until, hasDeadline = time.Until(d), ok
+				return 0
+			})
+			var out bytes.Buffer
+			if code := Run([]string{"dlprobe"}, strings.NewReader(""), &out, fakeStoreFactory); code != 0 {
+				t.Fatalf("exit=%d, want 0", code)
+			}
+			if tc.want == 0 {
+				if hasDeadline {
+					t.Fatalf("데드라인 존재(남은 %v) — 0은 무제한이어야 함", until)
+				}
+				return
+			}
+			if !hasDeadline {
+				t.Fatal("데드라인 부재 — 명령 디스패치에 상한 필요")
+			}
+			if until <= 0 || until > tc.want+time.Second {
+				t.Fatalf("남은 데드라인 %v, want ≈%v", until, tc.want)
+			}
+		})
+	}
+}
+
+func TestRunSessionHooksNoTimeoutV1320(t *testing.T) {
+	t.Setenv("FLINT_COMMAND_TIMEOUT", "1")
+	for _, cmd := range []string{"session-start", "session-end", "done", "compact", "nudge"} {
+		t.Run(cmd, func(t *testing.T) {
+			sawDeadline := true
+			probeHandler(t, cmd, func(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
+				_, sawDeadline = ctx.Deadline()
+				return 0
+			})
+			var out bytes.Buffer
+			if code := Run([]string{cmd}, strings.NewReader(""), &out, fakeStoreFactory); code != 0 {
+				t.Fatalf("%s exit=%d, want 0", cmd, code)
+			}
+			if sawDeadline {
+				t.Fatalf("%s에 상한 적용됨 — hooks 세션 경로는 무제한 유지", cmd)
+			}
+		})
 	}
 }

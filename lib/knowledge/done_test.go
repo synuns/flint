@@ -4,9 +4,13 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"filippo.io/age"
 
 	"github.com/synuns/flint/lib/wire"
 )
@@ -321,6 +325,76 @@ func TestDoneUpdatesExistingSession(t *testing.T) {
 		if rec["kind"] == "session" {
 			t.Fatalf("갱신 경로에서 세션 INSERT 발생(중복 행 금지 위반): %v", rec)
 		}
+	}
+}
+
+func stubBackupKeyFns(t *testing.T, keyPath string, keyErr error) {
+	t.Helper()
+	prevPath := BackupKeyPathFn
+	prevEnsure := ensureKeyFn
+	BackupKeyPathFn = func() string { return keyPath }
+	ensureKeyFn = func(string) (*age.X25519Identity, error) { return nil, keyErr }
+	t.Cleanup(func() {
+		BackupKeyPathFn = prevPath
+		ensureKeyFn = prevEnsure
+	})
+}
+
+func TestLazyDumpFileMkdirErrCarriesRootCause(t *testing.T) {
+	blocker := filepath.Join(t.TempDir(), "notadir")
+	if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
+		t.Fatalf("블록 파일 생성: %v", err)
+	}
+	lf := &lazyDumpFile{dir: filepath.Join(blocker, "sub")}
+	_, werr := lf.Write([]byte("dump"))
+	if werr == nil {
+		t.Fatal("Write err=nil, want mkdir 실패 근원 에러")
+	}
+	if !strings.Contains(werr.Error(), "mkdir") || !strings.Contains(werr.Error(), blocker) {
+		t.Fatalf("Write err=%v, want mkdir+근원 경로 포함", werr)
+	}
+	cerr := lf.close()
+	if cerr == nil || !strings.Contains(cerr.Error(), "mkdir") {
+		t.Fatalf("close err=%v, want 동일 근원 포함", cerr)
+	}
+}
+
+func TestLazyDumpFileKeyLoadErrCarriesRootCause(t *testing.T) {
+	root := errors.New("age key unreadable")
+	stubBackupKeyFns(t, "/nonexistent/flint.key", root)
+	lf := &lazyDumpFile{dir: t.TempDir(), encrypt: true}
+	_, werr := lf.Write([]byte("dump"))
+	if werr == nil || !strings.Contains(werr.Error(), root.Error()) {
+		t.Fatalf("Write err=%v, want 키 로드 근원 에러 포함", werr)
+	}
+	if _, werr2 := lf.Write([]byte("more")); werr2 == nil || !strings.Contains(werr2.Error(), root.Error()) {
+		t.Fatalf("재시도 Write err=%v, want 동일 근원 유지", werr2)
+	}
+	cerr := lf.close()
+	if cerr == nil || !strings.Contains(cerr.Error(), root.Error()) {
+		t.Fatalf("close err=%v, want 동일 근원 포함", cerr)
+	}
+}
+
+func TestLazyDumpFileCreateErrCarriesRootCause(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root는 권한 거부 미발생")
+	}
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatalf("chmod: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+	lf := &lazyDumpFile{dir: dir}
+	_, werr := lf.Write([]byte("dump"))
+	if werr == nil {
+		t.Fatal("Write err=nil, want 파일 생성 실패 근원 에러")
+	}
+	if !strings.Contains(werr.Error(), "create dump file") || !strings.Contains(werr.Error(), dir) {
+		t.Fatalf("Write err=%v, want create dump file+경로 포함", werr)
+	}
+	if !strings.Contains(werr.Error(), "permission denied") {
+		t.Errorf("Write err=%v, want 근원 os 에러 문자열 포함", werr)
 	}
 }
 

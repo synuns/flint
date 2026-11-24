@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"reflect"
 	"strconv"
 )
 
@@ -95,183 +96,200 @@ type Thresholds struct {
 	UpdateCacheAgeH int
 }
 
-const (
-	defaultPendingMax    = 50
-	defaultDupSuspMax    = 20
-	defaultConfFloor     = 0.8
-	defaultStaleSessions = 3
-	defaultStaleDays     = 90
-	defaultStallHotH     = 48
-	defaultStallWriteH   = 72
+type ThresholdMeta struct {
+	Field    string
+	Key      string
+	Default  any
+	Type     string
+	Fallback bool
+	Seed     bool
+	Desc     string
+	Auto     string
+}
 
-	defaultSuggestMinScore        = 0.15
-	defaultSuggestScanCap         = 5000
-	defaultConflictDupThreshold   = 0.6
-	defaultBackupAgeWarnH         = 72
-	defaultZeroNearMinRead        = 10
-	defaultZeroNearWarnPct        = 30
-	defaultPendingAgeDays         = 7
-	defaultPendingPromoteDays     = 3
-	defaultPendingPromoteMinRunes = 40
-	defaultInvalidatedPruneDays   = 90
-	defaultRecallWarnWrites       = 3
+var thresholdMetas = []ThresholdMeta{
+	{"PendingMax", "pending_max", 50, "int", false, true, "maintain --check", ""},
+	{"DupSuspMax", "dup_susp_max", 20, "int", false, true, "maintain --check", ""},
+	{"ConfFloor", "conf_floor", 0.8, "ratio", false, true, "write verdict", ""},
+	{"StaleSessions", "stale_sessions", 3, "int", false, true, "done", ""},
+	{"StaleDays", "stale_days", 90, "int", true, false, "maintain --stale·report", ""},
+	{"StallHotH", "stall_hot_h", 48, "int", true, false, "doctor·maintain", ""},
+	{"StallWriteH", "stall_write_h", 72, "int", true, false, "doctor·maintain", ""},
+	{"SuggestMinScore", "suggest_min_score", 0.15, "ratio", true, false, "read suggestions", "shadow"},
+	{"SuggestScanCap", "suggest_scan_cap", 5000, "int", true, false, "read suggestions", ""},
+	{"ConflictDupThreshold", "conflict_dup_threshold", 0.6, "ratio", true, false, "maintain classification", ""},
+	{"BackupAgeWarnH", "backup_age_warn_h", 72, "int", true, false, "doctor backup-age", ""},
+	{"ZeroNearMinRead", "zero_near_min_read", 10, "int", true, false, "doctor zero-near", ""},
+	{"ZeroNearWarnPct", "zero_near_warn_pct", 30, "int", true, false, "doctor zero-near", ""},
+	{"PendingAgeDays", "pending_age_days", 7, "int", true, false, "doctor pending-age", ""},
+	{"PendingPromoteDays", "pending_promote_days", 3, "int", true, false, "pending promote suggestion (recent N days)", ""},
+	{"PendingPromoteMinRunes", "pending_promote_min_runes", 40, "int", true, false, "pending promote suggestion (min body runes)", ""},
+	{"InvalidatedPruneDays", "invalidated_prune_days", 90, "int", true, false, "invalidated prune age (maintain --prune-invalidated)", ""},
+	{"RecallWarnWrites", "recall_warn_writes", 3, "int-neg", true, false, "done recall warning", ""},
+	{"DeadDays", "dead_days", 30, "int", true, false, "report effect", ""},
+	{"PairWindowMin", "pair_window_minutes", 30, "int", true, false, "report effect", ""},
+	{"ChainWindowH", "chain_window_hours", 24, "int", true, false, "report effect", ""},
+	{"EventsRetentionD", "events_retention_days", 14, "int", true, false, "events retention", ""},
+	{"HotRetentionD", "hot_events_retention_days", 30, "int", true, false, "events retention", ""},
+	{"EventsVolumeWarn", "events_volume_warn", 50000, "int", true, false, "doctor event-volume", ""},
+	{"DrillMaxDays", "drill_max_days", 30, "int", true, false, "maintain --check", ""},
+	{"DailyRetentionD", "daily_retention_days", 14, "int", true, false, "retention · report/status window", ""},
+	{"RrfK", "rrf_k", 60.0, "pos-float", false, false, "read fallback re-ranking", ""},
+	{"SecretsScanRows", "secrets_scan_row_limit", 10000, "int", true, false, "doctor secrets row limit", ""},
+	{"SessionKnowledgeDays", "session_knowledge_days", 1, "int-neg", true, false, "session knowledge minimum interval", ""},
 
-	defaultDeadDays             = 30
-	defaultPairWindowMin        = 30
-	defaultChainWindowH         = 24
-	defaultEventsRetentionD     = 14
-	defaultHotRetentionD        = 30
-	defaultEventsVolumeWarn     = 50000
-	defaultDrillMaxDays         = 30
-	defaultDailyRetentionD      = 14
-	defaultRrfK                 = 60.0
-	defaultSecretsScanRows      = 10000
-	defaultSessionKnowledgeDays = 1
+	{"DiagHotBudgetHigh", "diag_hot_budget_high", 0.8, "ratio", false, false, "report diagnostics", ""},
+	{"DiagHotBudgetLow", "diag_hot_budget_low", 0.2, "ratio", false, false, "report diagnostics", ""},
+	{"DiagTrendPct", "diag_trend_pct", 50, "int", false, false, "report diagnostics", ""},
+	{"DiagRecallLedGoal", "diag_recall_led_goal", 50, "int", false, false, "report diagnostics", ""},
+	{"DiagDeadWarn", "diag_dead_warn", 10, "int", false, false, "report diagnostics", ""},
+	{"KreadsRetentionD", "knowledge_reads_retention_days", 14, "int", false, false, "db retention", ""},
 
-	defaultDiagHotBudgetHigh   = 0.8
-	defaultDiagHotBudgetLow    = 0.2
-	defaultDiagTrendPct        = 50
-	defaultDiagRecallLedGoal   = 50
-	defaultDiagDeadWarn        = 10
-	defaultKreadsRetentionD    = 14
-	defaultExportImportMaxRows = 100000
+	{"ExportImportMaxRows", "export_import_max_rows", 100000, "int", false, false, "import row limit", ""},
 
-	defaultDecayRate    = 1.0
-	defaultArchiveBelow = 0.0
+	{"DecayRate", "decay_rate", 1.0, "pos-float", false, false, "maintain --decay-audit", ""},
+	{"ArchiveBelow", "archive_below", 0.0, "nonneg-float", false, false, "maintain --decay-audit", ""},
 
-	defaultRecallEventRetentionD = 90
+	{"RecallEventRetentionD", "recall_event_retention_days", 90, "int", true, false, "maintain --prune-invalidated (recall events retention)", ""},
 
-	defaultCorrectionConfidence = 0.7
+	{"CorrectionConfidence", "correction_confidence", 0.7, "ratio", true, false, "write correction source default", ""},
 
-	defaultCorrectionDailyMax = 20
+	{"CorrectionDailyMax", "correction_daily_max", 20, "int", true, false, "write correction daily cap", ""},
 
-	defaultGapQueryThreshold = 3
-	defaultGapDailyMax       = 10
+	{"GapQueryThreshold", "gap_query_threshold", 3, "int", false, false, "gap candidate accrual threshold", ""},
+	{"GapDailyMax", "gap_daily_max", 10, "int", false, false, "gap candidate daily cap", ""},
 
-	defaultStaleScoreThreshold = 70
-	defaultStaleTTLDays        = 180
+	{"StaleScoreThreshold", "stale_score_threshold", 70, "int", false, false, "maintain --age-audit over-threshold marking", ""},
+	{"StaleTTLDays", "stale_ttl_days", 180, "int", false, false, "maintain --age-audit score TTL saturation", ""},
 
-	defaultSurvivedDecayRelief = 0.0
+	{"SurvivedDecayRelief", "survived_decay_relief", 0.0, "nonneg-float", false, false, "survived decay relief (hot·brief·decay-audit)", ""},
 
-	defaultEchoTopK       = 5
-	defaultEchoMinScore   = 0.3
-	defaultEchoTopicMatch = 0.4
+	{"EchoTopK", "echo_top_k", 5, "int", false, false, "write echo top-k cap", ""},
+	{"EchoMinScore", "echo_min_score", 0.3, "ratio", false, false, "write echo admission floor", ""},
+	{"EchoTopicMatch", "echo_topic_match", 0.4, "ratio", false, false, "write echo topic-overlap floor", ""},
 
-	defaultWeeklyRollupsRetentionD      = 90
-	defaultThresholdSnapshotsRetentionD = 90
-	defaultMeteringFreshnessWarnH       = 336
+	{"WeeklyRollupsRetentionD", "weekly_rollups_retention_days", 90, "int", false, false, "rollup retention", ""},
+	{"ThresholdSnapshotsRetentionD", "threshold_snapshots_retention_days", 90, "int", false, false, "snapshot retention", ""},
+	{"MeteringFreshnessWarnH", "metering_freshness_warn_h", 336, "int", false, false, "doctor metering-freshness", ""},
 
-	defaultVaultScanMaxFiles    = 10000
-	defaultVaultSummaryMaxRunes = 200
-	defaultVaultSkipDirs        = ".obsidian,.trash"
+	{"VaultScanMaxFiles", "vault_scan_max_files", 10000, "int", false, false, "index vault scan file cap", ""},
+	{"VaultSummaryMaxRunes", "vault_summary_max_runes", 200, "int", false, false, "index vault summary truncation runes", ""},
+	{"VaultSkipDirs", "vault_skip_dirs", ".obsidian,.trash", "string", false, false, "index vault skip dirs (comma list)", ""},
 
-	defaultDistillMinScore = 1.0
+	{"DistillMinScore", "distill_min_score", 1.0, "nonneg-float", false, false, "distill output minimum recall count", ""},
+	{"DistillMaxRunes", "distill_max_runes", 20000, "int", false, false, "distill output file rune cap", ""},
 
-	defaultDistillMaxRunes = 20000
+	{"RecallAuditMinBad", "recall_audit_min_bad", 2, "int", false, false, "maintain --recall-audit listing floor", ""},
 
-	defaultRecallAuditMinBad = 2
+	{"DoltLogDepthWarn", "dolt_" + "log_depth_warn", 10000, "int", true, false, "doctor depth warning", ""},
+	{"DbSizeWarnMB", "db_size_warn_mb", 2048, "int", true, false, "doctor db_size", ""},
 
-	defaultDoltLogDepthWarn = 10000
-	defaultDbSizeWarnMB     = 2048
+	{"DroppedDBsWarn", "dropped_dbs_warn", 1, "int", true, false, "doctor dropped_dbs", ""},
+	{"StrayDBsWarn", "stray_dbs_warn", 0, "int", true, false, "doctor stray_dbs", ""},
 
-	defaultDroppedDBsWarn = 1
-	defaultStrayDBsWarn   = 0
+	{"UpdateCacheAgeH", "update_cache_age_h", 72, "int", true, false, "doctor versions cache age", ""},
+}
 
-	defaultUpdateCacheAgeH = 72
-)
+func ThresholdMetas() []ThresholdMeta {
+	return append([]ThresholdMeta(nil), thresholdMetas...)
+}
+
+func ThresholdAutoGrade(key string) string {
+	for _, m := range thresholdMetas {
+		if m.Key == key {
+			return m.Auto
+		}
+	}
+	return ""
+}
+
+func ThresholdAutoWhitelist() map[string]string {
+	out := map[string]string{}
+	for _, m := range thresholdMetas {
+		if m.Auto != "" {
+			out[m.Key] = m.Auto
+		}
+	}
+	return out
+}
+
+func ThresholdMetasAppendForTest(m ThresholdMeta) (restore func()) {
+	saved := thresholdMetas
+	next := append([]ThresholdMeta(nil), saved...)
+	thresholdMetas = append(next, m)
+	return func() { thresholdMetas = saved }
+}
+
+func ThresholdMetasReplaceForTest(m ThresholdMeta) (restore func()) {
+	saved := thresholdMetas
+	next := append([]ThresholdMeta(nil), saved...)
+	for i := range next {
+		if next[i].Key == m.Key {
+			next[i] = m
+			thresholdMetas = next
+			return func() { thresholdMetas = saved }
+		}
+	}
+	thresholdMetas = append(next, m)
+	return func() { thresholdMetas = saved }
+}
 
 func DefaultThresholds() Thresholds {
-	return Thresholds{
-		PendingMax:    defaultPendingMax,
-		DupSuspMax:    defaultDupSuspMax,
-		ConfFloor:     defaultConfFloor,
-		StaleSessions: defaultStaleSessions,
-		StaleDays:     defaultStaleDays,
-		StallHotH:     defaultStallHotH,
-		StallWriteH:   defaultStallWriteH,
+	var th Thresholds
+	v := reflect.ValueOf(&th).Elem()
+	seen := map[string]bool{}
+	for _, m := range thresholdMetas {
+		if seen[m.Field] {
+			continue
+		}
+		seen[m.Field] = true
+		setThresholdDefault(v.FieldByName(m.Field), m.Default)
+	}
+	return th
+}
 
-		SuggestMinScore:        defaultSuggestMinScore,
-		SuggestScanCap:         defaultSuggestScanCap,
-		ConflictDupThreshold:   defaultConflictDupThreshold,
-		BackupAgeWarnH:         defaultBackupAgeWarnH,
-		ZeroNearMinRead:        defaultZeroNearMinRead,
-		ZeroNearWarnPct:        defaultZeroNearWarnPct,
-		PendingAgeDays:         defaultPendingAgeDays,
-		PendingPromoteDays:     defaultPendingPromoteDays,
-		PendingPromoteMinRunes: defaultPendingPromoteMinRunes,
-		InvalidatedPruneDays:   defaultInvalidatedPruneDays,
-		RecallWarnWrites:       defaultRecallWarnWrites,
-		DeadDays:               defaultDeadDays,
-		PairWindowMin:          defaultPairWindowMin,
-		ChainWindowH:           defaultChainWindowH,
-		EventsRetentionD:       defaultEventsRetentionD,
-		HotRetentionD:          defaultHotRetentionD,
-		EventsVolumeWarn:       defaultEventsVolumeWarn,
-		DrillMaxDays:           defaultDrillMaxDays,
-		DailyRetentionD:        defaultDailyRetentionD,
-		RrfK:                   defaultRrfK,
-		SecretsScanRows:        defaultSecretsScanRows,
-		SessionKnowledgeDays:   defaultSessionKnowledgeDays,
-
-		DiagHotBudgetHigh: defaultDiagHotBudgetHigh,
-		DiagHotBudgetLow:  defaultDiagHotBudgetLow,
-		DiagTrendPct:      defaultDiagTrendPct,
-		DiagRecallLedGoal: defaultDiagRecallLedGoal,
-		DiagDeadWarn:      defaultDiagDeadWarn,
-		KreadsRetentionD:  defaultKreadsRetentionD,
-
-		ExportImportMaxRows: defaultExportImportMaxRows,
-
-		DecayRate:    defaultDecayRate,
-		ArchiveBelow: defaultArchiveBelow,
-
-		RecallEventRetentionD: defaultRecallEventRetentionD,
-
-		CorrectionConfidence: defaultCorrectionConfidence,
-		CorrectionDailyMax:   defaultCorrectionDailyMax,
-
-		GapQueryThreshold: defaultGapQueryThreshold,
-		GapDailyMax:       defaultGapDailyMax,
-
-		StaleScoreThreshold: defaultStaleScoreThreshold,
-		StaleTTLDays:        defaultStaleTTLDays,
-
-		SurvivedDecayRelief: defaultSurvivedDecayRelief,
-
-		EchoTopK:       defaultEchoTopK,
-		EchoMinScore:   defaultEchoMinScore,
-		EchoTopicMatch: defaultEchoTopicMatch,
-
-		WeeklyRollupsRetentionD:      defaultWeeklyRollupsRetentionD,
-		ThresholdSnapshotsRetentionD: defaultThresholdSnapshotsRetentionD,
-		MeteringFreshnessWarnH:       defaultMeteringFreshnessWarnH,
-
-		VaultScanMaxFiles:    defaultVaultScanMaxFiles,
-		VaultSummaryMaxRunes: defaultVaultSummaryMaxRunes,
-		VaultSkipDirs:        defaultVaultSkipDirs,
-
-		DistillMinScore: defaultDistillMinScore,
-
-		DistillMaxRunes: defaultDistillMaxRunes,
-
-		RecallAuditMinBad: defaultRecallAuditMinBad,
-
-		DoltLogDepthWarn: defaultDoltLogDepthWarn,
-		DbSizeWarnMB:     defaultDbSizeWarnMB,
-
-		DroppedDBsWarn: defaultDroppedDBsWarn,
-		StrayDBsWarn:   defaultStrayDBsWarn,
-
-		UpdateCacheAgeH: defaultUpdateCacheAgeH,
+func setThresholdDefault(f reflect.Value, d any) {
+	if !f.IsValid() || !f.CanSet() {
+		return
+	}
+	switch x := d.(type) {
+	case int:
+		if f.Kind() == reflect.Int {
+			f.SetInt(int64(x))
+		}
+	case float64:
+		if f.Kind() == reflect.Float64 {
+			f.SetFloat(x)
+		}
+	case string:
+		if f.Kind() == reflect.String {
+			f.SetString(x)
+		}
 	}
 }
 
+func metaDefaultInt(d any) int {
+	n, _ := d.(int)
+	return n
+}
+
+func metaDefaultFloat(d any) float64 {
+	x, _ := d.(float64)
+	return x
+}
+
+func metaDefaultString(d any) string {
+	s, _ := d.(string)
+	return s
+}
+
 func ParseThresholds(rows [][2]any) (Thresholds, error) {
-	th := Thresholds{
-		PendingMax:    defaultPendingMax,
-		DupSuspMax:    defaultDupSuspMax,
-		ConfFloor:     defaultConfFloor,
-		StaleSessions: defaultStaleSessions,
+	th := Thresholds{}
+	v := reflect.ValueOf(&th).Elem()
+	for _, m := range thresholdMetas {
+		if m.Seed {
+			setThresholdDefault(v.FieldByName(m.Field), m.Default)
+		}
 	}
 	for _, row := range rows {
 		key, val := row[0], row[1]
@@ -279,167 +297,53 @@ func ParseThresholds(rows [][2]any) (Thresholds, error) {
 		if !ok {
 			return th, fmt.Errorf("thresholds: key is not a string: %v", key)
 		}
-		switch ks {
-		case "pending_max":
-			th.PendingMax = parseIntOrDefault(val, defaultPendingMax, ks)
-		case "dup_susp_max":
-			th.DupSuspMax = parseIntOrDefault(val, defaultDupSuspMax, ks)
-		case "conf_floor":
-			th.ConfFloor = parseFloatOrDefault(val, defaultConfFloor, ks)
-		case "stale_sessions":
-			th.StaleSessions = parseIntOrDefault(val, defaultStaleSessions, ks)
-		case "stale_days":
-			th.StaleDays = parseIntOrDefault(val, defaultStaleDays, ks)
-		case "stall_hot_h":
-			th.StallHotH = parseIntOrDefault(val, defaultStallHotH, ks)
-		case "stall_write_h":
-			th.StallWriteH = parseIntOrDefault(val, defaultStallWriteH, ks)
-		case "suggest_min_score":
-			th.SuggestMinScore = parseFloatOrDefault(val, defaultSuggestMinScore, ks)
-		case "suggest_scan_cap":
-			th.SuggestScanCap = parseIntOrDefault(val, defaultSuggestScanCap, ks)
-		case "conflict_dup_threshold":
-			th.ConflictDupThreshold = parseFloatOrDefault(val, defaultConflictDupThreshold, ks)
-		case "backup_age_warn_h":
-			th.BackupAgeWarnH = parseIntOrDefault(val, defaultBackupAgeWarnH, ks)
-		case "zero_near_min_read":
-			th.ZeroNearMinRead = parseIntOrDefault(val, defaultZeroNearMinRead, ks)
-		case "zero_near_warn_pct":
-			th.ZeroNearWarnPct = parseIntOrDefault(val, defaultZeroNearWarnPct, ks)
-		case "pending_age_days":
-			th.PendingAgeDays = parseIntOrDefault(val, defaultPendingAgeDays, ks)
-		case "pending_promote_days":
-			th.PendingPromoteDays = parseIntOrDefault(val, defaultPendingPromoteDays, ks)
-		case "pending_promote_min_runes":
-			th.PendingPromoteMinRunes = parseIntOrDefault(val, defaultPendingPromoteMinRunes, ks)
-		case "invalidated_prune_days":
-			th.InvalidatedPruneDays = parseIntOrDefault(val, defaultInvalidatedPruneDays, ks)
-		case "recall_warn_writes":
-
-			th.RecallWarnWrites = parseIntInRangeOrDefault(val, defaultRecallWarnWrites, -1, ks)
-		case "dead_days":
-			th.DeadDays = parseIntOrDefault(val, defaultDeadDays, ks)
-		case "pair_window_minutes":
-			th.PairWindowMin = parseIntOrDefault(val, defaultPairWindowMin, ks)
-		case "chain_window_hours":
-			th.ChainWindowH = parseIntOrDefault(val, defaultChainWindowH, ks)
-		case "events_retention_days":
-			th.EventsRetentionD = parseIntOrDefault(val, defaultEventsRetentionD, ks)
-		case "hot_events_retention_days":
-			th.HotRetentionD = parseIntOrDefault(val, defaultHotRetentionD, ks)
-		case "events_volume_warn":
-			th.EventsVolumeWarn = parseIntOrDefault(val, defaultEventsVolumeWarn, ks)
-		case "drill_max_days":
-			th.DrillMaxDays = parseIntOrDefault(val, defaultDrillMaxDays, ks)
-		case "daily_retention_days":
-			th.DailyRetentionD = parseIntOrDefault(val, defaultDailyRetentionD, ks)
-		case "rrf_k":
-
-			th.RrfK = parseFloatPositive(val, defaultRrfK, ks)
-		case "secrets_scan_row_limit":
-			th.SecretsScanRows = parseIntOrDefault(val, defaultSecretsScanRows, ks)
-		case "session_knowledge_days":
-
-			th.SessionKnowledgeDays = parseIntInRangeOrDefault(val, defaultSessionKnowledgeDays, -1, ks)
-		case "diag_hot_budget_high":
-			th.DiagHotBudgetHigh = parseFloatOrDefault(val, defaultDiagHotBudgetHigh, ks)
-		case "diag_hot_budget_low":
-			th.DiagHotBudgetLow = parseFloatOrDefault(val, defaultDiagHotBudgetLow, ks)
-		case "diag_trend_pct":
-			th.DiagTrendPct = parseIntOrDefault(val, defaultDiagTrendPct, ks)
-		case "diag_recall_led_goal":
-			th.DiagRecallLedGoal = parseIntOrDefault(val, defaultDiagRecallLedGoal, ks)
-		case "diag_dead_warn":
-			th.DiagDeadWarn = parseIntOrDefault(val, defaultDiagDeadWarn, ks)
-		case "knowledge_reads_retention_days":
-			th.KreadsRetentionD = parseIntOrDefault(val, defaultKreadsRetentionD, ks)
-		case "export_import_max_rows":
-
-			th.ExportImportMaxRows = parseIntOrDefault(val, defaultExportImportMaxRows, ks)
-		case "decay_rate":
-
-			th.DecayRate = parseFloatPositive(val, defaultDecayRate, ks)
-		case "archive_below":
-
-			th.ArchiveBelow = parseFloatNonNegative(val, defaultArchiveBelow, ks)
-		case "recall_event_retention_days":
-
-			th.RecallEventRetentionD = parseIntOrDefault(val, defaultRecallEventRetentionD, ks)
-		case "correction_confidence":
-
-			th.CorrectionConfidence = parseFloatOrDefault(val, defaultCorrectionConfidence, ks)
-		case "correction_daily_max":
-
-			th.CorrectionDailyMax = parseIntOrDefault(val, defaultCorrectionDailyMax, ks)
-		case "gap_query_threshold":
-
-			th.GapQueryThreshold = parseIntOrDefault(val, defaultGapQueryThreshold, ks)
-		case "gap_daily_max":
-
-			th.GapDailyMax = parseIntOrDefault(val, defaultGapDailyMax, ks)
-		case "stale_score_threshold":
-
-			th.StaleScoreThreshold = parseIntOrDefault(val, defaultStaleScoreThreshold, ks)
-		case "stale_ttl_days":
-
-			th.StaleTTLDays = parseIntOrDefault(val, defaultStaleTTLDays, ks)
-		case "survived_decay_relief":
-
-			th.SurvivedDecayRelief = parseFloatNonNegative(val, defaultSurvivedDecayRelief, ks)
-		case "echo_top_k":
-
-			th.EchoTopK = parseIntOrDefault(val, defaultEchoTopK, ks)
-		case "echo_min_score":
-
-			th.EchoMinScore = parseFloatOrDefault(val, defaultEchoMinScore, ks)
-		case "echo_topic_match":
-
-			th.EchoTopicMatch = parseFloatOrDefault(val, defaultEchoTopicMatch, ks)
-		case "weekly_rollups_retention_days":
-
-			th.WeeklyRollupsRetentionD = parseIntOrDefault(val, defaultWeeklyRollupsRetentionD, ks)
-		case "threshold_snapshots_retention_days":
-
-			th.ThresholdSnapshotsRetentionD = parseIntOrDefault(val, defaultThresholdSnapshotsRetentionD, ks)
-		case "metering_freshness_warn_h":
-
-			th.MeteringFreshnessWarnH = parseIntOrDefault(val, defaultMeteringFreshnessWarnH, ks)
-		case "vault_scan_max_files":
-
-			th.VaultScanMaxFiles = parseIntOrDefault(val, defaultVaultScanMaxFiles, ks)
-		case "vault_summary_max_runes":
-
-			th.VaultSummaryMaxRunes = parseIntOrDefault(val, defaultVaultSummaryMaxRunes, ks)
-		case "vault_skip_dirs":
-
-			th.VaultSkipDirs = parseStringOrDefault(val, defaultVaultSkipDirs, ks)
-		case "distill_min_score":
-
-			th.DistillMinScore = parseFloatNonNegative(val, defaultDistillMinScore, ks)
-		case "distill_max_runes":
-
-			th.DistillMaxRunes = parseIntOrDefault(val, defaultDistillMaxRunes, ks)
-		case "recall_audit_min_bad":
-
-			th.RecallAuditMinBad = parseIntOrDefault(val, defaultRecallAuditMinBad, ks)
-		case "dolt_" + "log_depth_warn":
-
-			th.DoltLogDepthWarn = parseIntOrDefault(val, defaultDoltLogDepthWarn, ks)
-		case "db_size_warn_mb":
-
-			th.DbSizeWarnMB = parseIntOrDefault(val, defaultDbSizeWarnMB, ks)
-		case "dropped_dbs_warn":
-
-			th.DroppedDBsWarn = parseIntOrDefault(val, defaultDroppedDBsWarn, ks)
-		case "stray_dbs_warn":
-
-			th.StrayDBsWarn = parseIntOrDefault(val, defaultStrayDBsWarn, ks)
-		case "update_cache_age_h":
-
-			th.UpdateCacheAgeH = parseIntOrDefault(val, defaultUpdateCacheAgeH, ks)
+		for _, m := range thresholdMetas {
+			if m.Key != ks {
+				continue
+			}
+			applyThresholdValue(v.FieldByName(m.Field), m, val, ks)
+			break
 		}
 	}
 	return th, nil
+}
+
+func applyThresholdValue(f reflect.Value, m ThresholdMeta, val any, ks string) {
+	if !f.IsValid() || !f.CanSet() {
+		return
+	}
+	switch m.Type {
+	case "int":
+		if f.Kind() != reflect.Int {
+			return
+		}
+		f.SetInt(int64(parseIntOrDefault(val, metaDefaultInt(m.Default), ks)))
+	case "int-neg":
+		if f.Kind() != reflect.Int {
+			return
+		}
+		f.SetInt(int64(parseIntInRangeOrDefault(val, metaDefaultInt(m.Default), -1, ks)))
+	case "ratio":
+		if f.Kind() != reflect.Float64 {
+			return
+		}
+		f.SetFloat(parseFloatOrDefault(val, metaDefaultFloat(m.Default), ks))
+	case "pos-float":
+		if f.Kind() != reflect.Float64 {
+			return
+		}
+		f.SetFloat(parseFloatPositive(val, metaDefaultFloat(m.Default), ks))
+	case "nonneg-float":
+		if f.Kind() != reflect.Float64 {
+			return
+		}
+		f.SetFloat(parseFloatNonNegative(val, metaDefaultFloat(m.Default), ks))
+	case "string":
+		if f.Kind() != reflect.String {
+			return
+		}
+		f.SetString(parseStringOrDefault(val, metaDefaultString(m.Default), ks))
+	}
 }
 
 func toString(val any) (string, bool) {

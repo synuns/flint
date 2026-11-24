@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/synuns/flint/lib/db"
+	"github.com/synuns/flint/lib/wire"
 )
 
 func engineHandshakeDefault(ctx context.Context, dsn string) error {
@@ -67,19 +68,19 @@ type engineURLSummary struct {
 func runSetupEngineURL(ctx context.Context, stdout io.Writer, dsn string) int {
 	u, err := url.Parse(dsn)
 	if err != nil || (u.Scheme != "postgres" && u.Scheme != "postgresql") || u.Host == "" {
-		fmt.Fprintln(stdout, errLine(errors.New("setup: --engine-url requires a postgresql:// DSN on the loopback (localhost, 127.0.0.1, [::1]) — unix sockets, remote hosts and other schemes are rejected; see docs/QUICKSTART.md")))
+		fmt.Fprintln(stdout, wire.ErrLine(errors.New("setup: --engine-url requires a postgresql:// DSN on the loopback (localhost, 127.0.0.1, [::1]) — unix sockets, remote hosts and other schemes are rejected; see docs/QUICKSTART.md")))
 		return 3
 	}
 	if !isLoopbackHost(u.Hostname()) {
-		fmt.Fprintln(stdout, errLine(fmt.Errorf("setup: --engine-url is loopback-only (localhost, 127.0.0.1, [::1]) — got host %q; see docs/QUICKSTART.md", u.Hostname())))
+		fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("setup: --engine-url is loopback-only (localhost, 127.0.0.1, [::1]) — got host %q; see docs/QUICKSTART.md", u.Hostname())))
 		return 3
 	}
 	if err := engineHandshakeFn(ctx, dsn); err != nil {
-		fmt.Fprintln(stdout, errLine(err))
+		printErr(stdout, err)
 		return 1
 	}
 	if err := writeEngineConfig(dsn); err != nil {
-		fmt.Fprintln(stdout, errLine(err))
+		printErr(stdout, err)
 		return 1
 	}
 	b, err := json.Marshal(engineURLSummary{Status: "ok", EngineURL: MaskEngineURL(dsn), Mode: "external"})

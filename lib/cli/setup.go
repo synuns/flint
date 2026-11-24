@@ -193,7 +193,7 @@ func runSetupSteps(ctx context.Context, ping, migrate func() error, ux *setupUX)
 
 	b, err := json.Marshal(setupSummary{Status: status, Steps: SetupSteps(), Warnings: warns, Next: setupNext})
 	if err != nil {
-		return errLine(err), 1
+		return wire.ErrLine(err), 1
 	}
 	code := 0
 	if status != "ok" {
@@ -211,13 +211,13 @@ func runSetupExposure(ctx context.Context, st Store, val string, stdout io.Write
 	switch val {
 	case "normal", "minimal":
 	default:
-		fmt.Fprintln(stdout, errLine(fmt.Errorf("setup: --exposure must be normal|minimal, got %q", val)))
+		fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("setup: --exposure must be normal|minimal, got %q", val)))
 		return 3
 	}
 	if st == nil {
 		s, err := newStore(ctx, dsnFromEnv())
 		if err != nil {
-			fmt.Fprintln(stdout, errLine(err))
+			printErr(stdout, err)
 			return 1
 		}
 		defer s.Close()
@@ -225,7 +225,7 @@ func runSetupExposure(ctx context.Context, st Store, val string, stdout io.Write
 	}
 
 	if err := setMetaKV(ctx, st, ExposureKey, val); err != nil {
-		fmt.Fprintln(stdout, errLine(err))
+		printErr(stdout, err)
 		return 1
 	}
 	b, err := json.Marshal(exposureSummary{Status: "ok", Exposure: val})
@@ -266,18 +266,18 @@ func runSetup(ctx context.Context, st Store, args []string, stdin io.Reader, std
 		Usage: i18n.T("usage.setup"),
 	})
 	if perr != nil {
-		fmt.Fprintln(stdout, errLine(perr))
+		fmt.Fprintln(stdout, wire.ErrLine(perr))
 		return 3
 	}
 	if res.Given("--engine") {
 		if !res.HasValue("--engine") {
-			fmt.Fprintln(stdout, errLine(errors.New("setup: --engine requires managed-container|native|external")))
+			fmt.Fprintln(stdout, wire.ErrLine(errors.New("setup: --engine requires managed-container|native|external")))
 			return 3
 		}
 		return runSetupEngineMode(ctx, stdout, res.Value("--engine"))
 	}
 	if res.Given("--engine-url") {
-		fmt.Fprintln(stdout, errLine(errors.New("setup: --engine-url does not accept an inline value — use FLINT_ENGINE_URL or --engine-url-file (see docs/QUICKSTART.md)")))
+		fmt.Fprintln(stdout, wire.ErrLine(errors.New("setup: --engine-url does not accept an inline value — use FLINT_ENGINE_URL or --engine-url-file (see docs/QUICKSTART.md)")))
 		return 3
 	}
 	if envDSN := os.Getenv("FLINT_ENGINE_URL"); envDSN != "" {
@@ -286,7 +286,7 @@ func runSetup(ctx context.Context, st Store, args []string, stdin io.Reader, std
 	if res.Given("--engine-url-file") {
 		filePath := res.Value("--engine-url-file")
 		if filePath == "" {
-			fmt.Fprintln(stdout, errLine(errors.New("setup: --engine-url-file requires a path")))
+			fmt.Fprintln(stdout, wire.ErrLine(errors.New("setup: --engine-url-file requires a path")))
 			return 3
 		}
 		if info, serr := os.Stat(filePath); serr == nil && info.Mode().Perm() != 0o600 {
@@ -294,12 +294,12 @@ func runSetup(ctx context.Context, st Store, args []string, stdin io.Reader, std
 		}
 		fileDSN, ferr := os.ReadFile(filePath)
 		if ferr != nil {
-			fmt.Fprintln(stdout, errLine(fmt.Errorf("setup: --engine-url-file read failed: %v", ferr)))
+			fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("setup: --engine-url-file read failed: %v", ferr)))
 			return 3
 		}
 		dsn := strings.TrimSpace(string(fileDSN))
 		if dsn == "" {
-			fmt.Fprintln(stdout, errLine(errors.New("setup: --engine-url-file is empty")))
+			fmt.Fprintln(stdout, wire.ErrLine(errors.New("setup: --engine-url-file is empty")))
 			return 3
 		}
 		return runSetupEngineURL(ctx, stdout, dsn)
@@ -308,7 +308,7 @@ func runSetup(ctx context.Context, st Store, args []string, stdin io.Reader, std
 		portStr := res.Value("--port")
 		n, cerr := strconv.Atoi(portStr)
 		if cerr != nil || !validPort(n) {
-			fmt.Fprintln(stdout, errLine(fmt.Errorf("setup: --port requires a port number 1..65535, got %q", portStr)))
+			fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("setup: --port requires a port number 1..65535, got %q", portStr)))
 			return 3
 		}
 		return runSetupManaged(ctx, st, stdout, n)
@@ -317,11 +317,11 @@ func runSetup(ctx context.Context, st Store, args []string, stdin io.Reader, std
 	jsonMode := res.Given("--json")
 	srcOverride, exposure := res.Value("--src"), res.Value("--exposure")
 	if res.Given("--src") && !res.HasValue("--src") {
-		fmt.Fprintln(stdout, errLine(errors.New("setup: --src requires a path")))
+		fmt.Fprintln(stdout, wire.ErrLine(errors.New("setup: --src requires a path")))
 		return 3
 	}
 	if res.Given("--exposure") && !res.HasValue("--exposure") {
-		fmt.Fprintln(stdout, errLine(errors.New("setup: --exposure requires normal|minimal")))
+		fmt.Fprintln(stdout, wire.ErrLine(errors.New("setup: --exposure requires normal|minimal")))
 		return 3
 	}
 	dryIdx, mcpIdx := -1, -1
@@ -365,7 +365,7 @@ func runSetup(ctx context.Context, st Store, args []string, stdin io.Reader, std
 func runSetupManaged(ctx context.Context, st Store, stdout io.Writer, portArg int) int {
 	adopt, eport, stop := ExistingInstall(ctx)
 	if stop {
-		fmt.Fprintln(stdout, errLine(errors.New("setup: "+ExistingInstallRemedy(eport))))
+		fmt.Fprintln(stdout, wire.ErrLine(errors.New("setup: "+ExistingInstallRemedy(eport))))
 		return 1
 	}
 	chosen := portArg
@@ -375,7 +375,7 @@ func runSetupManaged(ctx context.Context, st Store, stdout io.Writer, portArg in
 	} else {
 		p, err := PickPort(portArg)
 		if err != nil {
-			fmt.Fprintln(stdout, errLine(err))
+			printErr(stdout, err)
 			return 1
 		}
 		if p != portArg {
@@ -384,7 +384,7 @@ func runSetupManaged(ctx context.Context, st Store, stdout io.Writer, portArg in
 		chosen = p
 	}
 	if err := SetPortConfig(ConfigPath(), chosen); err != nil {
-		fmt.Fprintln(stdout, errLine(err))
+		printErr(stdout, err)
 		return 1
 	}
 	os.Setenv("FLINT_PORT", strconv.Itoa(chosen))
@@ -400,7 +400,7 @@ func runSetupManaged(ctx context.Context, st Store, stdout io.Writer, portArg in
 	if st != nil {
 		if _, err := db.Handshake(ctx, st); err != nil {
 			kind, remedy := ClassifyEngineError(err)
-			fmt.Fprintln(stdout, errLine(fmt.Errorf("setup: engine handshake failed (%s): %v — %s", kind, err, remedy)))
+			fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("setup: engine handshake failed (%s): %v — %s", kind, err, remedy)))
 			return 1
 		}
 	}
@@ -480,7 +480,7 @@ func runSetupMCP(stdout io.Writer) int {
 	}
 	b, err := json.Marshal(mcpSetupSummary{Status: "ok", Registered: registered, Skipped: skipped, Detail: detail})
 	if err != nil {
-		fmt.Fprintln(stdout, errLine(err))
+		printErr(stdout, err)
 		return 1
 	}
 	fmt.Fprintln(stdout, string(b))
@@ -503,7 +503,7 @@ func runTeardown(ctx context.Context, st Store, args []string, stdin io.Reader, 
 		case "--yes":
 			confirm = true
 		default:
-			fmt.Fprintln(stdout, errLine(wire.UsageErrorf(i18n.T("err.unknown_flag")+" — "+i18n.T("usage.teardown"), wire.MaskToken(a))))
+			fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf(i18n.T("err.unknown_flag")+" — "+i18n.T("usage.teardown"), wire.MaskToken(a))))
 			return 3
 		}
 	}
@@ -519,7 +519,7 @@ func runTeardown(ctx context.Context, st Store, args []string, stdin io.Reader, 
 			Next:   "would run: " + manual + " — re-run with --yes to execute",
 		})
 		if err != nil {
-			fmt.Fprintln(stdout, errLine(err))
+			printErr(stdout, err)
 			return 1
 		}
 		fmt.Fprintln(stdout, string(b))
@@ -539,7 +539,7 @@ func runTeardown(ctx context.Context, st Store, args []string, stdin io.Reader, 
 		Next:     "to stop the containers: " + manual,
 	})
 	if err != nil {
-		fmt.Fprintln(stdout, errLine(err))
+		printErr(stdout, err)
 		return 1
 	}
 	fmt.Fprintln(stdout, string(b))
