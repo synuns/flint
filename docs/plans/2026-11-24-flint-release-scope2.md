@@ -100,7 +100,7 @@ G→E·I 지반→H 시나리오(동 버전 내 생산-소비)·B abstention→I
 | v1.34.0 | done | 지식 체계 I 전달 — v1.34.0 발행(PR #287)·G5 감사 5각도(R135: minor 3) → **v1.34.1 경화 패치 발행·R136 재감사 발견 0으로 패치 루프 종결**(2026-11-25). record 4건 관측(exported ZeroHitUnownedPct 호출자 0·ORDER BY id tiebreak·빈 세션 스킵·패닉 시 마커 소모 exactly-once 트레이드오프). lib/db 병렬 slow 플레이크 3회 재발 → **격리 경화를 v1.35.0 G2 첫 항목으로 확정** |
 | v1.35.0 | done | AX 점검+작업 시스템 — v1.35.0 발행(PR #288)·G5 감사 5각도(R137: major 1·minor 3) → **v1.35.1 경화 패치 발행·R138 재감사 발견 0으로 패치 루프 종결**(2026-11-25). record 1건(다중행 주석 종료줄 병렬 import — 병리 스타일 한정·다음 루프 반영). slow 격리 규명 완결(R-2 수리·R-3/R-4 엔진 조건 유보 기록) |
 | v1.36.0 | done | 지식 체계 II 추출+교정 입구 결정 — v1.36.0 발행(PR #289)·G5 감사 5각도(R139: major 1·minor 4) → **v1.36.1 경화 패치 발행·R140 재감사 발견 0으로 패치 루프 종결**(2026-11-25). record 4건 관측(import/done 경로 하드코드값 게이트 미배선·미등록 채널 manual 폴백·fail-open 설계·e2e 실DB 부재). 테스트 엔진 instability 3회 — 실패 런 후 down -v 리셋 관례 확정 |
-| v1.37.0 | gating | 신뢰 기반(G+H+I) — 스펙 작성 완료(`2026-11-25-flint-v1.37.0.spec.md`·2기 최종 릴리스)·G2 독립 리뷰 대기 |
+| v1.37.0 | gating→G2 APPROVED | 신뢰 기반(G+H+I) — 스펙 확정(지표 노출·판정 기준·H 시나리오 3종 반영)·빌드 플랜 작성 중 |
 
 상태 값: `todo → gating → building → released → patch-loop → done` ·
 `closed`(착수 조건 미달 — 비고에 사유). 1기 승계.
