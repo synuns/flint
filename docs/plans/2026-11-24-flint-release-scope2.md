@@ -97,7 +97,7 @@ G→E·I 지반→H 시나리오(동 버전 내 생산-소비)·B abstention→I
 | 버전 | 상태 | 비고 |
 |---|---|---|
 | v1.33.0 | done | 대시보드 에이전틱+건강 — v1.33.0 발행(PR #286)·G5 독립 감사 4각도(R133: minor 5) → **v1.33.1 경화 패치 발행·R134 재감사 발견 0으로 패치 루프 종결**(2026-11-24). record 4건 관측(serve dispatch 시점 풀 미사용·오류 본문 ETag 무해·?poll 풀 생성·bind 이동 의도). CI 게이트 보강: staticcheck U1000 실증 — 로컬 release-gate에 lint 편입 여부는 v1.34.0 G2 승계. 태그 CI에서 lib/db 병렬 slow 연결 소진 플레이크 1회(deploy 미발행→재실행 완결) — slow 실DB 테스트 격리 경화도 v1.34.0 G2 승계 |
-| v1.34.0 | released | 지식 체계 I 전달 — PR #287 머지·태그·릴리스 자산 확인(2026-11-25)·G5 감사 진행·lib/db 병렬 slow 플레이크 2회 재발 → 격리 경화를 v1.35.0 G2로 승격 |
+| v1.34.0 | done | 지식 체계 I 전달 — v1.34.0 발행(PR #287)·G5 감사 5각도(R135: minor 3) → **v1.34.1 경화 패치 발행·R136 재감사 발견 0으로 패치 루프 종결**(2026-11-25). record 4건 관측(exported ZeroHitUnownedPct 호출자 0·ORDER BY id tiebreak·빈 세션 스킵·패닉 시 마커 소모 exactly-once 트레이드오프). lib/db 병렬 slow 플레이크 3회 재발 → **격리 경화를 v1.35.0 G2 첫 항목으로 확정** |
 | v1.35.0 | todo | AX 점검+작업 시스템 |
 | v1.36.0 | todo | 지식 체계 II 추출+교정 입구 결정 |
 | v1.37.0 | todo | 신뢰 기반 — G+H+I |

@@ -47,9 +47,9 @@ quartet. No schema change (v19).
 - **[docs] minimal-injection principle**: context-rot wording promoted to
   an empirical principle in PLAN §4 and both READMEs (docsync-gated).
 
-spec: docs/plans/2026-11-24-flint-v1.34.0.spec.md (G2 APPROVED) · plan:
-docs/plans/2026-11-24-flint-v1.34.0.md · scope:
-docs/plans/2026-11-24-flint-release-scope2.md §2
+spec: docs/plans/archive/2026-11/2026-11-24-flint-v1.34.0.spec.md (G2
+APPROVED) · plan: docs/plans/archive/2026-11/2026-11-24-flint-v1.34.0.md
+· scope: docs/plans/2026-11-24-flint-release-scope2.md §2
 
 ### v1.33.1 patch (2026-11-24) — g5-hardening
 
