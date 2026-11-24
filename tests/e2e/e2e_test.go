@@ -752,7 +752,7 @@ func TestWriteWarnsUnknownTag(t *testing.T) {
 	t.Cleanup(func() { cleanupTopics(t, pool, "e2e-vocab-") })
 
 	out, code := runCLI(t, []string{"write", "knowledge"},
-		`{"topic":"e2e-vocab-k","summary":"어휘 경고 프로브","confidence":0.9,"tags":["playbook","bogus"]}`)
+		`{"topic":"e2e-vocab-k","summary":"어휘 경고 프로브","confidence":0.9,"tags":["playbook","bogus"],"origin":"demo/e2e","status":"verified"}`)
 	if code != 0 {
 		t.Fatalf("exit=%d, want 0(경고는 저장 거부 아님); out=%s", code, out)
 	}
@@ -787,8 +787,8 @@ func TestPatternRepeatSuccessCandidate(t *testing.T) {
 	cleanupTopics(t, pool, "e2e-pat-")
 	t.Cleanup(func() { cleanupTopics(t, pool, "e2e-pat-") })
 
-	writeKnowledge(t, `{"topic":"e2e-pat-k","summary":"성공 1","confidence":0.9,"tags":["process"]}`)
-	writeKnowledge(t, `{"topic":"e2e-pat-k","summary":"성공 2","confidence":0.9,"tags":["process"]}`)
+	writeKnowledge(t, `{"topic":"e2e-pat-k","summary":"성공 1","confidence":0.9,"tags":["process"],"origin":"demo/e2e","status":"verified"}`)
+	writeKnowledge(t, `{"topic":"e2e-pat-k","summary":"성공 2","confidence":0.9,"tags":["process"],"origin":"demo/e2e","status":"verified"}`)
 
 	repo, err := db.NewRepo(context.Background(), dsn())
 	if err != nil {
@@ -820,7 +820,7 @@ func TestPlaybookUseStatsRate(t *testing.T) {
 	t.Cleanup(func() { cleanupTopics(t, pool, "e2e-usage-") })
 
 	m := writeKnowledge(t,
-		`{"topic":"e2e-usage-k","summary":"사용 로그 프로브","confidence":0.9,"tags":["playbook"]}`)
+		`{"topic":"e2e-usage-k","summary":"사용 로그 프로브","confidence":0.9,"tags":["playbook"],"origin":"demo/e2e","status":"verified"}`)
 	id := int(m["id"].(float64))
 	t.Cleanup(func() {
 		pool.Exec(context.Background(),
