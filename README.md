@@ -48,6 +48,7 @@ It adds up. Week one, it learns the stack. By week four, it remembers why you ch
 
 Humans take notes in Obsidian. Agents take notes in flint — the stone you strike to make fire and tools.
 
+> v1.34.1 · r134 patch — G5 audit hardening: atomic session once-guard (parallel same-label starts no longer double-inject) · budget unit seam unified to rune counts (Korean hot output no longer starves active recall) · zero_hit_unowned_pct row moved to the knowledge-hygiene area · [full changelog](docs/HISTORY.md)
 > v1.34.0 · active recall at session start — re-inspection bursts injected once per session within the remaining hot budget (no new hooks); provenance suffix (`source=·confidence=`) as a single convention across hot and recall lines; `zero_hit_unowned_pct` abstention metric; minimal-injection principle documented · [full changelog](docs/HISTORY.md)
 > v1.33.1 · r133 patch — G5 audit hardening: doctor detail path masking (hook-path · service remnant), DNS lookup deadline, plugin version parse-failure warns instead of silently passing, serve exit-code tests · [full changelog](docs/HISTORY.md)
 > v1.33.0 · `flint report --serve` — localhost-only dashboard over the same diagnose source (ETag, per-request engine connection, CSS token slots); area F doctor checks ×5 (hook path · DSN class · collection freshness · version gap · service remnant); METRICS raw-data catalog + registry-sync gate; `--html/--out` deprecated via-path · [full changelog](docs/HISTORY.md)

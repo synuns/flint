@@ -6,6 +6,23 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.34.1 patch (2026-11-25) — recall-guard-hardening
+
+3 minor findings from the G5 independent audit (v1.34.0), all fixed with
+regression tests.
+
+- **[fix] session once-guard atomic**: the meta guard claims via a
+  conditional set — parallel session starts with the same label can no
+  longer double-inject.
+- **[fix] budget unit seam**: injection accounting now uses the same unit
+  the hot budget clamps in (rune counts) — Korean hot output no longer
+  silently starves active recall; remaining never goes negative.
+- **[fix] metric placement**: the zero_hit_unowned_pct row moved to the
+  knowledge-hygiene area per spec M3 (was recall-quality).
+
+audit: G5 independent 5-angle (critical 0 · major 0 · minor 3 → fixed ·
+record 3)
+
 ### v1.34.0 minor (2026-11-25) — active-recall-provenance
 
 Second minor of the second release scope (release-scope2): area B delivery

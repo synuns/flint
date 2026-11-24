@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/synuns/flint/lib/wire"
 )
@@ -105,6 +106,89 @@ func TestInjectRespectsRemainingBudget(t *testing.T) {
 	zero := injectFixture(t, 500)
 	if zero.Len() != 0 {
 		t.Fatalf("remaining 0 must print nothing, got %q", zero.String())
+	}
+}
+
+func koreanBudgetQueryFn(t *testing.T) func(string, []any) ([][]any, error) {
+	t.Helper()
+	return func(sql string, args []any) ([][]any, error) {
+		switch {
+		case strings.Contains(sql, "FROM meta"):
+			return [][]any{{"500"}}, nil
+		case strings.Contains(sql, "FROM knowledge k WHERE k.id"):
+			id := 0
+			if len(args) > 0 {
+				if n, ok := injectCellID(args[0]); ok {
+					id = n
+				}
+			}
+			switch id {
+			case 7:
+				return [][]any{{strings.Repeat("가", 10), strings.Repeat("나", 180), "", 0}}, nil
+			case 8:
+				return [][]any{{"보조 항목", "보조 요약", "", 0}}, nil
+			}
+			return nil, nil
+		}
+		return nil, nil
+	}
+}
+
+func TestInjectBudgetUnitConsistency(t *testing.T) {
+	if os.Getenv(injectRealMode) == "1" {
+		t.Skip("synthetic Korean fixture only")
+	}
+	saved := burstItemsFn
+	t.Cleanup(func() { burstItemsFn = saved })
+	burstItemsFn = func(ctx context.Context, st wire.Store, limit int) ([]BurstItem, error) {
+		return []BurstItem{{ID: 7, Topic: "예산 단위", Reason: "stale-condition"}}, nil
+	}
+	st := &fakeStore{}
+	st.queryFn = koreanBudgetQueryFn(t)
+	var out bytes.Buffer
+	if code := InjectActiveRecall(context.Background(), st, "sess-unit", &out, 0); code != 0 {
+		t.Fatalf("exit = %d, want 0", code)
+	}
+	if n := strings.Count(out.String(), "recall-active|id="); n != 1 {
+		t.Fatalf("rows = %d, want 1 (rune cost 234 ≤ remaining 500 — byte cost 614이 한글 hot 뒤 능동 회상을 굶기면 안 됨)", n)
+	}
+}
+
+func TestRemainingNeverNegative(t *testing.T) {
+	if os.Getenv(injectRealMode) == "1" {
+		t.Skip("synthetic Korean fixture only")
+	}
+	saved := burstItemsFn
+	t.Cleanup(func() { burstItemsFn = saved })
+	burstItemsFn = func(ctx context.Context, st wire.Store, limit int) ([]BurstItem, error) {
+		return []BurstItem{
+			{ID: 7, Topic: "경계", Reason: "stale-condition"},
+			{ID: 8, Topic: "다음", Reason: "vault-changed"},
+		}, nil
+	}
+	line := "recall-active|id=7|reason=stale-condition|" + strings.Repeat("가", 10) + "|" + strings.Repeat("나", 180)
+	hotUsed := 500 - (utf8.RuneCountInString(line) + 1)
+	st := &fakeStore{}
+	st.queryFn = koreanBudgetQueryFn(t)
+	var out bytes.Buffer
+	if code := InjectActiveRecall(context.Background(), st, "sess-boundary", &out, hotUsed); code != 0 {
+		t.Fatalf("exit = %d, want 0", code)
+	}
+	if n := strings.Count(out.String(), "recall-active|id=7"); n != 1 {
+		t.Fatalf("boundary rows = %d, want 1 (cost == remaining 경계에서 정확히 1행)", n)
+	}
+	if strings.Contains(out.String(), "recall-active|id=8") {
+		t.Fatal("remaining 소진 후 두 번째 행 출력 금지 (remaining 음수 진입 없음)")
+	}
+
+	var starved bytes.Buffer
+	st2 := &fakeStore{}
+	st2.queryFn = koreanBudgetQueryFn(t)
+	if code := InjectActiveRecall(context.Background(), st2, "sess-over", &starved, 600); code != 0 {
+		t.Fatalf("exit = %d, want 0 (hotUsed 초과도 조용히 0)", code)
+	}
+	if starved.Len() != 0 {
+		t.Fatalf("remaining ≤ 0 must print nothing, got %q", starved.String())
 	}
 }
 

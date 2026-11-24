@@ -30,6 +30,7 @@ func fakeServeOutput() ReportOutput {
 	out.Stale.NeverRead = 11
 	out.Effect.ReadEventsN = 142
 	out.Effect.HitPct = 61
+	out.Effect.ZeroHitUnownedPct = 7.5
 	out.Effect.ReusePct = 33
 	out.Effect.PairPct = 44
 	out.Effect.ProfileHint = "<script>alert(1)</script>"
@@ -131,6 +132,39 @@ func TestServeHTMLValues(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Fatalf("body missing value %s", want)
 		}
+	}
+}
+
+func serveSection(t *testing.T, body, id string) string {
+	t.Helper()
+	attr := `data-area="` + id + `"`
+	i := strings.Index(body, attr)
+	if i < 0 {
+		t.Fatalf("missing %s in rendered page", attr)
+	}
+	rest := body[i+len(attr):]
+	if j := strings.Index(rest, `data-area="`); j >= 0 {
+		return rest[:j]
+	}
+	return rest
+}
+
+func TestServeHTMLZeroHitUnownedInHygieneArea(t *testing.T) {
+	h := serveHTMLFixture(t)
+	rec := serveHTMLGet(t, h, "/")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	body := rec.Body.String()
+	hygiene := serveSection(t, body, "knowledge-hygiene")
+	if !strings.Contains(hygiene, "zero-hit unowned pct") {
+		t.Fatal("zero-hit unowned pct 행은 지식 위생 영역에 렌더되어야 함 (spec M3)")
+	}
+	if !strings.Contains(hygiene, "7.5%") {
+		t.Fatal("지식 위생 영역에 zero-hit unowned 값 7.5% 누락")
+	}
+	if strings.Contains(serveSection(t, body, "recall-quality"), "zero-hit unowned pct") {
+		t.Fatal("zero-hit unowned pct 행이 recall-quality에 남아 있음")
 	}
 }
 

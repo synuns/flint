@@ -8,6 +8,7 @@ import (
 	"os"
 	"strconv"
 	"time"
+	"unicode/utf8"
 
 	"github.com/synuns/flint/lib/db"
 	"github.com/synuns/flint/lib/knowledge"
@@ -58,7 +59,7 @@ type byteCountWriter struct {
 
 func (b *byteCountWriter) Write(p []byte) (int, error) {
 	n, err := b.w.Write(p)
-	b.n += n
+	b.n += utf8.RuneCount(p[:n])
 	return n, err
 }
 
@@ -67,12 +68,12 @@ func injectActiveRecallOnce(ctx context.Context, st wire.Store, label string, st
 		return
 	}
 	key := recallActiveMarkerPrefix + label
-	if _, ok, err := wire.GetMetaKVErr(ctx, st, key); err != nil || ok {
+	won, err := wire.CompareSetMetaKV(ctx, st, key, "", time.Now().UTC().Format(time.RFC3339))
+	if err != nil || !won {
 		return
 	}
 	defer func() { _ = recover() }()
 	_ = injectActiveRecallFn(ctx, st, label, stdout, hotUsed)
-	_ = wire.SetMetaKV(ctx, st, key, time.Now().UTC().Format(time.RFC3339))
 }
 
 func RunSessionStart(ctx context.Context, st wire.Store, args []string, stdin io.Reader, stdout io.Writer) int {

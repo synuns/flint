@@ -48,6 +48,7 @@ flint는 이걸 바꿉니다. 에이전트가 무언가 배우면 — 결정, �
 
 사람은 Obsidian에 노트를 남깁니다. 에이전트는 flint에 기억을 남깁니다 — 불과 도구를 얻기 위해 두드리는 부싯돌처럼.
 
+> v1.34.1 · r134 패치 — G5 감사 경화: 세션 1회 가드 원자화(같은 라벨 병렬 시작 이중 주입 차단)·예산 단위 봉합 rune 통일(한국어 hot에서 능동 회상 기아 해소)·zero_hit_unowned_pct 행 지식 위생 영역 이동 · [전체 변경 이력](docs/HISTORY.md)
 > v1.34.0 · 세션 시작 능동 회상 — 세션당 1회·hot 잔여 예산 내 재점검 대상 주입(새 훅 0)·provenance 접미(`source=·confidence=`) 단일 관례·`zero_hit_unowned_pct` abstention 지표·주입 최소 실증 원칙 문서화 · [전체 변경 이력](docs/HISTORY.md)
 > v1.33.1 · r133 패치 — G5 감사 경화: doctor detail 경로 마스킹(훅 경로·서비스 잔재)·DNS 조회 기한·플러그인 버전 파싱 실패 warn 전환·serve 종료코드 테스트 · [전체 변경 이력](docs/HISTORY.md)
 > v1.33.0 · `flint report --serve` — 동일 진단 원천 위의 localhost 전용 대시보드(ETag·요청 단위 엔진 연결·CSS 토큰 슬롯)·영역 F doctor 검사 ×5(훅 경로·DSN 분류·수집 신선도·버전 격차·서비스 잔재)·METRICS 원천 데이터 총목록+등록표 동기 게이트·`--html/--out` deprecated 경유 전환 · [전체 변경 이력](docs/HISTORY.md)

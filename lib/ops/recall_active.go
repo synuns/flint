@@ -6,6 +6,7 @@ import (
 	"io"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/synuns/flint/lib/knowledge"
 	"github.com/synuns/flint/lib/query"
@@ -78,7 +79,7 @@ func InjectActiveRecall(ctx context.Context, st wire.Store, session string, stdo
 		source, _ := rows[0][2].(string)
 		confidence := cellFloat(rows[0][3])
 		line := activeRecallLine(item, topic, summary, source, confidence)
-		cost := len(line) + 1
+		cost := utf8.RuneCountInString(line) + 1
 		if cost > remaining {
 			break
 		}
