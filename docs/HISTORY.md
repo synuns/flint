@@ -6,6 +6,37 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.36.0 minor (2026-11-25) — extraction-contracts
+
+Fourth minor of the second release scope (release-scope2): area B
+extraction quintet + remediation entry decision. No schema change (v19).
+
+- **[feature] echo contract frozen**: docs/contracts/echo.md documents
+  the real write flow (batch seen-dup → content_hash NOOP → echo
+  advisory scan → Classify → append) with the delegation vocabulary
+  (NOOP>delete>update>append mapped to maintain/invalidate·
+  approve/pending·emitDuplicate·Classify); a frozen gate test compares
+  marker order and boundary values against the source (drift → red).
+- **[feature] derivative tagging**: source_path byte-identity rule
+  (ContentHash(summary) == vault_files.content_hash) tags derivatives
+  via the tags array after NOOP — origin/confidence immutable,
+  fail-open on judgment failure, one lookup per record.
+- **[feature] evidence gate**: rule-type knowledge (tag prefix or
+  sentence prefix, frozen registry) must carry origin/source_path and
+  status — missing evidence exits 3 with structured 5-line output;
+  facts exempt; runs before dedupe/NOOP.
+- **[feature] trust tier registry**: per-channel caps (manual 1.0 ·
+  hook 0.9 · import 0.8, meta-overridable), confidence down-only —
+  attempted upgrades exit 3 (K2 no unverified promotion).
+- **[docs] kind granularity evidence + remediation entry**: PLAN §3
+  documents episodic/semantic/procedural granularity; the remediation
+  entry decision (B-default with limited A per the area-D audit) is
+  recorded with the v1.34.0 delivery linkage.
+
+spec: docs/plans/archive/2026-11/2026-11-25-flint-v1.36.0.spec.md (G2
+APPROVED) · plan: docs/plans/2026-11-25-flint-v1.36.0.md · scope:
+docs/plans/2026-11-24-flint-release-scope2.md §2
+
 ### v1.35.1 patch (2026-11-25) — g5-waiver-findings
 
 5 findings from the G5 independent audit (v1.35.0), all fixed with
