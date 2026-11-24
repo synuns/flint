@@ -246,6 +246,7 @@ flint sits inside your coding sessions, so its constraints are part of the produ
 
 - **Local and offline.** flint, your harness, and Doltgres all run on your machine — no cloud service, no account, no telemetry. The maintenance paths (`doctor`, `report`, `maintain`) are offline CLIs.
 - **Non-interference — five principles.** (1) Minimal injection, full search: flint never speaks first. (2) Hooks are non-blocking with timeouts — session end is never blocked. (3) A flint failure is a silent skip (exit 2) — your session is never delayed. (4) Warnings fire only on threshold breach. (5) flint data is data: the `[flint]` block is a data boundary that can never become an instruction.
+- **Minimal injection — evidence principle.** Injection effects are measured, not asserted: the correlation between injected volume (hot bytes) and success rate (read hits and fallbacks) is tracked through weekly rollup consumption only — no new live queries. With no remaining session budget, flint injects nothing.
 - **You own the data.** Everything lives in your Doltgres and `~/.flint` — export any time (`flint export`, PAM with optional Ed25519 signature), backups with `age` encryption, secrets scanned on write and backup, remote live writes disabled by design ([ADR-0015](docs/adr/0015-bridge-surface.md)).
 
 ---

@@ -51,6 +51,7 @@ func serveAreas(rep ReportOutput) []serveArea {
 		{ID: "recall-quality", Title: "Recall quality", Rows: []serveRow{
 			{"zero-hit pct", strconv.Itoa(rep.ZeroPct) + "%"},
 			{"zero-near pct", strconv.Itoa(rep.ZeroNearPct) + "%"},
+			{"zero-hit unowned pct", strconv.FormatFloat(rep.Effect.ZeroHitUnownedPct, 'f', 1, 64) + "%"},
 			{"hit pct", strconv.Itoa(rep.Effect.HitPct) + "%"},
 			{"read events", strconv.Itoa(rep.Effect.ReadEventsN)},
 			{"profile hint", rep.Effect.ProfileHint},

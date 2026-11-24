@@ -590,6 +590,17 @@ func noPipe(s string) string {
 	return strings.ReplaceAll(s, "|", " ")
 }
 
+func FormatProvenanceSuffix(source string, confidence float64) string {
+	prov := ""
+	if source != "" {
+		prov += "|source=" + noPipe(source)
+	}
+	if confidence != 0 {
+		prov += "|confidence=" + strconv.FormatFloat(confidence, 'g', -1, 64)
+	}
+	return prov
+}
+
 func truncateRunes(s string, max int) string {
 	r := []rune(s)
 	if len(r) <= max {
@@ -683,6 +694,8 @@ type WhyEvidence struct {
 	TokenScore int                 `json:"token_score,omitempty"`
 	RRF        []RRFSignalEvidence `json:"rrf,omitempty"`
 	RRFScore   float64             `json:"rrf_score,omitempty"`
+	Source     string              `json:"source,omitempty"`
+	Confidence float64             `json:"confidence,omitempty"`
 }
 
 var rrfSignalNames = []string{"match", "read_count", "jamo", "topic"}
@@ -766,6 +779,7 @@ func FormatWhyRows(ev []WhyEvidence, jsonMode bool) string {
 	}
 	var lines []string
 	for _, e := range ev {
+		prov := FormatProvenanceSuffix(e.Source, e.Confidence)
 		if jsonMode {
 			b, err := json.Marshal(WhyRowLine{Why: e})
 			if err != nil {
@@ -785,7 +799,7 @@ func FormatWhyRows(ev []WhyEvidence, jsonMode bool) string {
 				"id=" + noPipe(e.ID),
 				strings.Join(sigs, ";"),
 				"score=" + strconv.FormatFloat(e.RRFScore, 'g', -1, 64),
-			}, "|"))
+			}, "|")+prov)
 			continue
 		}
 		lines = append(lines, strings.Join([]string{
@@ -793,7 +807,7 @@ func FormatWhyRows(ev []WhyEvidence, jsonMode bool) string {
 			"id=" + noPipe(e.ID),
 			noPipe(e.Tokens),
 			"score=" + strconv.Itoa(e.TokenScore),
-		}, "|"))
+		}, "|")+prov)
 	}
 	if len(lines) == 0 {
 		return ""
