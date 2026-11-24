@@ -130,7 +130,8 @@ pre-v1.30.0 installs.
   `0` disables). Hooks (session-start · session-end · done · compact ·
   nudge) and interactive TUI commands (read · tuning · pending · maintain ·
   export · report · setup) are never capped when interactive — they wait on
-  the user. The same commands invoked with `--json` (MCP `flint_read` ·
-  skill scripts) keep the cap. Applies to one-shot commands (`doctor`,
+  the user. The dual-mode commands (read · pending) invoked with `--json`
+  (MCP `flint_read` · skill scripts) keep the cap; the other exempt
+  commands have no `--json` route. Applies to one-shot commands (`doctor`,
   `write`, `hot`, ...) so a hung engine cannot block a session
   indefinitely.

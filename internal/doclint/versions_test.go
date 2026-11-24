@@ -519,6 +519,9 @@ var versionDocContracts = []struct {
 	{name: "TestVersion01322Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.32.2", "machine-route-cap",
 	}},
+	{name: "TestVersion01323Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.32.3", "doc-scope-narrow",
+	}},
 	{name: "TestVersion0170Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.7.0", "sync",
 	}},
