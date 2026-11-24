@@ -89,7 +89,7 @@
 - 차트: 디자인 단계 결정(ApexCharts 테마·lightweight-charts·커스텀
   SVG 후보).
 - **디자인 진행물·인계(2026-11-24)**: 방향 v1을 Pencil 캔버스(.pen —
-  저장 경로 지정 필요)와 visual companion 목업(`.superpowers/brainstorm/
+  repo 밖 사용자 로컬 보관)와 visual companion 목업(`.superpowers/brainstorm/
   39031-1795496497/content/design-v1.html`)으로 구성 완료 — 디자인
   반복은 별도 세션에서 계속한다. 남은 디자인 과제: ①pending 행
   미리보기·다음 행동 안내(읽기 전용 유지) ②최근 bad_recall 행 목록
