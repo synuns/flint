@@ -54,9 +54,9 @@ dashboard + area F observation health. No schema change (v19).
   QUICKSTART serve surface and 29-check counts; thresholds keys
   registered with the frozen guard.
 
-spec: docs/plans/2026-11-24-flint-v1.33.0.spec.md (G2 APPROVED) · plan:
-docs/plans/2026-11-24-flint-v1.33.0.md · scope:
-docs/plans/2026-11-24-flint-release-scope2.md §2
+spec: docs/plans/archive/2026-11/2026-11-24-flint-v1.33.0.spec.md (G2
+APPROVED) · plan: docs/plans/archive/2026-11/2026-11-24-flint-v1.33.0.md
+· scope: docs/plans/2026-11-24-flint-release-scope2.md §2
 
 ### v1.32.4 patch (2026-11-24) — setup-exemption-clarity
 

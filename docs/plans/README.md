@@ -31,15 +31,15 @@
 | `archive/2026-11/2026-11-24-flint-v1320.md` | done | v1.32.0 구조 청산 — context 데드라인·thresholds 단일 소스·god file 분리·스키마 게이트 | G2 APPROVED — T1~T7 빌드 완료·발행 대기 | 2026-11-24 |
 | `archive/2026-11/2026-11-24-flint-v1320.spec.md` | done | v1.32.0 스펙 — 4각도 리뷰 발견 청산(M1~M3) | G2 APPROVED(2차) — 빌드 완료·발행 대기 | 2026-11-24 |
 | `2026-11-24-flint-next-phase-roadmap.md` | draft | 다음 단계 로드맵 마스터 인덱스 — 9 영역 기획 분할·편성(v1.33~v1.37)·의존·전역 미결정 | 기획 완결 — 각 버전 착수 시 G2 재검토 | 2026-11-24 |
-| `2026-11-24-flint-release-scope2.md` | active | 릴리스 스코프 2기 — v1.33.0~v1.37.0 5 릴리스 편성·done 조건(1기 승계)·2기 루프 계약·영역 9종 매핑 | 2기 루프 시작 — v1.33.0 G3 빌드 진행 | 2026-11-24 |
-| `2026-11-24-flint-v1.33.0.spec.md` | active | v1.33.0 스펙 — 대시보드 에이전틱+관측 건강·Ruling 9건(포트·poll·동기 검사 등) | G2 APPROVED — G3 빌드 진행 | 2026-11-24 |
-| `2026-11-24-flint-v1.33.0.md` | active | v1.33.0 빌드 플랜 — T1~T8 태스크 그래프(serve·HTML 골격·폐기·doctor 5종·METRICS 총목록) | G3 빌드 진행 — T1~T6·T8 파견 | 2026-11-24 |
-| `2026-11-24-flint-dashboard.md` | draft | 영역 A 대시보드 리빌딩 — report --serve+Basecoat·유일한 사람용 시각 표면·에이전틱/휴먼인루프 분리 | 기획 완결 — v1.33.0 착수 대기 | 2026-11-24 |
+| `2026-11-24-flint-release-scope2.md` | active | 릴리스 스코프 2기 — v1.33.0~v1.37.0 5 릴리스 편성·done 조건(1기 승계)·2기 루프 계약·영역 9종 매핑 | 루프 실행 중 — v1.33.0~.1 done(R134 발견 0 종결) → v1.34.0 G2 | 2026-11-24 |
+| `archive/2026-11/2026-11-24-flint-v1.33.0.spec.md` | done | v1.33.0 스펙 — 대시보드 에이전틱+관측 건강·Ruling 9건(포트·poll·동기 검사 등) | G2 APPROVED·v1.33.0~.1 발행·R134 발견 0 종결 | 2026-11-24 |
+| `archive/2026-11/2026-11-24-flint-v1.33.0.md` | done | v1.33.0 빌드 플랜 — T0~T9 태스크 그래프(serve·HTML 골격·폐기·doctor 5종·METRICS 총목록) | G3 완료·v1.33.1 패치 루프 종결 | 2026-11-24 |
+| `2026-11-24-flint-dashboard.md` | draft | 영역 A 대시보드 리빌딩 — report --serve+Basecoat·유일한 사람용 시각 표면·에이전틱/휴먼인루프 분리 | 에이전틱 부분 v1.33.0 발행 — 휴먼인루프 트랙 대기 | 2026-11-24 |
 | `2026-11-24-flint-knowledge-system.md` | draft | 영역 B 지식 체계 — 추출 5종·전달 5종·census·검색 재판정 | 기획 완결 — v1.34.0·v1.36.0 착수 대기 | 2026-11-24 |
 | `2026-11-24-flint-agent-work-system.md` | draft | 영역 C 작업 시스템 — 에이전트 실수 결정론 린트 일반화(pstack 채택) | 기획 완결 — v1.35.0 착수 대기 | 2026-11-24 |
 | `2026-11-24-flint-ax-audit.md` | draft | 영역 D AX 점검 — 전수 감사·멀티 하니스 매트릭스 | 기획 완결 — v1.35.0 착수 대기 | 2026-11-24 |
 | `2026-11-24-flint-marketing-docs.md` | draft | 영역 E 마케팅·문서 — 영어 디폴트·README 핵심 가치·확산(B·A·G 전제) | 선행 영역 완료 후 착수 | 2026-11-24 |
-| `2026-11-24-flint-collection-health.md` | draft | 영역 F 관측 건강 — 수집 단절 자기감시(doctor 확장 5종)·원천 데이터 총목록(METRICS 편입) | 기획 완결 — v1.33.0 착수 대기 | 2026-11-24 |
+| `2026-11-24-flint-collection-health.md` | draft | 영역 F 관측 건강 — 수집 단절 자기감시(doctor 확장 5종)·원천 데이터 총목록(METRICS 편입) | v1.33.0으로 실행 완료 — archive 대기 | 2026-11-24 |
 | `2026-11-24-flint-onboarding.md` | draft | 영역 G 온보딩 — 설치→첫 주입 E2E smoke | 기획 완결 — v1.37.0 착수 대기 | 2026-11-24 |
 | `2026-11-24-flint-injection-defense.md` | draft | 영역 H 주입 방어 — 포이즈닝 회귀 테스트·쓰기 경계 명문화 | 기획 완결 — v1.37.0 착수 대기 | 2026-11-24 |
 | `2026-11-24-flint-eval-framework.md` | draft | 영역 I 평가 체계 — 합성 질의 회귀·abstention·데코이 공용 지반 | 기획 완결 — v1.37.0 착수 대기 | 2026-11-24 |
