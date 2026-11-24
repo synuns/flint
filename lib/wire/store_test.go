@@ -139,11 +139,19 @@ func (c *countingQueryStore) Query(ctx context.Context, sql string, args ...any)
 	return nil, ctx.Err()
 }
 
+type wrappingQueryStore struct {
+	wire.Store
+	calls int
+}
+
+func (w *wrappingQueryStore) Query(ctx context.Context, sql string, args ...any) ([][]any, error) {
+	w.calls++
+	return nil, fmt.Errorf("engine: query failed: %w", context.DeadlineExceeded)
+}
+
 func TestQueryOnceWrappedDeadlineNotRetriedV1321(t *testing.T) {
-	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
-	defer cancel()
-	st := &countingQueryStore{}
-	_, err := wire.QueryOnce(ctx, st, `SELECT 1`, nil)
+	st := &wrappingQueryStore{}
+	_, err := wire.QueryOnce(context.Background(), st, `SELECT 1`, nil)
 	if st.calls != 1 {
 		t.Fatalf("calls = %d, want 1(래핑된 만료도 영구)", st.calls)
 	}

@@ -249,14 +249,48 @@ func TestRunSessionHooksNoTimeoutV1320(t *testing.T) {
 
 func TestUserWaitCommandsHaveNoDeadlineV1321(t *testing.T) {
 	t.Setenv("FLINT_COMMAND_TIMEOUT", "1")
-	for _, cmd := range []string{"read", "tuning", "pending", "maintain", "export", "report", "setup"} {
-		if sessionHookCommand(cmd) || !userWaitCommand(cmd) {
+	for _, cmd := range []string{"tuning", "maintain", "export", "report", "setup"} {
+		if sessionHookCommand(cmd) || !userWaitCommand(cmd, nil) {
 			t.Fatalf("%s: userWaitCommand 정합 오류", cmd)
 		}
 	}
-	ctx := context.Background()
+	for _, cmd := range []string{"read", "pending"} {
+		if !userWaitCommand(cmd, nil) {
+			t.Fatalf("%s: 대화형(무--json)은 면제여야", cmd)
+		}
+		if userWaitCommand(cmd, []string{"--json", "q"}) {
+			t.Fatalf("%s --json: 기계 경로는 면제 불가", cmd)
+		}
+	}
 	if _, limited := commandTimeoutFromEnv(); !limited {
 		t.Fatal("env 파싱 실패")
 	}
-	_ = ctx
+}
+
+func TestRunWithUserWaitNoDeadlineProbeV1322(t *testing.T) {
+	t.Setenv("FLINT_COMMAND_TIMEOUT", "1")
+	probeHandler(t, "read", func(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
+		if _, hasDeadline := ctx.Deadline(); hasDeadline {
+			t.Error("대화형 read는 데드라인 없어야 함")
+		}
+		fmt.Fprintln(stdout, `{"status":"ok"}`)
+		return 0
+	})
+	var b strings.Builder
+	if code := Run([]string{"read"}, strings.NewReader(""), &b, fakeStoreFactory); code != 0 {
+		t.Fatalf("exit=%d; out=%s", code, b.String())
+	}
+}
+
+func TestRunWithJsonKeepsDeadlineProbeV1322(t *testing.T) {
+	t.Setenv("FLINT_COMMAND_TIMEOUT", "1")
+	probeHandler(t, "read", func(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
+		if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+			t.Error("read --json(기계 경로)은 1s 데드라인이 걸려야 함")
+		}
+		fmt.Fprintln(stdout, `{"status":"ok"}`)
+		return 0
+	})
+	var b strings.Builder
+	Run([]string{"read", "--json"}, strings.NewReader(""), &b, fakeStoreFactory)
 }

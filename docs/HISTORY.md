@@ -6,6 +6,27 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.32.2 patch (2026-11-24) — machine-route-cap
+
+R129 findings (4): the medium fixed, all three lows fixed.
+
+- **[medium] `--json` routes keep the command cap**: the v1.32.1
+  command-name exemption for read · pending also removed the cap from
+  machine routes — MCP `flint_read` / `flint_pending` and skill-script
+  `flint read --json`. Dual-mode commands now exempt only interactive
+  invocations: `userWaitCommand(cmd, args)` returns false when `--json`
+  is present, so the 300s guard against a hung engine holds on machine
+  paths (probe tests exercise `Run` for both routes).
+- **[low] probe tests wired through `Run`**: the v1.32.1 predicate-only
+  test is joined by two `Run`-level probes (interactive read → no
+  deadline, `read --json` → deadline present).
+- **[low] the wrapped-deadline test now wraps**: `wrappingQueryStore`
+  returns a `fmt.Errorf("…: %w", DeadlineExceeded)` — matching the
+  HISTORY claim.
+- **[low] RUNBOOK self-contradiction fixed**: the tuning hint no longer
+  names `export` (an exempt command); QUICKSTART documents the
+  interactive/`--json` split.
+
 ### v1.32.1 patch (2026-11-24) — deadline-scope-fix
 
 R128 findings (4): both mediums fixed, both lows fixed.
