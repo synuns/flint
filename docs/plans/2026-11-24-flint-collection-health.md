@@ -34,6 +34,27 @@ launchd label이 죽은 경로 지칭). 전부 훅의 조용한 실패로 겉면
 5. **서비스 잔재 감지** — launchd label이 임시 디렉터 경로를
    지칭하는 등의 잔재 탐지(엔진 점유 잔재 클래스 확장).
 
+## 3.1 원천 데이터 총목록 — 문서 편입 (2026-11-24 세션 발견)
+
+METRICS.md는 GSM 목표별 편성이라 "수집 데이터 자체"를 일괄 확인하는
+총목록이 없다 — 편입(사용자 결정). 두 작업:
+
+1. **METRICS.md에 원천 데이터 총목록 섹션 신설** — 이벤트 테이블·
+   daily counter 키 전수(진실 원천 = 코드 등록표
+   `lib/db/usage.go` MeteringKindRegistry)·수집 조건(기록 경로·
+   게이트)·보존 기간을 한 표로. 훅 구성 검증(§3)과 짝이 되는 문서
+   층 — "스테일·단절은 조용히 발생한다"는 사고 클래스(§2)의 문서
+   영역 확장.
+2. **스테일 5키 정정** — METRICS §4.9 A5의 등록표 수 기술("24 keys —
+   usage 10·curation 11·bytes 3")이 코드(총 29·curation 16) 대비
+   뒤처짐 — correction_preference·correction_fact·merge_audit_pairs·
+   recall_audit_listed·recall_audit_disposed 5키 미반영(2026-11-24
+   세션 확인).
+
+참고: doctor metering_silent(A5)는 코드 등록표 vs 관측 차집합으로
+죽은 배선만 잡는다 — 문서 층은 검사 대상 아님. 문서-등록표 동기
+검사(doclint 게이트 계열) 도입은 §5 미결정.
+
 ## 4. 원칙
 
 - 기존 doctor 등록표·임계값 기반 경고(비간섭 ④)·실패 시 조용한 skip.
@@ -45,6 +66,8 @@ launchd label이 죽은 경로 지칭). 전부 훅의 조용한 실패로 겉면
 - 신선도 임계값·버전 격차 임계(thresholds 키 등록)
 - launchd 감지의 플랫폼 범위(launchd·systemd — v1.31 서비스 등록표 승계)
 - doctor 체크의 자가 수리 제안 수준(감지만 vs 복구 명령 안내)
+- 원천 데이터 총목록(§3.1)의 문서-등록표 동기 검사 도입 여부
+  (doclint 게이트 계열 — 스테일 재발 방지)
 
 ## 6. 편성
 

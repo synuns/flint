@@ -37,7 +37,7 @@ release-scope(13 릴리스 완료 — 편성 관례 승계)
 | C 작업 시스템 | `2026-11-24-flint-agent-work-system.md` | 에이전트 실수 → 결정론 린트 일반화 | v1.35.0 |
 | D AX 점검 | `2026-11-24-flint-ax-audit.md` | 전수 감사 + 멀티 하니스 매트릭스 — B 교정 입구 입력 | v1.35.0 |
 | E 마케팅·문서 | `2026-11-24-flint-marketing-docs.md` | 영어 디폴트·README 핵심 가치·확산 | 이후(B·A·G 전제) |
-| F 관측 건강 | `2026-11-24-flint-collection-health.md` | 수집 단절 자기감시(doctor 확장) | v1.33.0 |
+| F 관측 건강 | `2026-11-24-flint-collection-health.md` | 수집 단절 자기감시(doctor 확장)·원천 데이터 총목록(METRICS 편입) | v1.33.0 |
 | G 온보딩 | `2026-11-24-flint-onboarding.md` | 설치→첫 주입 E2E smoke | v1.37.0 |
 | H 주입 방어 | `2026-11-24-flint-injection-defense.md` | 포이즈닝 회귀 테스트·쓰기 경계 명문화 | v1.37.0 |
 | I 평가 체계 | `2026-11-24-flint-eval-framework.md` | 합성 질의 회귀·abstention·데코이 공용 인프라 | v1.37.0 |
