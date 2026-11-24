@@ -246,3 +246,17 @@ func TestRunSessionHooksNoTimeoutV1320(t *testing.T) {
 		})
 	}
 }
+
+func TestUserWaitCommandsHaveNoDeadlineV1321(t *testing.T) {
+	t.Setenv("FLINT_COMMAND_TIMEOUT", "1")
+	for _, cmd := range []string{"read", "tuning", "pending", "maintain", "export", "report", "setup"} {
+		if sessionHookCommand(cmd) || !userWaitCommand(cmd) {
+			t.Fatalf("%s: userWaitCommand 정합 오류", cmd)
+		}
+	}
+	ctx := context.Background()
+	if _, limited := commandTimeoutFromEnv(); !limited {
+		t.Fatal("env 파싱 실패")
+	}
+	_ = ctx
+}

@@ -853,3 +853,11 @@ DB 잔재)과 레거시 DB가 운영 엔진에 남아 있다. **사람 운영자
   경로의 read는 항상 기계 판독 JSONL 행(content 텍스트는 원문 유지),
   1행도 {results:[행]} 래핑, {error:...}행은 그대로 노출. 클라이언트는
   structuredContent.results 또는 content 텍스트 중 편한 쪽을 소비한다.
+
+## Environment variables (runtime)
+
+- `FLINT_COMMAND_TIMEOUT` — seconds before a one-shot flint command aborts
+  with `context deadline exceeded` (default 300, `0` = unlimited). Hooks and
+  interactive TUI paths (read · tuning · pending · maintain · export ·
+  report · setup) are exempt — user-waiting paths must not expire. Tune on
+  slow engine starts or large exports.

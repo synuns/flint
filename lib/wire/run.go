@@ -38,6 +38,14 @@ func sessionHookCommand(cmd string) bool {
 	return false
 }
 
+func userWaitCommand(cmd string) bool {
+	switch cmd {
+	case "read", "tuning", "pending", "maintain", "export", "report", "setup":
+		return true
+	}
+	return false
+}
+
 func DSNFromEnv() string {
 	return ResolveDSN()
 }
@@ -63,7 +71,7 @@ func Run(args []string, stdin io.Reader, stdout io.Writer, newStore func(ctx con
 		return 3
 	}
 	ctx := context.Background()
-	if !sessionHookCommand(cmd) {
+	if !sessionHookCommand(cmd) && !userWaitCommand(cmd) {
 		if d, limited := commandTimeoutFromEnv(); limited {
 			var cancel context.CancelFunc
 			ctx, cancel = context.WithTimeout(ctx, d)
