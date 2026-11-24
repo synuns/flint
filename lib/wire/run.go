@@ -38,9 +38,16 @@ func sessionHookCommand(cmd string) bool {
 	return false
 }
 
-func userWaitCommand(cmd string) bool {
+func userWaitCommand(cmd string, args []string) bool {
 	switch cmd {
-	case "read", "tuning", "pending", "maintain", "export", "report", "setup":
+	case "tuning", "maintain", "export", "report", "setup":
+		return true
+	case "read", "pending":
+		for _, a := range args {
+			if a == "--json" {
+				return false
+			}
+		}
 		return true
 	}
 	return false
@@ -71,7 +78,7 @@ func Run(args []string, stdin io.Reader, stdout io.Writer, newStore func(ctx con
 		return 3
 	}
 	ctx := context.Background()
-	if !sessionHookCommand(cmd) && !userWaitCommand(cmd) {
+	if !sessionHookCommand(cmd) && !userWaitCommand(cmd, args) {
 		if d, limited := commandTimeoutFromEnv(); limited {
 			var cancel context.CancelFunc
 			ctx, cancel = context.WithTimeout(ctx, d)
