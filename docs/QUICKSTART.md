@@ -132,6 +132,8 @@ pre-v1.30.0 installs.
   export · report · setup) are never capped when interactive — they wait on
   the user. The dual-mode commands (read · pending) invoked with `--json`
   (MCP `flint_read` · skill scripts) keep the cap; the other exempt
-  commands have no `--json` route. Applies to one-shot commands (`doctor`,
+  commands keep the exemption on every route (setup by design — its
+  `--json` mode is one-shot; tuning · maintain · export · report have
+  no `--json` flag). Applies to one-shot commands (`doctor`,
   `write`, `hot`, ...) so a hung engine cannot block a session
   indefinitely.

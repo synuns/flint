@@ -28,3 +28,5 @@ release.key
 release.pub
 
 __pycache__/
+bin/
+.superpowers/
