@@ -30,6 +30,16 @@
 
 | `2026-11-24-flint-v1320.md` | active | v1.32.0 구조 청산 — context 데드라인·thresholds 단일 소스·god file 분리·스키마 게이트 | G2 APPROVED — 빌드 대기 | 2026-11-24 |
 | `2026-11-24-flint-v1320.spec.md` | active | v1.32.0 스펙 — 4각도 리뷰 발견 청산(M1~M3) | G2 APPROVED(2차) | 2026-11-24 |
+| `2026-11-24-flint-next-phase-roadmap.md` | draft | 다음 단계 로드맵 마스터 인덱스 — 9 영역 기획 분할·편성(v1.33~v1.37 시프트)·의존·전역 미결정 | 독립 리뷰 통과(2026-11-24) — 착수 대기 | 2026-11-24 |
+| `2026-11-24-flint-dashboard.md` | draft | 영역 A 계기판 — report --serve+embed 5뷰·에이전틱/휴먼인루프 분리·--out 단계적 폐기 | 독립 리뷰 통과 — v1.33.0 편성·착수 대기 | 2026-11-24 |
+| `2026-11-24-flint-knowledge-system.md` | draft | 영역 B 지식 체계 — 추출 5종·전달 5종·census·검색 재판정 | 독립 리뷰 통과 — v1.34.0~v1.35.0 편성·착수 대기 | 2026-11-24 |
+| `2026-11-24-flint-agent-work-system.md` | draft | 영역 C 작업 시스템 — 에이전트 실수 결정론 린트 일반화(pstack 채택) | 독립 리뷰 통과 — v1.36.0 편성·착수 대기 | 2026-11-24 |
+| `2026-11-24-flint-ax-audit.md` | draft | 영역 D AX 점검 — 전수 감사·멀티 하니스 매트릭스 | 독립 리뷰 통과 — v1.36.0 편성·착수 대기 | 2026-11-24 |
+| `2026-11-24-flint-marketing-docs.md` | draft | 영역 E 마케팅·문서 — 영어 디폴트·README 핵심 가치·확산(B·A·G 전제) | 선행 영역 완료 후 착수 | 2026-11-24 |
+| `2026-11-24-flint-collection-health.md` | draft | 영역 F 관측 건강 — 수집 단절 자기감시(doctor 확장 5종) | 독립 리뷰 통과 — v1.33.0 편성·착수 대기 | 2026-11-24 |
+| `2026-11-24-flint-onboarding.md` | draft | 영역 G 온보딩 — 설치→첫 주입 E2E smoke | 독립 리뷰 통과 — v1.37.0 편성·착수 대기 | 2026-11-24 |
+| `2026-11-24-flint-injection-defense.md` | draft | 영역 H 주입 방어 — 포이즈닝 회귀 테스트·쓰기 경계 명문화 | 독립 리뷰 통과 — v1.37.0 편성·착수 대기 | 2026-11-24 |
+| `2026-11-24-flint-eval-framework.md` | draft | 영역 I 평가 체계 — 합성 질의 회귀·abstention·데코이 공용 지반 | 독립 리뷰 통과 — v1.37.0 편성·착수 대기 | 2026-11-24 |
 > v1.12.0~v1.25.1(2026-11-23 릴리스)의 플랜·스펙은
 > `archive/2026-11/`로 이동 완료 — 이력은 HISTORY.md 해당 버전 행 참조.
 
