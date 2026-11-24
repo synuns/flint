@@ -45,6 +45,36 @@ func sessionLabelMaxAge(ctx context.Context, st wire.Store) time.Duration {
 	return db.DaysSpan(d, time.Now())
 }
 
+var runSessionHotFn = knowledge.RunHot
+
+var injectActiveRecallFn = InjectActiveRecall
+
+const recallActiveMarkerPrefix = "recall_active:"
+
+type byteCountWriter struct {
+	w io.Writer
+	n int
+}
+
+func (b *byteCountWriter) Write(p []byte) (int, error) {
+	n, err := b.w.Write(p)
+	b.n += n
+	return n, err
+}
+
+func injectActiveRecallOnce(ctx context.Context, st wire.Store, label string, stdout io.Writer, hotUsed int) {
+	if st == nil || label == "" {
+		return
+	}
+	key := recallActiveMarkerPrefix + label
+	if _, ok, err := wire.GetMetaKVErr(ctx, st, key); err != nil || ok {
+		return
+	}
+	defer func() { _ = recover() }()
+	_ = injectActiveRecallFn(ctx, st, label, stdout, hotUsed)
+	_ = wire.SetMetaKV(ctx, st, key, time.Now().UTC().Format(time.RFC3339))
+}
+
 func RunSessionStart(ctx context.Context, st wire.Store, args []string, stdin io.Reader, stdout io.Writer) int {
 	args, label := sanitizeHookSession(args)
 	if rec, ok := st.(SessionStartRecorder); ok {
@@ -62,7 +92,9 @@ func RunSessionStart(ctx context.Context, st wire.Store, args []string, stdin io
 	if label != "" {
 		wire.PruneSessionLabels(sessionLabelMaxAge(ctx, st))
 	}
-	code := knowledge.RunHot(ctx, st, args, stdin, stdout)
+	hotOut := &byteCountWriter{w: stdout}
+	code := runSessionHotFn(ctx, st, args, stdin, hotOut)
+	injectActiveRecallOnce(ctx, st, label, stdout, hotOut.n)
 	if ncode := RunNudge(ctx, st, nil, stdin, stdout); ncode != 0 {
 		return ncode
 	}

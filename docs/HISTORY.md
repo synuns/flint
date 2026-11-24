@@ -6,6 +6,34 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.34.0 minor (2026-11-25) — active-recall-provenance
+
+Second minor of the second release scope (release-scope2): area B delivery
+quartet. No schema change (v19).
+
+- **[feature] active recall at session start**: session-start injects
+  re-inspection candidates once per session (meta-key guarded), selected
+  by `RecallBurstItems` — conditions tags + stale TTL + vault source
+  change + bad-recall, read-only. Injection runs only within the
+  remaining hot budget (session hot bytes subtracted at runtime); quiet
+  contracts hold (no burst → no output, failure → exit 0). No new hooks
+  (UserPromptSubmit rejected).
+- **[feature] provenance single convention**: `WhyEvidence` gained
+  `source`·`confidence` (omitempty), `FormatProvenanceSuffix` is the one
+  suffix builder shared by read --why and hot/recall lines; hot_view
+  select extended additively (knowledge arm origin/confidence, project
+  arm NULL).
+- **[feature] abstention metric**: `zero_hit_unowned_pct` (A1 read_events
+  consumption) + `hot_bytes_success_corr` correlation definition (weekly
+  rollup consumption, Tier 2); exposed in report text/JSON and the serve
+  dashboard.
+- **[docs] minimal-injection principle**: context-rot wording promoted to
+  an empirical principle in PLAN §4 and both READMEs (docsync-gated).
+
+spec: docs/plans/2026-11-24-flint-v1.34.0.spec.md (G2 APPROVED) · plan:
+docs/plans/2026-11-24-flint-v1.34.0.md · scope:
+docs/plans/2026-11-24-flint-release-scope2.md §2
+
 ### v1.33.1 patch (2026-11-24) — g5-hardening
 
 5 minor findings from the G5 independent audit, all CONFIRMED and fixed

@@ -26,7 +26,7 @@
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 하네스">
   <a href="https://github.com/synuns/flint/actions/workflows/ci.yml"><img src="https://github.com/synuns/flint/actions/workflows/ci.yml/badge.svg" alt="CI 상태"></a>
-  <img src="https://img.shields.io/badge/release-v1.33.1-blue" alt="v1.33.1">
+  <img src="https://img.shields.io/badge/release-v1.34.0-blue" alt="v1.34.0">
 </p>
 <p align="center">
   <sub>8종은 자동 등록(A급) 하니스 기준 — 전체 지원 목록은 아래 <a href="#에이전트--어댑터">어댑터 표</a>에 있습니다.</sub>
@@ -48,6 +48,7 @@ flint는 이걸 바꿉니다. 에이전트가 무언가 배우면 — 결정, �
 
 사람은 Obsidian에 노트를 남깁니다. 에이전트는 flint에 기억을 남깁니다 — 불과 도구를 얻기 위해 두드리는 부싯돌처럼.
 
+> v1.34.0 · 세션 시작 능동 회상 — 세션당 1회·hot 잔여 예산 내 재점검 대상 주입(새 훅 0)·provenance 접미(`source=·confidence=`) 단일 관례·`zero_hit_unowned_pct` abstention 지표·주입 최소 실증 원칙 문서화 · [전체 변경 이력](docs/HISTORY.md)
 > v1.33.1 · r133 패치 — G5 감사 경화: doctor detail 경로 마스킹(훅 경로·서비스 잔재)·DNS 조회 기한·플러그인 버전 파싱 실패 warn 전환·serve 종료코드 테스트 · [전체 변경 이력](docs/HISTORY.md)
 > v1.33.0 · `flint report --serve` — 동일 진단 원천 위의 localhost 전용 대시보드(ETag·요청 단위 엔진 연결·CSS 토큰 슬롯)·영역 F doctor 검사 ×5(훅 경로·DSN 분류·수집 신선도·버전 격차·서비스 잔재)·METRICS 원천 데이터 총목록+등록표 동기 게이트·`--html/--out` deprecated 경유 전환 · [전체 변경 이력](docs/HISTORY.md)
 > v1.32.4 · r131 패치 — setup 면제 정확 서술(설계상 모든 경로 면제·--json 모드 포함)·통칭 문구 정정(QUICKSTART·README 양어) · [전체 변경 이력](docs/HISTORY.md)
@@ -255,6 +256,7 @@ flint는 여러분의 코딩 세션 안에서 동작하므로, 제약 조건은 
 
 - **로컬·오프라인.** flint·하네스·Doltgres 전부 내 기기에서 실행됩니다 — 클라우드 서비스도, 계정도, 텔레메트리도 없습니다. 유지보수 경로(`doctor`·`report`·`maintain`)는 오프라인 CLI입니다.
 - **비간섭 5원칙.** (1) 주입은 최소, 검색은 풀 — flint가 먼저 말 걸지 않는다. (2) 훅은 비차단·타임아웃 — 세션 종료를 절대 막지 않는다. (3) flint 장애는 조용한 skip(exit 2) — 세션 시작·작업·종료를 지연시키지 않는다. (4) 경고는 임계값 기반 — 초과할 때만 말한다. (5) flint 데이터는 데이터 — `[flint]` 블록은 경계 밖에서 지시문이 될 수 없다.
+- **주입 최소 — 실증 원칙.** 주입 효과는 주장하지 않고 측정으로 확인합니다 — 주입량(hot bytes)과 성공률(read 성공·fallback)의 상관은 주간 rollup 소비로만 계측하고, 새 실시간 쿼리는 두지 않습니다. 잔여 예산이 없으면 아무것도 주입하지 않습니다.
 - **데이터 소유는 사용자.** 모든 데이터는 여러분의 Doltgres와 `~/.flint`에 있습니다 — 언제든 export(`flint export`, Ed25519 서명 가능한 PAM), `age` 암호화 백업, 기록·백업 시 비밀 스캔, 원격 라이브 쓰기는 설계상 금지([ADR-0015](docs/adr/0015-bridge-surface.md)).
 
 ---

@@ -43,18 +43,21 @@ SELECT root_id, id, depth FROM walk;
 -- views_hash 불일치로 이중 게이트가 재적용한다.
 CREATE OR REPLACE VIEW hot_view AS
 SELECT 'project' AS kind, p.name AS topic, p.status AS summary, p.updated AS ts,
-       NULL::int AS id, NULL::timestamptz AS valid_at, NULL::timestamptz AS ingested_at
+       NULL::int AS id, NULL::timestamptz AS valid_at, NULL::timestamptz AS ingested_at,
+       NULL::text AS source, NULL::float8 AS confidence
 FROM projects p
 WHERE p.status = 'active'
 UNION ALL
-SELECT 'pending' AS kind, k.topic, k.summary, k.ingested_at, k.id, k.valid_at, k.ingested_at
+SELECT 'pending' AS kind, k.topic, k.summary, k.ingested_at, k.id, k.valid_at, k.ingested_at,
+       k.origin AS source, k.confidence AS confidence
 FROM knowledge k
 WHERE k.invalid_at IS NULL AND k.status = 'pending'
 UNION ALL
 -- v0.24.2(개인화 평가 실측): 결정 판정을 tag='adr' 기준으로 —
 -- 실사용 관측에서 decision domain 관례는 채택되지 않았다(결정은
 -- domain=main+tag=adr 관례로 기록된다). 기획 리뷰 대안 (b) 채택.
-SELECT 'decision' AS kind, k.topic, k.summary, k.valid_at, k.id, k.valid_at, k.ingested_at
+SELECT 'decision' AS kind, k.topic, k.summary, k.valid_at, k.id, k.valid_at, k.ingested_at,
+       k.origin AS source, k.confidence AS confidence
 FROM knowledge k
 WHERE k.invalid_at IS NULL
   AND k.ingested_at >= now() - interval '7 days'

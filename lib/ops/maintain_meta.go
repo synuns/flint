@@ -155,7 +155,7 @@ func buildMetaKnownKeys() map[string]bool {
 	return m
 }
 
-var metaKnownPrefixes = []string{"daily:", "pb_", "fired_", "auto_streak_", "auto_rounds_", "self_version_last:"}
+var metaKnownPrefixes = []string{"daily:", "pb_", "fired_", "auto_streak_", "auto_rounds_", "self_version_last:", "recall_active:"}
 
 func KnownMetaKey(k string) bool {
 	if metaKnownKeys[k] {

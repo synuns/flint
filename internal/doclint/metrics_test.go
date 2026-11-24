@@ -49,6 +49,32 @@ func TestMetricsV1200Definitions(t *testing.T) {
 	}
 }
 
+func TestMetricsDefinitionGate(t *testing.T) {
+	doc := read(t, "METRICS.md")
+
+	if !strings.Contains(doc, "**zero_hit_unowned_pct**") {
+		t.Error("METRICS.md에 zero_hit_unowned_pct 정의 행 없음 — abstention 지표")
+	}
+	if !strings.Contains(doc, "zero-hit") && !strings.Contains(doc, "zero_hit") {
+		t.Error("METRICS.md zero_hit_unowned_pct 정의에 분모(zero-hit rows) 서술 없음")
+	}
+	if !strings.Contains(doc, "**hot_bytes_success_corr**") {
+		t.Error("METRICS.md에 hot_bytes_success_corr 상관 계측 정의 행 없음 — 주간 rollup 소비")
+	}
+	corrSection := doc[strings.Index(doc, "**hot_bytes_success_corr**"):]
+	if len(corrSection) == 0 || !strings.Contains(corrSection[:600], "weekly") {
+		t.Error("hot_bytes_success_corr 정의에 주간 rollup 소비 서술 없음")
+	}
+	if !strings.Contains(corrSection[:600], "Tier 2") {
+		t.Error("hot_bytes_success_corr 정의에 Tier 2 correlation 등급 표기 없음")
+	}
+
+	rep := read(t, "../lib/ops/report.go")
+	if !strings.Contains(rep, `zero_hit_unowned_pct`) {
+		t.Error("lib/ops/report.go에 zero_hit_unowned_pct JSON 태그 없음 — METRICS와 불일치")
+	}
+}
+
 func TestRunbookV1200Migration(t *testing.T) {
 	doc := read(t, "RUNBOOK.md")
 

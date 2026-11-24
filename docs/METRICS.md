@@ -84,6 +84,14 @@ report effect section (the `effect` object) is the single source.
 - **zero_owned_miss_pct** = share of `owned_miss` (held but search missed)
   over the same denominator — the ownership split of the same
   retrieval-improvement signal as zero_near_pct.
+- **zero_hit_unowned_pct** (v1.34.0) = `100 × Σzero_reason='unowned' /
+  Σzero-hit rows` — the abstention self-scoring view: the denominator is
+  zero-hit rows only, unlike `zero_unowned_pct` (Σread). It answers "when
+  the system could not answer, how often was it because the vault did not
+  hold the knowledge at all" — an abstention rate, not a retrieval-quality
+  rate. Same A1 read_events source (`zero` flag + `zero_reason`), no schema
+  change. Consumed as the report text row and the serve HTML recall-quality
+  row. Evidence tier: Tier 1 derived proxy (§3).
 
 ### G2 rediscovery block
 
@@ -195,6 +203,22 @@ report effect section (the `effect` object) is the single source.
   knowledge_reads × knowledge join (schema v10) — a delayed metric that
   becomes judgeable only as per-item recall history accumulates. Evidence
   tier: **Tier 2 correlation** (§3) — never narrated as causation (§5).
+
+### G7 injection–success correlation (v1.34.0)
+
+- **hot_bytes_success_corr** (v1.34.0 · Tier 2 correlation, §3 — never
+  narrated as causation, §5): weekly-rollup consumption only. Correlates
+  the weekly injection volume (weekly sum of the daily `bytes:hot`
+  counter) with the same week's read success (1 − zero share, from the
+  `zero_pct` weekly rollup num/den pair) and fallback dependence (the
+  `fallback_pct` weekly rollup pair). Existing counters only — no new
+  instrumentation, no new real-time query (§4.9 A2 consumption rule). The
+  judgment it feeds is direction-of-association across weeks, never a
+  per-read causal claim; small week counts keep it a signal, not a verdict.
+- **zero_hit_unowned_pct** is the companion abstention view (G1): it
+  scopes the same zero population to the "vault did not hold it" subset,
+  separating abstention from retrieval failure before any injection
+  correlation is read.
 
 ### Instrumentation sources (schema v6 · v7 · v10)
 

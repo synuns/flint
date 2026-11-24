@@ -115,12 +115,13 @@ type EffectOutput struct {
 
 	Bytes EffectBytes `json:"bytes"`
 
-	ZeroUnownedPct   int        `json:"zero_unowned_pct"`
-	ZeroOwnedMissPct int        `json:"zero_owned_miss_pct"`
-	SurvivedPct      int        `json:"survived_pct"`
-	BadRecallPct     int        `json:"bad_recall_pct"`
-	HotReadChainPct  int        `json:"hot_read_chain_pct"`
-	Cost             EffectCost `json:"cost"`
+	ZeroUnownedPct    int        `json:"zero_unowned_pct"`
+	ZeroOwnedMissPct  int        `json:"zero_owned_miss_pct"`
+	ZeroHitUnownedPct float64    `json:"zero_hit_unowned_pct"`
+	SurvivedPct       int        `json:"survived_pct"`
+	BadRecallPct      int        `json:"bad_recall_pct"`
+	HotReadChainPct   int        `json:"hot_read_chain_pct"`
+	Cost              EffectCost `json:"cost"`
 }
 
 const (
@@ -387,6 +388,8 @@ func printReportText(w io.Writer, out ReportOutput, days int) {
 		write, read, dup, out.DupPct, out.ZeroPct, out.FallbackPct)
 	fmt.Fprintf(w, "knowledge: active %d · pending %d · invalidated %d · never-read %d · hot p95 %d\n",
 		out.Counts.Active, out.Counts.Pending, out.Counts.Invalidated, out.Stale.Days90, out.HotP95)
+	fmt.Fprintf(w, "abstention: zero_hit_unowned_pct %.1f%% (share of zero-hit reads)\n",
+		out.Effect.ZeroHitUnownedPct)
 
 	if UpdateCacheInfoFn != nil {
 		if _, checkedAt := UpdateCacheInfoFn(); checkedAt != "" {
@@ -1227,6 +1230,7 @@ func collectZeroDecompose(out *ReportOutput, inWin []ReadEventRow) {
 	}
 	out.Effect.ZeroUnownedPct = PctOf(unowned, len(inWin))
 	out.Effect.ZeroOwnedMissPct = PctOf(ownedMiss, len(inWin))
+	out.Effect.ZeroHitUnownedPct = zeroHitUnownedPctOf(inWin)
 }
 
 func collectCost(ctx context.Context, st wire.Store, out *ReportOutput, inWin []ReadEventRow) {
