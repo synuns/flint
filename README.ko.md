@@ -26,7 +26,7 @@
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 하네스">
   <a href="https://github.com/synuns/flint/actions/workflows/ci.yml"><img src="https://github.com/synuns/flint/actions/workflows/ci.yml/badge.svg" alt="CI 상태"></a>
-  <img src="https://img.shields.io/badge/release-v1.34.1-blue" alt="v1.34.1">
+  <img src="https://img.shields.io/badge/release-v1.35.0-blue" alt="v1.35.0">
 </p>
 <p align="center">
   <sub>8종은 자동 등록(A급) 하니스 기준 — 전체 지원 목록은 아래 <a href="#에이전트--어댑터">어댑터 표</a>에 있습니다.</sub>
@@ -48,6 +48,7 @@ flint는 이걸 바꿉니다. 에이전트가 무언가 배우면 — 결정, �
 
 사람은 Obsidian에 노트를 남깁니다. 에이전트는 flint에 기억을 남깁니다 — 불과 도구를 얻기 위해 두드리는 부싯돌처럼.
 
+> v1.35.0 · 작업 시스템+AX 감사 — 에이전트 실수 결정론 검사 5종(테스트 삭제·스킵·LLM SDK 린트·ci에 vet·lint·표면 계약·구조화 실패)·규칙↔집행 쌍 표·slow 원인 규명(native 엔진 커밋 시퀀싱·재시도 래퍼)·5축×44표면 AX 매트릭스 · [전체 변경 이력](docs/HISTORY.md)
 > v1.34.1 · r134 패치 — G5 감사 경화: 세션 1회 가드 원자화(같은 라벨 병렬 시작 이중 주입 차단)·예산 단위 봉합 rune 통일(한국어 hot에서 능동 회상 기아 해소)·zero_hit_unowned_pct 행 지식 위생 영역 이동 · [전체 변경 이력](docs/HISTORY.md)
 > v1.34.0 · 세션 시작 능동 회상 — 세션당 1회·hot 잔여 예산 내 재점검 대상 주입(새 훅 0)·provenance 접미(`source=·confidence=`) 단일 관례·`zero_hit_unowned_pct` abstention 지표·주입 최소 실증 원칙 문서화 · [전체 변경 이력](docs/HISTORY.md)
 > v1.33.1 · r133 패치 — G5 감사 경화: doctor detail 경로 마스킹(훅 경로·서비스 잔재)·DNS 조회 기한·플러그인 버전 파싱 실패 warn 전환·serve 종료코드 테스트 · [전체 변경 이력](docs/HISTORY.md)

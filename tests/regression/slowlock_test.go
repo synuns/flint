@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -82,5 +84,42 @@ func TestSlowLockIssuesAdvisorySQL(t *testing.T) {
 	}
 	if !reflect.DeepEqual(conn.stmts, want) {
 		t.Fatalf("발행 SQL = %q, want %q", conn.stmts, want)
+	}
+}
+
+func TestIdempotencyContractKept(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join("..", "..", "lib", "db", "admin_v1201_test.go"))
+	if err != nil {
+		t.Fatalf("admin_v1201_test.go 소스 조회: %v", err)
+	}
+	src := string(b)
+	for _, want := range []string{
+		"errs := make([]error, 5)",
+		"for i := 0; i < 5; i++",
+		"go func(i int)",
+		"ON CONFLICT (from_id, to_id, relation) DO NOTHING",
+		"func retryParallelInsert",
+		"XX000",
+	} {
+		if !strings.Contains(src, want) {
+			t.Errorf("병렬 INSERT 멱등 계약 재현물 상실 — %q 없음 (T1 진단 R-2: 5-goroutine 계약 유지 필수)", want)
+		}
+	}
+	for _, fn := range []string{
+		"func TestSlowParallelLinkInsertSingleRowV1201",
+		"func TestSlowSuiteSerialGreen",
+	} {
+		start := strings.Index(src, fn)
+		if start < 0 {
+			t.Errorf("slow 계약 테스트 부재 — %s", fn)
+			continue
+		}
+		body := src[start:]
+		if end := strings.Index(body, "\nfunc "); end >= 0 {
+			body = body[:end]
+		}
+		if strings.Contains(body, "t.Skip") {
+			t.Errorf("%s 본문에 t.Skip — 전체 skip 금지(ruling ②)", fn)
+		}
 	}
 }

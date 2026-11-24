@@ -30,3 +30,4 @@ release.pub
 __pycache__/
 bin/
 .superpowers/
+.doltcfg/

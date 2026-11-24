@@ -6,6 +6,38 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.35.0 minor (2026-11-25) — agent-work-ax-audit
+
+Third minor of the second release scope (release-scope2): area C work
+system (deterministic checks ×5) + area D full AX audit + slow
+isolation root-caused. No schema change (v19).
+
+- **[fix] slow failures root-caused and contained**: CI's three blocks
+  were NOT connection exhaustion — the real cause is a native doltgres
+  commit-sequencing unique violation (XX000, uq_knowledge_links_triple)
+  under 5-goroutine concurrent idempotent INSERTs (2/172 repro; compose
+  pinned image green). Test-layer retry wrapper absorbs it (100-loop
+  distribution: red 0/100); the product contract stays reproduced. The
+  review also caught the new slow-loop test itself leaking rows into the
+  shared engine (per-round DELETE added, A/B proven).
+- **[feature] area C deterministic checks**: test deletion/skip detection
+  against a baseline registry (22 dirs), external-LLM SDK import lint
+  (15 markers, dot-import hardened, whitelist + expiry-required waiver
+  lines), `go vet` + staticcheck promoted into `make ci`, surface
+  contract probes (6 real-binary probes covering all 4 exit codes),
+  structured failure output (file:line · fix · ≤5-line summary).
+- **[feature] rule↔enforcement pair registry**: invariant rule IDs
+  (R-C-101~205) with an existence guard — a rule without a check is a
+  regression.
+- **[feature] area D AX audit report**: 5-axis × 44-surface matrix
+  (CLI·MCP·hooks·skills), harness compatibility matrix, remediation
+  entry recommendation (B-default with limited A), findings F1~F6
+  registered for patch batching.
+
+spec: docs/plans/archive/2026-11/2026-11-25-flint-v1.35.0.spec.md (G2
+APPROVED) · plan: docs/plans/2026-11-25-flint-v1.35.0.md · scope:
+docs/plans/2026-11-24-flint-release-scope2.md §2
+
 ### v1.34.1 patch (2026-11-25) — recall-guard-hardening
 
 3 minor findings from the G5 independent audit (v1.34.0), all fixed with
