@@ -26,7 +26,7 @@
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 harnesses">
   <a href="https://github.com/synuns/flint/actions/workflows/ci.yml"><img src="https://github.com/synuns/flint/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
-  <img src="https://img.shields.io/badge/release-v1.35.0-blue" alt="v1.35.0">
+  <img src="https://img.shields.io/badge/release-v1.35.1-blue" alt="v1.35.1">
 </p>
 <p align="center">
   <sub>8 counts the auto-registration (tier A) harnesses — the full support list is in the <a href="#agents--adapters">adapter table</a> below.</sub>
@@ -48,6 +48,7 @@ It adds up. Week one, it learns the stack. By week four, it remembers why you ch
 
 Humans take notes in Obsidian. Agents take notes in flint — the stone you strike to make fire and tools.
 
+> v1.35.1 · r135 patch — G5 audit hardening: `flint-waiver:` comment convention implemented in the LLM import gate (CI_REVIEW §6 aligned) · F3~F5 audit findings fixed (sync exit contract · engine state key · 4-hook docs) · import-block comment parsing · FLINT_SLOW_LOOPS cap · [full changelog](docs/HISTORY.md)
 > v1.35.0 · work system + AX audit — 5 deterministic agent-mistake checks (test deletion/skip, LLM SDK lint, vet+lint in ci, surface contracts, structured failures) · rule↔enforcement pair registry · slow failures root-caused (native engine commit sequencing, retry wrapper) · 5-axis×44-surface AX matrix · [full changelog](docs/HISTORY.md)
 > v1.34.1 · r134 patch — G5 audit hardening: atomic session once-guard (parallel same-label starts no longer double-inject) · budget unit seam unified to rune counts (Korean hot output no longer starves active recall) · zero_hit_unowned_pct row moved to the knowledge-hygiene area · [full changelog](docs/HISTORY.md)
 > v1.34.0 · active recall at session start — re-inspection bursts injected once per session within the remaining hot budget (no new hooks); provenance suffix (`source=·confidence=`) as a single convention across hot and recall lines; `zero_hit_unowned_pct` abstention metric; minimal-injection principle documented · [full changelog](docs/HISTORY.md)
@@ -190,7 +191,7 @@ Writes the embedded compose file (project name `flint`, Doltgres image pinned by
 <details>
 <summary>Configuring exposure</summary>
 
-`flint setup --exposure normal|minimal` controls how much context `hot` injects at session start. `minimal` keeps it to a single headline. Three hooks: SessionStart (`session-start`), PostCompact (`compact`), Stop (`session-end`).
+`flint setup --exposure normal|minimal` controls how much context `hot` injects at session start. `minimal` keeps it to a single headline. Four hooks: SessionStart (`session-start`), PostCompact (`compact`), Stop (`session-end`), UserPromptSubmit (`correction_filter.sh` — detects corrections in prompts and deposits them as pending knowledge, non-blocking).
 
 </details>
 

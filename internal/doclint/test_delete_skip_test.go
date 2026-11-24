@@ -83,6 +83,7 @@ type testTreeState struct {
 	skipSites            []site
 	runSites             []site
 	deletedSinceBaseline map[string][]string
+	gitEvidenceErr       string
 }
 
 var docSkipRe = regexp.MustCompile(`t\.Skip(f)?\(`)
@@ -97,13 +98,17 @@ func docRepoRoot(t *testing.T) string {
 	return root
 }
 
-func gitDeletedTestFiles(t *testing.T, root string) []string {
+func gitDeletedTestFiles(t *testing.T, root string) ([]string, string) {
 	t.Helper()
 	cmd := exec.Command("git", "diff", "--name-only", baselineCommit, "--diff-filter=D", "--", "*_test.go")
 	cmd.Dir = root
 	out, err := cmd.Output()
 	if err != nil {
-		return nil
+		detail := strings.TrimSpace(string(out))
+		if ee, ok := err.(*exec.ExitError); ok && len(ee.Stderr) > 0 {
+			detail = strings.TrimSpace(string(ee.Stderr))
+		}
+		return nil, fmt.Sprintf("git diff --name-only %s --diff-filter=D: %v — %s", baselineCommit, err, detail)
 	}
 	var names []string
 	for _, l := range strings.Split(string(out), "\n") {
@@ -111,7 +116,7 @@ func gitDeletedTestFiles(t *testing.T, root string) []string {
 			names = append(names, l)
 		}
 	}
-	return names
+	return names, ""
 }
 
 func collectTestTreeState(t *testing.T) *testTreeState {
@@ -155,7 +160,9 @@ func collectTestTreeState(t *testing.T) *testTreeState {
 			}
 		}
 	}
-	for _, n := range gitDeletedTestFiles(t, root) {
+	names, gitErr := gitDeletedTestFiles(t, root)
+	st.gitEvidenceErr = gitErr
+	for _, n := range names {
 		d := filepath.Dir(n)
 		st.deletedSinceBaseline[d] = append(st.deletedSinceBaseline[d], n)
 	}
@@ -189,17 +196,23 @@ func checkTestDeletion(baseline []testBaselineRow, state *testTreeState) []findi
 		sort.Strings(names)
 		file := row.dir + "/"
 		fix := fmt.Sprintf("git checkout %s -- %s/", baselineCommit, row.dir)
+		what := fmt.Sprintf("테스트 파일 삭제 감지 — %s 등록표 %d건 중 현재 %d건", row.dir, row.files, cur)
+		summary := fmt.Sprintf("등록표(testBaseline) 단일 소스 대비 소실 %d건 — 복구 또는 등록표 편집(사유 필수)", row.files-cur)
 		if len(names) > 0 {
 			file = names[0]
 			fix = fmt.Sprintf("git checkout %s -- %s", baselineCommit, strings.Join(names, " "))
+		} else if state.gitEvidenceErr != "" {
+			what += " — git 삭제 증거 저하(파일명 미식별)"
+			fix = fmt.Sprintf("원격 완전 동기화(git fetch --unshallow origin — baseline %s 확보) 후 git checkout %s -- %s/", baselineCommit, baselineCommit, row.dir)
+			summary = fmt.Sprintf("git 삭제 증거 수집 실패(%s) — 소실 %d건의 파일명 미표기, 완전 체크아웃 후 재판정 필요", state.gitEvidenceErr, row.files-cur)
 		}
 		out = append(out, finding{
 			rule:    ruleTestDeletion,
 			file:    file,
-			what:    fmt.Sprintf("테스트 파일 삭제 감지 — %s 등록표 %d건 중 현재 %d건", row.dir, row.files, cur),
+			what:    what,
 			fix:     fix,
 			repro:   fmt.Sprintf(reproDeletionFmt, file),
-			summary: fmt.Sprintf("등록표(testBaseline) 단일 소스 대비 소실 %d건 — 복구 또는 등록표 편집(사유 필수)", row.files-cur),
+			summary: summary,
 		})
 	}
 	return out
@@ -256,6 +269,36 @@ func failWithFindings(t *testing.T, fs []finding) {
 	t.Helper()
 	if len(fs) > 0 {
 		t.Fatalf("\n%s", renderFindings(fs))
+	}
+}
+
+func TestNoTestDeletionDegradedGitEvidence(t *testing.T) {
+	_, gitErr := gitDeletedTestFiles(t, t.TempDir())
+	if gitErr == "" {
+		t.Fatal("git 저장소 밖 디렉터리의 증거 수집 실패가 표면화되지 않음 — git 오류 삼킴 재발")
+	}
+	state := &testTreeState{
+		filesByDir:     map[string][]string{"pkg/x": {"pkg/x/a_test.go"}},
+		gitEvidenceErr: gitErr,
+	}
+	fs := checkTestDeletion([]testBaselineRow{{dir: "pkg/x", files: 2}}, state)
+	if len(fs) != 1 {
+		t.Fatalf("증거 저하 상태에서도 소실 finding은 유지되어야 함 — %v", fs)
+	}
+	out := fs[0].render()
+	if !strings.Contains(out, gitErr) {
+		t.Errorf("finding 출력에 git 오류 사유 미포함:\n%s", out)
+	}
+	if !strings.Contains(out, "unshallow") {
+		t.Errorf("finding 수정처에 완전 체크아웃 처방 미포함:\n%s", out)
+	}
+	assertFiveLineBlock(t, fs[0])
+
+	healthy := &testTreeState{
+		filesByDir: map[string][]string{"pkg/x": {"pkg/x/a_test.go", "pkg/x/b_test.go"}},
+	}
+	if fs := checkTestDeletion([]testBaselineRow{{dir: "pkg/x", files: 2}}, healthy); len(fs) != 0 {
+		t.Errorf("정합 상태에서 git 증거 저하 finding 오탐 — %v", fs)
 	}
 }
 

@@ -186,12 +186,45 @@ func TestSlowParallelLinkInsertSingleRowV1201(t *testing.T) {
 	}
 }
 
+const slowLoopsDefault = 100
+const slowLoopsCap = 1000
+
+func slowLoopsFromEnv(v string) (int, error) {
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 1 {
+		return 0, fmt.Errorf("FLINT_SLOW_LOOPS=%q: 양의 정수 필요(1~%d, 상한 초과분은 봉입)", v, slowLoopsCap)
+	}
+	if n > slowLoopsCap {
+		return slowLoopsCap, nil
+	}
+	return n, nil
+}
+
+func TestSlowLoopsCapClamp(t *testing.T) {
+	n, err := slowLoopsFromEnv("5000")
+	if err != nil || n != slowLoopsCap {
+		t.Fatalf("FLINT_SLOW_LOOPS=5000 → (%d, %v), want (%d, nil) — 상한 봉입 미적용", n, err, slowLoopsCap)
+	}
+	if n, err := slowLoopsFromEnv("1000"); err != nil || n != 1000 {
+		t.Fatalf("FLINT_SLOW_LOOPS=1000 → (%d, %v), want (1000, nil)", n, err)
+	}
+	if n, err := slowLoopsFromEnv("1"); err != nil || n != 1 {
+		t.Fatalf("FLINT_SLOW_LOOPS=1 → (%d, %v), want (1, nil)", n, err)
+	}
+	if _, err := slowLoopsFromEnv("0"); err == nil {
+		t.Fatal("FLINT_SLOW_LOOPS=0 허용 — 양의 정수 계약 위반")
+	}
+	if _, err := slowLoopsFromEnv("abc"); err == nil {
+		t.Fatal("FLINT_SLOW_LOOPS=abc 허용 — 양의 정수 계약 위반")
+	}
+}
+
 func TestSlowSuiteSerialGreen(t *testing.T) {
-	loops := 100
+	loops := slowLoopsDefault
 	if v := os.Getenv("FLINT_SLOW_LOOPS"); v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil || n < 1 {
-			t.Fatalf("FLINT_SLOW_LOOPS=%q: 양의 정수 필요", v)
+		n, err := slowLoopsFromEnv(v)
+		if err != nil {
+			t.Fatalf("%v", err)
 		}
 		loops = n
 	}

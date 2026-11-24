@@ -106,6 +106,20 @@ func TestSyncUsageErrors(t *testing.T) {
 	}
 }
 
+func TestSyncUsageErrorKeyContract(t *testing.T) {
+	for _, args := range [][]string{{}, {"push"}, {"remote", "bogus"}} {
+		var stdout bytes.Buffer
+		f := &fakeStore{queryFn: syncQueryFn(map[string]bool{}, nil)}
+		code := runSync(context.Background(), f, args, strings.NewReader(""), &stdout)
+		if code != 3 {
+			t.Fatalf("args %v: exit = %d, want 3, stdout = %s", args, code, stdout.String())
+		}
+		if !strings.Contains(stdout.String(), `"error":"usage"`) {
+			t.Fatalf("args %v: usage 계약 키 불일치(exit 3 + error=usage) — stdout = %s", args, stdout.String())
+		}
+	}
+}
+
 func TestSyncServerDown(t *testing.T) {
 	var stdout bytes.Buffer
 	f := &fakeStore{pingErr: context.DeadlineExceeded, queryFn: syncQueryFn(map[string]bool{}, nil)}

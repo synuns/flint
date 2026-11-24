@@ -104,6 +104,22 @@ func TestEngineStatusNotWiredAdvisory(t *testing.T) {
 	}
 }
 
+func TestEngineStatusNotWiredStateKey(t *testing.T) {
+	withEngineMode(t, engine.ModeNative)
+	engine.SetNativeService(engine.NativeService{})
+	t.Cleanup(func() { engine.SetNativeService(engine.NativeService{}) })
+	var out bytes.Buffer
+	if code := Run([]string{"engine", "status"}, strings.NewReader(""), &out); code != 1 {
+		t.Fatalf("exit=%d, want 1; out=%s", code, out.String())
+	}
+	if !strings.Contains(out.String(), `"error":"engine_not_wired"`) {
+		t.Fatalf("엔진 미설정 상태 구분 키 불일치(error=engine_not_wired) — out=%s", out.String())
+	}
+	if !strings.Contains(out.String(), "flint setup") {
+		t.Fatalf("자가수정 안내 상실 — out=%s", out.String())
+	}
+}
+
 func TestEngineStatusJSONShape(t *testing.T) {
 	withEngineMode(t, engine.ModeManagedContainer)
 	withContainerServiceRecorder(t)

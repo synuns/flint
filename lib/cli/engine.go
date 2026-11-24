@@ -33,7 +33,15 @@ type setupEngineSummary struct {
 
 func engineErrLine(stdout io.Writer, err error) int {
 	if errors.Is(err, engine.ErrNotWired) {
-		fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("%v — %s", err, i18n.T("engine.setup"))))
+		b, merr := json.Marshal(map[string]string{
+			"error":   "engine_not_wired",
+			"message": fmt.Sprintf("%v — %s", err, i18n.T("engine.setup")),
+		})
+		if merr != nil {
+			fmt.Fprintln(stdout, wire.ErrLine(err))
+			return 1
+		}
+		fmt.Fprintln(stdout, string(b))
 		return 1
 	}
 	printErr(stdout, err)

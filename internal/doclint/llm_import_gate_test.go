@@ -157,6 +157,70 @@ func TestLLMImportGateDisclaimerExpiredFails(t *testing.T) {
 	}
 }
 
+func TestLLMImportGateWaiverAllows(t *testing.T) {
+	dir := t.TempDir()
+	writeTempGoFile(t, dir, "package demo\n\n// flint-waiver: 등록표 외부 SDK 어댑터 이관 대기 expires=2099-01-01\nimport _ \"github.com/sashabaranov/go-openai\"\n")
+	if out, code := runLLMImportGate(t, dir, ""); code != 0 {
+		t.Fatalf("유효한 미만료 면책 행 아래 import는 통과 기대, 실제 %d\n%s", code, out)
+	}
+}
+
+func TestLLMImportGateWaiverExpiredFails(t *testing.T) {
+	dir := t.TempDir()
+	writeTempGoFile(t, dir, "package demo\n\n// flint-waiver: 등록표 외부 SDK 어댑터 이관 대기 expires=2000-01-01\nimport _ \"github.com/sashabaranov/go-openai\"\n")
+	out, code := runLLMImportGate(t, dir, "")
+	if code != 3 {
+		t.Fatalf("만료된 면책 행은 무효 — 위반 exit 3 기대, 실제 %d\n%s", code, out)
+	}
+	if !strings.Contains(out, "경과") {
+		t.Errorf("면책 만료일 경과 안내 누락:\n%s", out)
+	}
+}
+
+func TestLLMImportGateWaiverMissingReasonFails(t *testing.T) {
+	dir := t.TempDir()
+	writeTempGoFile(t, dir, "package demo\n\n// flint-waiver: expires=2099-01-01\nimport _ \"github.com/sashabaranov/go-openai\"\n")
+	out, code := runLLMImportGate(t, dir, "")
+	if code != 3 {
+		t.Fatalf("면책 이유 누락은 무효 — 위반 exit 3 기대, 실제 %d\n%s", code, out)
+	}
+	if !strings.Contains(out, "이유 누락") {
+		t.Errorf("면책 이유 누락 안내 미표기:\n%s", out)
+	}
+}
+
+func TestLLMImportGateWaiverMissingExpiryFails(t *testing.T) {
+	dir := t.TempDir()
+	writeTempGoFile(t, dir, "package demo\n\n// flint-waiver: 등록표 외부 SDK 어댑터 이관 대기\nimport _ \"github.com/sashabaranov/go-openai\"\n")
+	out, code := runLLMImportGate(t, dir, "")
+	if code != 3 {
+		t.Fatalf("면책 만료일 누락은 무효 — 위반 exit 3 기대, 실제 %d\n%s", code, out)
+	}
+	if !strings.Contains(out, "만료일 필수") {
+		t.Errorf("면책 만료일 필수 안내 미표기:\n%s", out)
+	}
+}
+
+func TestLLMImportGateWaiverNotAdjacentFails(t *testing.T) {
+	dir := t.TempDir()
+	writeTempGoFile(t, dir, "package demo\n\n// flint-waiver: 등록표 외부 SDK 어댑터 이관 대기 expires=2099-01-01\nimport (\n\t\"fmt\"\n\t\"github.com/sashabaranov/go-openai\"\n)\n")
+	if _, code := runLLMImportGate(t, dir, ""); code != 3 {
+		t.Fatalf("면책 행은 바로 아래 1행에만 적용 — 떨어진 import는 위반 exit 3 기대, 실제 %d", code)
+	}
+}
+
+func TestLLMImportGateBlockCommentParenNotBlockEnd(t *testing.T) {
+	dir := t.TempDir()
+	writeTempGoFile(t, dir, "package demo\n\nimport (\n\t\"fmt\"\n\t/* a note that mentions\n)\nand continues on later lines\n*/\n\t\"github.com/sashabaranov/go-openai\"\n)\n")
+	out, code := runLLMImportGate(t, dir, "")
+	if code != 3 {
+		t.Fatalf("블록 주석 내 ')'는 import 블록 종결이 아님 — 주석 뒤 SDK import도 탐지, exit 3 기대, 실제 %d\n%s", code, out)
+	}
+	if !strings.Contains(out, "github.com/sashabaranov/go-openai") {
+		t.Errorf("주석 뒤 SDK import 경로 미표기:\n%s", out)
+	}
+}
+
 func TestCiRunsVetLint(t *testing.T) {
 	b, err := os.ReadFile(docPath("../Makefile"))
 	if err != nil {

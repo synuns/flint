@@ -6,6 +6,29 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.35.1 patch (2026-11-25) — g5-waiver-findings
+
+5 findings from the G5 independent audit (v1.35.0), all fixed with
+regression tests (10 new).
+
+- **[fix] waiver convention implemented**: `flint-waiver: reason
+  expires=YYYY-MM-DD` comment parsing added to the LLM import gate
+  (adjacent line only; missing/expired waiver fails) — CI_REVIEW §6
+  rewritten to match the implementation (comment = primary CI path,
+  env whitelist = test seam).
+- **[fix] audit findings F3~F5 fixed**: sync usage errors now exit 3
+  with the usage error key; engine not-wired reports a distinct state
+  key; both READMEs document 4 hooks.
+- **[fix] import-block parser**: `/* */` comment state tracked inside
+  import blocks — `)` inside a comment no longer ends the block
+  (under-detection fixed).
+- **[fix] FLINT_SLOW_LOOPS capped** at 1000 + registered in TUNING.md.
+- **[fix] git evidence surfaced**: shallow-checkout baseline failures
+  now state the reason and the `git fetch --unshallow` remediation.
+
+audit: G5 independent 5-angle (critical 0 · major 1 → fixed · minor 3 →
+fixed)
+
 ### v1.35.0 minor (2026-11-25) — agent-work-ax-audit
 
 Third minor of the second release scope (release-scope2): area C work

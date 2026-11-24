@@ -312,6 +312,17 @@ them is a code change):
 The stdin line cap for `write` reuses `export_import_max_rows` (import
 symmetry — excess is exit 3 with max/count).
 
+### Test-only env override — `FLINT_SLOW_LOOPS` (v1.35.1)
+
+Not a meta key and not product tuning — a test-infrastructure override
+for the slow real-engine distribution suite
+(`TestSlowSuiteSerialGreen`, parallel idempotent-insert race loop).
+Registered here so the override has a single documented contract:
+
+| key | default | cap | meaning |
+|---|---|---|---|
+| `FLINT_SLOW_LOOPS` | 100 | 1000 | loop count of the slow serial race-distribution suite (`lib/db/admin_v1201_test.go`) — values above 1000 clamp to 1000 (a runaway override must not extend the suite wall time unboundedly); non-integers and values below 1 fail the test up front |
+
 ### DSN config file (config.json) — v0.7
 
 Thresholds live in the meta table, but the DSN is overridden via a config file

@@ -21,7 +21,7 @@ func init() { Register("sync", runSync) }
 
 func runSync(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("%s", syncUsage)))
+		fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("%s", syncUsage)))
 		return 3
 	}
 	switch args[0] {
@@ -34,14 +34,14 @@ func runSync(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 	case "reset":
 		return runSyncReset(ctx, st, args[1:], stdout)
 	default:
-		fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("%s", syncUsage)))
+		fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("%s", syncUsage)))
 		return 3
 	}
 }
 
 func runSyncRemote(ctx context.Context, st Store, args []string, stdout io.Writer) int {
 	if len(args) < 1 {
-		fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("%s", syncUsage)))
+		fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("%s", syncUsage)))
 		return 3
 	}
 	switch args[0] {
@@ -49,21 +49,21 @@ func runSyncRemote(ctx context.Context, st Store, args []string, stdout io.Write
 		return runSyncRemoteAdd(ctx, st, args[1:], stdout)
 	case "list":
 		if len(args) != 1 {
-			fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("%s", syncUsage)))
+			fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("%s", syncUsage)))
 			return 3
 		}
 		return runSyncRemoteList(ctx, st, stdout)
 	case "remove":
 		return runSyncRemoteRemove(ctx, st, args[1:], stdout)
 	default:
-		fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("%s", syncUsage)))
+		fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("%s", syncUsage)))
 		return 3
 	}
 }
 
 func runSyncPush(ctx context.Context, st Store, args []string, stdout io.Writer) int {
 	if len(args) != 1 || args[0] == "" {
-		fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("%s", syncUsage)))
+		fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("%s", syncUsage)))
 		return 3
 	}
 	remote := args[0]
@@ -80,13 +80,13 @@ func runSyncPush(ctx context.Context, st Store, args []string, stdout io.Writer)
 
 func runSyncPull(ctx context.Context, st Store, args []string, stdout io.Writer) int {
 	if len(args) < 1 || len(args) > 2 || args[0] == "" {
-		fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("%s", syncUsage)))
+		fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("%s", syncUsage)))
 		return 3
 	}
 	dry := false
 	if len(args) == 2 {
 		if args[1] != "--dry" {
-			fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("%s", syncUsage)))
+			fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("%s", syncUsage)))
 			return 3
 		}
 		dry = true
@@ -110,7 +110,7 @@ func runSyncReset(ctx context.Context, st Store, args []string, stdout io.Writer
 		switch args[i] {
 		case "--to-remote":
 			if i+1 >= len(args) || args[i+1] == "" {
-				fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("%s", syncUsage)))
+				fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("%s", syncUsage)))
 				return 3
 			}
 			name = args[i+1]
@@ -118,12 +118,12 @@ func runSyncReset(ctx context.Context, st Store, args []string, stdout io.Writer
 		case "--yes":
 			confirm = true
 		default:
-			fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("%s", syncUsage)))
+			fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("%s", syncUsage)))
 			return 3
 		}
 	}
 	if name == "" {
-		fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("%s", syncUsage)))
+		fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("%s", syncUsage)))
 		return 3
 	}
 	if !confirm {
@@ -160,7 +160,7 @@ func syncStoreReady(ctx context.Context, st Store, stdout io.Writer) bool {
 
 func runSyncRemoteAdd(ctx context.Context, st Store, args []string, stdout io.Writer) int {
 	if len(args) != 2 {
-		fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("%s", syncUsage)))
+		fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("%s", syncUsage)))
 		return 3
 	}
 	name, remoteURL := args[0], args[1]
@@ -202,7 +202,7 @@ func runSyncRemoteList(ctx context.Context, st Store, stdout io.Writer) int {
 
 func runSyncRemoteRemove(ctx context.Context, st Store, args []string, stdout io.Writer) int {
 	if len(args) != 1 {
-		fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("%s", syncUsage)))
+		fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("%s", syncUsage)))
 		return 3
 	}
 	name := args[0]
