@@ -28,8 +28,8 @@
 | `archive/2026-11/2026-11-24-flint-v1310.md` | done | v1.31.0 네이티브 엔진 — lib/engine·다운로더·서비스 등록·전환·M4 4항·이월 2건 | G2 APPROVED(2차) — T1~T8 빌드 중 | 2026-11-24 |
 | `archive/2026-11/2026-11-23-flint-v1310.spec.md` | done | v1.31.0 네이티브 엔진 모드 스펙 — 배치 모드 3종 단일 인터페이스·전용 다운로더(해시·버전 검증)·서비스 등록(launchd·systemd user)·모드 전환 | G2 승인 확정(2차) — 플랜과 함께 빌드 중 | 2026-11-24 |
 
-| `2026-11-24-flint-v1320.md` | active | v1.32.0 구조 청산 — context 데드라인·thresholds 단일 소스·god file 분리·스키마 게이트 | G2 APPROVED — T1~T7 빌드 완료·발행 대기 | 2026-11-24 |
-| `2026-11-24-flint-v1320.spec.md` | active | v1.32.0 스펙 — 4각도 리뷰 발견 청산(M1~M3) | G2 APPROVED(2차) — 빌드 완료·발행 대기 | 2026-11-24 |
+| `archive/2026-11/2026-11-24-flint-v1320.md` | done | v1.32.0 구조 청산 — context 데드라인·thresholds 단일 소스·god file 분리·스키마 게이트 | G2 APPROVED — T1~T7 빌드 완료·발행 대기 | 2026-11-24 |
+| `archive/2026-11/2026-11-24-flint-v1320.spec.md` | done | v1.32.0 스펙 — 4각도 리뷰 발견 청산(M1~M3) | G2 APPROVED(2차) — 빌드 완료·발행 대기 | 2026-11-24 |
 | `2026-11-24-flint-next-phase-roadmap.md` | draft | 다음 단계 로드맵 마스터 인덱스 — 9 영역 기획 분할·편성(v1.33~v1.37 시프트)·의존·전역 미결정 | 독립 리뷰 통과(2026-11-24) — 착수 대기 | 2026-11-24 |
 | `2026-11-24-flint-dashboard.md` | draft | 영역 A 계기판 리빌딩 — report --serve+Basecoat·유일한 사람용 시각 표면·에이전틱/휴먼인루프 분리 | 독립 리뷰 통과 — v1.33.0 편성·착수 대기 | 2026-11-24 |
 | `2026-11-24-flint-knowledge-system.md` | draft | 영역 B 지식 체계 — 추출 5종·전달 5종·census·검색 재판정 | 독립 리뷰 통과 — v1.34.0·v1.36.0 편성·착수 대기 | 2026-11-24 |
