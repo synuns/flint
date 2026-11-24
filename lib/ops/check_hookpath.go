@@ -96,12 +96,26 @@ func resolveHookPathToken(tok string) (string, error) {
 	return tok, nil
 }
 
+func hookReadErrKind(err error) string {
+	msg := err.Error()
+	if i := strings.LastIndex(msg, ": "); i >= 0 {
+		msg = msg[i+2:]
+	}
+	if strings.ContainsAny(msg, `/\`) {
+		return ""
+	}
+	return msg
+}
+
 func CheckHookPath() DoctorCheck {
 	c := DoctorCheck{Name: "hook-path"}
 	cmds, err := HookPathCommandsFn()
 	if err != nil {
 		c.Status = "fail"
-		c.Detail = "hook settings unreadable (" + err.Error() + ") — hook command resolution cannot be verified"
+		c.Detail = "hook settings unreadable — hook command resolution cannot be verified"
+		if kind := hookReadErrKind(err); kind != "" {
+			c.Detail = "hook settings unreadable (" + kind + ") — hook command resolution cannot be verified"
+		}
 		c.Fix = "fix: install the plugin (/plugin marketplace add synuns/flint → /plugin install flint@flint) or register flint hooks in settings.json — see flint-plugin/hooks/hooks.json"
 		return c
 	}

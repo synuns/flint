@@ -6,6 +6,23 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.33.1 patch (2026-11-24) — g5-hardening
+
+5 minor findings from the G5 independent audit, all CONFIRMED and fixed
+with regression tests.
+
+- **[fix] doctor detail path masking**: hook-path read-failure and
+  service-remnant details no longer print absolute user paths (masked
+  failure-kind wording · file name only).
+- **[fix] DSN lookup deadline**: DNS resolution now shares the check's
+  4s context instead of running unbounded.
+- **[fix] plugin gap parse failure**: malformed plugin versions now warn
+  with a masked detail instead of silently passing the gap threshold.
+- **[test] serve exit codes**: bind failure → exit 1, SIGINT/SIGTERM →
+  exit 0 now covered.
+
+audit: G5 independent 4-angle (critical 0 · minor 5 → fixed · record 4)
+
 ### v1.33.0 minor (2026-11-24) — serve-dashboard-freshness
 
 First minor of the second release scope (release-scope2): area A agentic

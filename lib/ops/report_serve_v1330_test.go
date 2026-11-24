@@ -2,6 +2,7 @@ package ops
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"net/http"
 	"strconv"
@@ -124,5 +125,74 @@ func TestReportOutNoticeNamesFlag(t *testing.T) {
 		[]string{"--out", "report.html"}, nil, &out)
 	if !strings.Contains(out.String(), DeprecationNotice("--out")) {
 		t.Fatalf("--out notice missing: %s", out.String())
+	}
+}
+
+func occupyServePorts(t *testing.T) (int, []net.Listener) {
+	t.Helper()
+	for attempt := 0; attempt < 25; attempt++ {
+		probe, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatalf("probe listen: %v", err)
+		}
+		base := probe.Addr().(*net.TCPAddr).Port
+		probe.Close()
+		lns := make([]net.Listener, 0, servePortAttempts)
+		for p := base; p < base+servePortAttempts; p++ {
+			ln, lerr := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", p))
+			if lerr != nil {
+				break
+			}
+			lns = append(lns, ln)
+		}
+		if len(lns) == servePortAttempts {
+			return base, lns
+		}
+		for _, ln := range lns {
+			ln.Close()
+		}
+	}
+	t.Skip("no consecutive free port range available")
+	return 0, nil
+}
+
+func TestServeBindFailExitCode(t *testing.T) {
+	oldFn := serveNewStoreFn
+	serveNewStoreFn = func(context.Context) (wire.Store, error) { return &fakeStore{}, nil }
+	t.Cleanup(func() { serveNewStoreFn = oldFn })
+
+	base, lns := occupyServePorts(t)
+	defer func() {
+		for _, ln := range lns {
+			ln.Close()
+		}
+	}()
+
+	var out strings.Builder
+	code := runReportServe(context.Background(), &fakeStore{}, 30, base, &out)
+	if code != 1 {
+		t.Fatalf("bind failure exit = %d, want 1 (out %s)", code, out.String())
+	}
+	if !strings.Contains(out.String(), "no free port") {
+		t.Fatalf("output %q lacks bind failure reason", out.String())
+	}
+}
+
+func TestServeSignalExitZero(t *testing.T) {
+	oldFn := serveNewStoreFn
+	serveNewStoreFn = func(context.Context) (wire.Store, error) { return &fakeStore{}, nil }
+	t.Cleanup(func() { serveNewStoreFn = oldFn })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	port := freeServeTestPort(t)
+	var out strings.Builder
+	code := runReportServe(ctx, &fakeStore{}, 30, port, &out)
+	if code != 0 {
+		t.Fatalf("signal-path exit = %d, want 0 (out %s)", code, out.String())
+	}
+	if !strings.Contains(out.String(), strconv.Itoa(port)) {
+		t.Fatalf("output %q lacks the serve startup line", out.String())
 	}
 }

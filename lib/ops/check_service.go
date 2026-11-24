@@ -50,14 +50,15 @@ func CheckServiceRemnant() DoctorCheck {
 		return c
 	}
 	body := string(data)
+	name := filepath.Base(path)
 	if containsTempPath(body) {
 		c.Status = "warn"
-		c.Detail = path + ": service definition references a temporary path — leftover registration"
+		c.Detail = name + ": service definition references a temporary path — leftover registration"
 		c.Fix = "fix: re-register with flint setup --engine native — or remove the stale definition (launchctl bootout gui/$(id -u)/" + serviceRemnantLabel + " · systemctl --user disable flint-engine.service)"
 		return c
 	}
 	c.Status = "ok"
-	c.Detail = path
+	c.Detail = name
 	return c
 }
 

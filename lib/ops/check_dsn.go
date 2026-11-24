@@ -18,11 +18,15 @@ var DSNClassDSNFn = func() string {
 	return wire.ResolveDSN()
 }
 
-var DSNClassLookupFn = func(host string) error {
+var DSNClassContextFn = func() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), 4*time.Second)
+}
+
+var DSNClassLookupFn = func(ctx context.Context, host string) error {
 	if host == "127.0.0.1" || host == "::1" || host == "localhost" {
 		return nil
 	}
-	addrs, err := net.LookupHost(host)
+	addrs, err := net.DefaultResolver.LookupHost(ctx, host)
 	if err != nil {
 		return err
 	}
@@ -65,14 +69,14 @@ func CheckDSNClass() DoctorCheck {
 	if port == "" {
 		port = strconv.Itoa(dsnClassDefaultPort)
 	}
-	if lerr := DSNClassLookupFn(host); lerr != nil {
+	dctx, cancel := DSNClassContextFn()
+	defer cancel()
+	if lerr := DSNClassLookupFn(dctx, host); lerr != nil {
 		c.Status = "fail"
 		c.Detail = "config dsn defect: host not resolvable (" + host + ") — endpoint can never be reached"
 		c.Fix = "fix: correct the host in config engine_url/dsn (flint config)"
 		return c
 	}
-	dctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
-	defer cancel()
 	if derr := DSNClassDialFn(dctx, host, port); derr != nil {
 		c.Status = "fail"
 		if isConnRefused(derr) {

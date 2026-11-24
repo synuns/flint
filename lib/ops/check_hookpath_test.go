@@ -112,7 +112,7 @@ func TestNoLeak(t *testing.T) {
 	defer func() { DSNClassDSNFn = prev }()
 
 	prevL := DSNClassLookupFn
-	DSNClassLookupFn = func(string) error { return errors.New("lookup no such host") }
+	DSNClassLookupFn = func(context.Context, string) error { return errors.New("lookup no such host") }
 	defer func() { DSNClassLookupFn = prevL }()
 
 	c := CheckDSNClass()
@@ -133,7 +133,52 @@ func TestNoLeak(t *testing.T) {
 	}
 }
 
-func withDSNSeams(t *testing.T, dsn string, lookup func(string) error, dial func(context.Context, string, string) error) {
+func TestHookPathDetailNoAbsolutePath(t *testing.T) {
+	home := filepath.Join(string(filepath.Separator)+"Users", "demo-user", ".claude")
+	prev := HookPathCommandsFn
+	HookPathCommandsFn = func() ([]string, error) {
+		_, ferr := os.ReadFile(filepath.Join(home, "settings.json"))
+		return nil, ferr
+	}
+	t.Cleanup(func() { HookPathCommandsFn = prev })
+
+	c := CheckHookPath()
+	if c.Status != "fail" {
+		t.Fatalf("status=%q, want fail", c.Status)
+	}
+	if strings.Contains(c.Detail, string(filepath.Separator)) {
+		t.Fatalf("detail %q leaks an absolute path", c.Detail)
+	}
+	if !strings.Contains(c.Detail, "unreadable") {
+		t.Fatalf("detail %q lost the failure reason", c.Detail)
+	}
+}
+
+func TestDSNLookupDeadlineCtx(t *testing.T) {
+	prevCtx := DSNClassContextFn
+	DSNClassContextFn = func() (context.Context, context.CancelFunc) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		return ctx, cancel
+	}
+	t.Cleanup(func() { DSNClassContextFn = prevCtx })
+
+	withDSNSeams(t, "postgresql://flint:pw@no-such-host.invalid:5434/flint", DSNClassLookupFn, refuseDial)
+
+	start := time.Now()
+	c := CheckDSNClass()
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
+		t.Fatalf("canceled-ctx lookup took %s, want immediate", elapsed)
+	}
+	if c.Status != "fail" {
+		t.Fatalf("status=%q, want fail (%s)", c.Status, c.Detail)
+	}
+	if !strings.Contains(c.Detail, "dsn defect") {
+		t.Fatalf("detail %q, want dsn-defect classification", c.Detail)
+	}
+}
+
+func withDSNSeams(t *testing.T, dsn string, lookup func(context.Context, string) error, dial func(context.Context, string, string) error) {
 	t.Helper()
 	prevDSN, prevL, prevD := DSNClassDSNFn, DSNClassLookupFn, DSNClassDialFn
 	DSNClassDSNFn = func() string { return dsn }
@@ -149,7 +194,7 @@ func refuseDial(context.Context, string, string) error {
 func TestDSNClassify(t *testing.T) {
 	t.Run("engine-down-connection-refused", func(t *testing.T) {
 		withDSNSeams(t, "postgresql://flint:pw@127.0.0.1:5434/flint",
-			func(string) error { return nil }, refuseDial)
+			func(context.Context, string) error { return nil }, refuseDial)
 		c := CheckDSNClass()
 		if c.Status != "fail" {
 			t.Fatalf("status=%q, want fail", c.Status)
@@ -164,7 +209,7 @@ func TestDSNClassify(t *testing.T) {
 
 	t.Run("dsn-defect-unresolvable-host", func(t *testing.T) {
 		withDSNSeams(t, "postgresql://flint:pw@no-such-host.invalid:5434/flint",
-			func(string) error { return errors.New("no such host") }, refuseDial)
+			func(context.Context, string) error { return errors.New("no such host") }, refuseDial)
 		c := CheckDSNClass()
 		if c.Status != "fail" {
 			t.Fatalf("status=%q, want fail", c.Status)
@@ -179,7 +224,7 @@ func TestDSNClassify(t *testing.T) {
 
 	t.Run("dsn-defect-malformed", func(t *testing.T) {
 		withDSNSeams(t, "not a url at all",
-			func(string) error { return nil }, refuseDial)
+			func(context.Context, string) error { return nil }, refuseDial)
 		c := CheckDSNClass()
 		if c.Status != "fail" {
 			t.Fatalf("status=%q, want fail", c.Status)
@@ -191,7 +236,7 @@ func TestDSNClassify(t *testing.T) {
 
 	t.Run("reachable-pass", func(t *testing.T) {
 		withDSNSeams(t, "postgresql://flint:pw@127.0.0.1:5434/flint",
-			func(string) error { return nil },
+			func(context.Context, string) error { return nil },
 			func(context.Context, string, string) error { return nil })
 		c := CheckDSNClass()
 		if c.Status != "pass" {

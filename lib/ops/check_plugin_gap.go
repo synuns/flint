@@ -36,7 +36,13 @@ func CheckPluginGapTh(_ context.Context, _ wire.Store, th store.Thresholds) Doct
 		c.Detail = "flint plugin not detected"
 		return c
 	}
-	gap := versionMinorGap(cli, plugin)
+	gap, gapKnown := versionMinorGap(cli, plugin)
+	if !gapKnown {
+		c.Status = "warn"
+		c.Detail = "plugin version parse-failed — cannot verify minor gap — reinstall via /plugin install flint@flint"
+		c.Fix = "fix: flint update"
+		return c
+	}
 	limit := store.ClampThresholdInt(pluginVersionGapKey, th.PluginVersionGapMinors)
 	if gap > limit {
 		c.Status = "warn"
@@ -49,20 +55,20 @@ func CheckPluginGapTh(_ context.Context, _ wire.Store, th store.Thresholds) Doct
 	return c
 }
 
-func versionMinorGap(a, b string) int {
+func versionMinorGap(a, b string) (int, bool) {
 	am, an, okA := versionMajorMinor(a)
 	bm, bn, okB := versionMajorMinor(b)
 	if !okA || !okB {
-		return 0
+		return 0, false
 	}
 	if am != bm {
-		return 1000
+		return 1000, true
 	}
 	d := an - bn
 	if d < 0 {
 		d = -d
 	}
-	return d
+	return d, true
 }
 
 func versionMajorMinor(v string) (int, int, bool) {

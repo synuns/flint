@@ -197,3 +197,54 @@ func TestServiceRemnant(t *testing.T) {
 		t.Fatalf("platform without service manager: got %s, want ok (%s)", c.Status, c.Detail)
 	}
 }
+
+func TestServiceRemnantDetailFileNameOnly(t *testing.T) {
+	plist := filepath.Join(t.TempDir(), "Library", "LaunchAgents", serviceRemnantLabel+".plist")
+
+	stubServiceEnv(t, "darwin", plist,
+		[]byte("<string>/tmp/flint-demo-zombie/engine</string>"), nil)
+	c := CheckServiceRemnant()
+	if c.Status != "warn" {
+		t.Fatalf("tmp registration: got %s, want warn (%s)", c.Status, c.Detail)
+	}
+	if strings.Contains(c.Detail, string(filepath.Separator)) {
+		t.Fatalf("warn detail %q leaks an absolute path", c.Detail)
+	}
+	if !strings.Contains(c.Detail, serviceRemnantLabel+".plist") {
+		t.Fatalf("warn detail %q lacks the definition file name", c.Detail)
+	}
+
+	stubServiceEnv(t, "darwin", plist,
+		[]byte("/opt/flint-demo/engine/current/doltgres -data-dir /opt/flint-demo/engine/data"), nil)
+	c = CheckServiceRemnant()
+	if c.Status != "ok" {
+		t.Fatalf("clean registration: got %s, want ok", c.Status)
+	}
+	if strings.Contains(c.Detail, string(filepath.Separator)) {
+		t.Fatalf("pass detail %q leaks an absolute path", c.Detail)
+	}
+	if c.Detail != serviceRemnantLabel+".plist" {
+		t.Fatalf("pass detail %q, want file name only", c.Detail)
+	}
+}
+
+func TestPluginGapParseFailWarn(t *testing.T) {
+	st := &fakeStore{}
+	stubPluginEnv(t, "1.33.0", "not-a-version")
+	c := CheckPluginGap(context.Background(), st)
+	if c.Status != "warn" {
+		t.Fatalf("malformed plugin version: got %s, want warn (%s)", c.Status, c.Detail)
+	}
+	if strings.Contains(c.Detail, "not-a-version") {
+		t.Errorf("detail echoes the malformed version: %s", c.Detail)
+	}
+	if !strings.Contains(c.Detail, "parse-failed") {
+		t.Errorf("detail %q lacks parse-failed wording", c.Detail)
+	}
+
+	stubPluginEnv(t, "1.33.0", "1.33.0")
+	c = CheckPluginGap(context.Background(), st)
+	if c.Status != "ok" {
+		t.Fatalf("equal versions: got %s, want ok (%s)", c.Status, c.Detail)
+	}
+}

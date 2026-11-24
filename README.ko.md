@@ -26,7 +26,7 @@
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 하네스">
   <a href="https://github.com/synuns/flint/actions/workflows/ci.yml"><img src="https://github.com/synuns/flint/actions/workflows/ci.yml/badge.svg" alt="CI 상태"></a>
-  <img src="https://img.shields.io/badge/release-v1.33.0-blue" alt="v1.33.0">
+  <img src="https://img.shields.io/badge/release-v1.33.1-blue" alt="v1.33.1">
 </p>
 <p align="center">
   <sub>8종은 자동 등록(A급) 하니스 기준 — 전체 지원 목록은 아래 <a href="#에이전트--어댑터">어댑터 표</a>에 있습니다.</sub>
@@ -48,6 +48,7 @@ flint는 이걸 바꿉니다. 에이전트가 무언가 배우면 — 결정, �
 
 사람은 Obsidian에 노트를 남깁니다. 에이전트는 flint에 기억을 남깁니다 — 불과 도구를 얻기 위해 두드리는 부싯돌처럼.
 
+> v1.33.1 · r133 패치 — G5 감사 경화: doctor detail 경로 마스킹(훅 경로·서비스 잔재)·DNS 조회 기한·플러그인 버전 파싱 실패 warn 전환·serve 종료코드 테스트 · [전체 변경 이력](docs/HISTORY.md)
 > v1.33.0 · `flint report --serve` — 동일 진단 원천 위의 localhost 전용 대시보드(ETag·요청 단위 엔진 연결·CSS 토큰 슬롯)·영역 F doctor 검사 ×5(훅 경로·DSN 분류·수집 신선도·버전 격차·서비스 잔재)·METRICS 원천 데이터 총목록+등록표 동기 게이트·`--html/--out` deprecated 경유 전환 · [전체 변경 이력](docs/HISTORY.md)
 > v1.32.4 · r131 패치 — setup 면제 정확 서술(설계상 모든 경로 면제·--json 모드 포함)·통칭 문구 정정(QUICKSTART·README 양어) · [전체 변경 이력](docs/HISTORY.md)
 > v1.32.3 · r130 패치 — --json 상한 문장을 실제 이중 모드 명령(read·pending)으로 한정·나머지 면제 명령은 모든 경로에서 면제 유지(setup은 설계상 — --json 모드도 1회성·tuning·maintain·export·report는 --json 플래그 없음) · [전체 변경 이력](docs/HISTORY.md)

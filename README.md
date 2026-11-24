@@ -26,7 +26,7 @@
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 harnesses">
   <a href="https://github.com/synuns/flint/actions/workflows/ci.yml"><img src="https://github.com/synuns/flint/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
-  <img src="https://img.shields.io/badge/release-v1.33.0-blue" alt="v1.33.0">
+  <img src="https://img.shields.io/badge/release-v1.33.1-blue" alt="v1.33.1">
 </p>
 <p align="center">
   <sub>8 counts the auto-registration (tier A) harnesses — the full support list is in the <a href="#agents--adapters">adapter table</a> below.</sub>
@@ -48,6 +48,7 @@ It adds up. Week one, it learns the stack. By week four, it remembers why you ch
 
 Humans take notes in Obsidian. Agents take notes in flint — the stone you strike to make fire and tools.
 
+> v1.33.1 · r133 patch — G5 audit hardening: doctor detail path masking (hook-path · service remnant), DNS lookup deadline, plugin version parse-failure warns instead of silently passing, serve exit-code tests · [full changelog](docs/HISTORY.md)
 > v1.33.0 · `flint report --serve` — localhost-only dashboard over the same diagnose source (ETag, per-request engine connection, CSS token slots); area F doctor checks ×5 (hook path · DSN class · collection freshness · version gap · service remnant); METRICS raw-data catalog + registry-sync gate; `--html/--out` deprecated via-path · [full changelog](docs/HISTORY.md)
 > v1.32.4 · r131 patch — the setup exemption stated precisely (always exempt by design, `--json` mode included); the blanket wording fixed in QUICKSTART and both READMEs · [full changelog](docs/HISTORY.md)
 > v1.32.3 · r130 patch — the `--json` cap sentence scoped to the actual dual-mode commands (read · pending); the other exempt commands keep the exemption on every route (setup by design; tuning · maintain · export · report have no `--json` flag) · [full changelog](docs/HISTORY.md)
