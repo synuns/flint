@@ -99,7 +99,7 @@ G→E·I 지반→H 시나리오(동 버전 내 생산-소비)·B abstention→I
 | v1.33.0 | done | 대시보드 에이전틱+건강 — v1.33.0 발행(PR #286)·G5 독립 감사 4각도(R133: minor 5) → **v1.33.1 경화 패치 발행·R134 재감사 발견 0으로 패치 루프 종결**(2026-11-24). record 4건 관측(serve dispatch 시점 풀 미사용·오류 본문 ETag 무해·?poll 풀 생성·bind 이동 의도). CI 게이트 보강: staticcheck U1000 실증 — 로컬 release-gate에 lint 편입 여부는 v1.34.0 G2 승계. 태그 CI에서 lib/db 병렬 slow 연결 소진 플레이크 1회(deploy 미발행→재실행 완결) — slow 실DB 테스트 격리 경화도 v1.34.0 G2 승계 |
 | v1.34.0 | done | 지식 체계 I 전달 — v1.34.0 발행(PR #287)·G5 감사 5각도(R135: minor 3) → **v1.34.1 경화 패치 발행·R136 재감사 발견 0으로 패치 루프 종결**(2026-11-25). record 4건 관측(exported ZeroHitUnownedPct 호출자 0·ORDER BY id tiebreak·빈 세션 스킵·패닉 시 마커 소모 exactly-once 트레이드오프). lib/db 병렬 slow 플레이크 3회 재발 → **격리 경화를 v1.35.0 G2 첫 항목으로 확정** |
 | v1.35.0 | done | AX 점검+작업 시스템 — v1.35.0 발행(PR #288)·G5 감사 5각도(R137: major 1·minor 3) → **v1.35.1 경화 패치 발행·R138 재감사 발견 0으로 패치 루프 종결**(2026-11-25). record 1건(다중행 주석 종료줄 병렬 import — 병리 스타일 한정·다음 루프 반영). slow 격리 규명 완결(R-2 수리·R-3/R-4 엔진 조건 유보 기록) |
-| v1.36.0 | gating | 지식 체계 II 추출+교정 입구 결정 — 스펙 작성 완료(`2026-11-25-flint-v1.36.0.spec.md`·D 권고 B안 기본 편입)·G2 독립 리뷰 대기 |
+| v1.36.0 | gating→G2 APPROVED | 지식 체계 II 추출+교정 입구 결정 — 스펙 확정(실물 위계 대조 3건 반영)·빌드 플랜 작성 중 |
 | v1.37.0 | todo | 신뢰 기반 — G+H+I |
 
 상태 값: `todo → gating → building → released → patch-loop → done` ·
