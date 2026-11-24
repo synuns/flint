@@ -42,6 +42,7 @@
 | `archive/2026-11/2026-11-25-flint-v1.36.0.spec.md` | done | v1.36.0 스펙 — 지식 체계 II 추출 5종·교정 입구 B안 편입·Ruling 7건 | G2 APPROVED·v1.36.0~.1 발행·R140 발견 0 종결 | 2026-11-25 |
 | `archive/2026-11/2026-11-25-flint-v1.36.0.md` | done | v1.36.0 빌드 플랜 — T1~T5 태스크 그래프(echo 계약·파생 태깅·근거 동봉·tier·문서) | G3 완료·v1.36.1 패치 루프 종결 | 2026-11-25 |
 | `2026-11-25-flint-v1.37.0.spec.md` | active | v1.37.0 스펙 — 신뢰 기반 3영역(smoke·주입 방어·회귀 세트)·Ruling 8건 | G2 APPROVED — G3 빌드 진행 | 2026-11-25 |
+| `2026-11-25-flint-v1.37.0.md` | active | v1.37.0 빌드 플랜 — T1~T5 태스크 그래프(회귀 지반·abstention·포이즈닝 3종·경계 문서·smoke) | G3 빌드 진행 — T1·T4·T5 파견 | 2026-11-25 |
 | `2026-11-24-flint-dashboard.md` | draft | 영역 A 대시보드 리빌딩 — report --serve+Basecoat·유일한 사람용 시각 표면·에이전틱/휴먼인루프 분리 | 에이전틱 부분 v1.33.0 발행 — 휴먼인루프 트랙 대기 | 2026-11-24 |
 | `2026-11-24-flint-knowledge-system.md` | draft | 영역 B 지식 체계 — 추출 5종·전달 5종·census·검색 재판정 | 전달 v1.34.0·추출 v1.36.0 발행 — census·재판정은 트리거 대기 | 2026-11-25 |
 | `2026-11-24-flint-agent-work-system.md` | draft | 영역 C 작업 시스템 — 에이전트 실수 결정론 린트 일반화(pstack 채택) | v1.35.0으로 실행 완료(5종+쌍 표) — archive 대기 | 2026-11-25 |
