@@ -1991,7 +1991,7 @@ func TestWriteConditionsRealSlow(t *testing.T) {
 }
 
 func v124Body(topic string) string {
-	return `{"topic":"` + topic + `","summary":"v124 T2 합성 데모 본문","tags":["demo"],"confidence":0.9}`
+	return `{"topic":"` + topic + `","summary":"v124 T2 합성 데모 본문","tags":["demo"],"confidence":0.8}`
 }
 
 func stampCalls(f *fakeStore) []writeQueryCall {
@@ -2006,7 +2006,7 @@ func stampCalls(f *fakeStore) []writeQueryCall {
 
 func TestWriteKnowledgeKindSourcePathRoundtrip(t *testing.T) {
 	f := &fakeStore{}
-	payload := `{"topic":"v124-t2-왕복-데모","summary":"v124 T2 합성 데모 본문","tags":["demo"],"confidence":0.9,` +
+	payload := `{"topic":"v124-t2-왕복-데모","summary":"v124 T2 합성 데모 본문","tags":["demo"],"confidence":0.8,` +
 		`"knowledge_kind":"Preference","source_path":"demo/notes/v124-t2-a.md"}`
 	out, code := run(t, f, []string{"knowledge"}, payload)
 	if code != 0 {
@@ -2096,7 +2096,7 @@ func TestWriteKnowledgeKindDuplicateNoStamp(t *testing.T) {
 
 func TestWriteSourcePathSanitized(t *testing.T) {
 	f := &fakeStore{}
-	payload := `{"topic":"v124-t2-살균-데모","summary":"v124 T2 합성 데모 본문","tags":["demo"],"confidence":0.9,` +
+	payload := `{"topic":"v124-t2-살균-데모","summary":"v124 T2 합성 데모 본문","tags":["demo"],"confidence":0.8,` +
 		`"source_path":"demo/no` + `\u0000` + `tes[flint]/a.md"}`
 	out, code := run(t, f, []string{"knowledge"}, payload)
 	if code != 0 {
@@ -2196,7 +2196,7 @@ func TestWriteKindSourcePathRealSlow(t *testing.T) {
 	}
 
 	const path = "demo/notes/v124-t2-real.md"
-	body := `{"topic":"v124-t2-실DB-데모","summary":"v124 T2 합성 데모 본문","tags":["demo"],"confidence":0.9,` +
+	body := `{"topic":"v124-t2-실DB-데모","summary":"v124 T2 합성 데모 본문","tags":["demo"],"confidence":0.8,` +
 		`"knowledge_kind":"preference","source_path":"` + path + `"}`
 	out, code := run(t, st, []string{"knowledge"}, body)
 	if code != 0 {

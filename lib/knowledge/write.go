@@ -35,6 +35,68 @@ var kindColumns = map[string]map[string]bool{
 
 const rejectedTagPrefix = "rejected tag: "
 
+var RuleEvidenceTagPrefixes = []string{"playbook", "process", "contract", "vol:conditional"}
+
+var RuleEvidenceSummaryPatterns = []string{"if ", "when ", "always ", "never ", "must "}
+
+func IsRuleTypeKnowledge(p map[string]any) (bool, string) {
+	if raw, ok := p["tags"].([]any); ok {
+		for _, tag := range raw {
+			s, _ := tag.(string)
+			n := strings.ToLower(strings.TrimSpace(s))
+			for _, pre := range RuleEvidenceTagPrefixes {
+				if strings.HasPrefix(n, pre) {
+					return true, "tag:" + n
+				}
+			}
+		}
+	}
+	summary, _ := p["summary"].(string)
+	low := strings.ToLower(summary)
+	for _, pat := range RuleEvidenceSummaryPatterns {
+		if strings.HasPrefix(low, pat) {
+			return true, "pattern:" + pat
+		}
+	}
+	return false, ""
+}
+
+func ruleEvidenceMissing(p map[string]any) []string {
+	var missing []string
+	hasEvidence := false
+	if o, ok := p["origin"].(string); ok && strings.TrimSpace(o) != "" {
+		hasEvidence = true
+	}
+	if sp, ok := p["source_path"].(string); ok && strings.TrimSpace(sp) != "" {
+		hasEvidence = true
+	}
+	if !hasEvidence {
+		missing = append(missing, "origin(or source_path)")
+	}
+	if s, ok := p["status"].(string); !ok || strings.TrimSpace(s) == "" {
+		missing = append(missing, "status")
+	}
+	return missing
+}
+
+func printEvidenceGateFailure(w io.Writer, lineNo int, signal string, missing []string) {
+	se := &store.SchemaError{Field: "evidence",
+		Expect: "origin(or source_path) and status for rule-type knowledge"}
+	fmt.Fprintln(w, wire.ErrLine(se))
+	fmt.Fprintf(w, "file: stdin:%d\n", lineNo)
+	fmt.Fprintf(w, "signal: %s\n", signal)
+	fmt.Fprintf(w, "missing: %s\n", strings.Join(missing, ", "))
+	fmt.Fprintf(w, "fix: attach origin (or source_path) and status to the rule-type record\n")
+}
+
+func checkTierCap(r *writeState, n map[string]any) error {
+	origin, _ := n["origin"].(string)
+	sp, _ := n["source_path"].(string)
+	channel := store.TierChannel(origin, sp)
+	conf, _ := n["confidence"].(float64)
+	return store.CheckTierCap(r.tierCaps, channel, conf)
+}
+
 var sourceRegistry = []string{"hook", "manual", "mcp", "correction", "gap"}
 
 func sourceList() string { return strings.Join(sourceRegistry, "|") }
@@ -511,6 +573,7 @@ type writeState struct {
 	payloads []map[string]any
 	th       store.Thresholds
 	floor    float64
+	tierCaps map[string]float64
 
 	recs            []map[string]any
 	dropped         map[string]bool
@@ -606,26 +669,34 @@ func parseWriteRequest(ctx context.Context, st wire.Store, args []string, stdin 
 		ctx: ctx, st: st, stdout: stdout,
 		kind: kind, session: session, source: source,
 		payloads: payloads, th: th, floor: th.ConfFloor,
-		recs: make([]map[string]any, 0, len(payloads)), dropped: map[string]bool{},
+		tierCaps: store.DefaultTierCaps(),
+		recs:     make([]map[string]any, 0, len(payloads)), dropped: map[string]bool{},
 		seen: map[string]bool{}, batched: len(payloads) > 1,
 		state: "active", correctionQuota: -1,
 	}
 
 	if rows, err := wire.QueryOnce(ctx, st,
-		`SELECT key, value FROM meta WHERE key IN ('vocab_tags','vocab_domains')`, nil); err == nil {
+		`SELECT key, value FROM meta WHERE key IN ('vocab_tags','vocab_domains','tier_cap_manual','tier_cap_hook','tier_cap_import')`, nil); err == nil {
 		var tags, domains []string
+		kv := make([][2]any, 0, len(rows))
 		for _, r2 := range rows {
 			if len(r2) != 2 {
 				continue
 			}
-			vals := strings.Split(fmt.Sprint(r2[1]), ",")
-			if fmt.Sprint(r2[0]) == "vocab_tags" {
-				tags = vals
-			} else {
-				domains = vals
+			key := fmt.Sprint(r2[0])
+			if key == "vocab_tags" || key == "vocab_domains" {
+				vals := strings.Split(fmt.Sprint(r2[1]), ",")
+				if key == "vocab_tags" {
+					tags = vals
+				} else {
+					domains = vals
+				}
+				continue
 			}
+			kv = append(kv, [2]any{r2[0], r2[1]})
 		}
 		store.SetVocabExtras(tags, domains)
+		r.tierCaps = store.ParseTierCaps(kv)
 	}
 
 	if source == "correction" && kind == "knowledge" {
@@ -662,7 +733,7 @@ func (r *writeState) finalizeRec(n map[string]any, specs []linkSpec, kval string
 }
 
 func (r *writeState) validateAndDedupe() int {
-	for _, p := range r.payloads {
+	for i, p := range r.payloads {
 
 		if r.source == "correction" && r.kind == "knowledge" {
 			applyCorrectionDefaults(p, r.th.CorrectionConfidence)
@@ -702,6 +773,12 @@ func (r *writeState) validateAndDedupe() int {
 			if sse := validateSourcePath(p); sse != nil {
 				fmt.Fprintln(r.stdout, wire.ErrLine(sse))
 				return 3
+			}
+			if isRule, sig := IsRuleTypeKnowledge(p); isRule {
+				if missing := ruleEvidenceMissing(p); len(missing) > 0 {
+					printEvidenceGateFailure(r.stdout, i+1, sig, missing)
+					return 3
+				}
 			}
 		}
 
@@ -775,11 +852,16 @@ func (r *writeState) validateAndDedupe() int {
 			}
 			conf, _ := n["confidence"].(float64)
 
+			if te := checkTierCap(r, n); te != nil {
+				fmt.Fprintln(r.stdout, wire.ErrLine(te))
+				return 3
+			}
 			r.echoCands = scanEcho(r.ctx, r.st, n, r.th)
 			r.state = store.Classify(r.kind, conf, r.floor)
 			n["content_hash"] = h
 			n["status"] = r.state
 			r.hash = h
+			r.markDerivative(n)
 		}
 		if r.kind == "project" {
 
@@ -822,9 +904,14 @@ func (r *writeState) resolveStaged() int {
 				continue
 			}
 			conf, _ := n["confidence"].(float64)
+			if te := checkTierCap(r, n); te != nil {
+				fmt.Fprintln(r.stdout, wire.ErrLine(te))
+				return 3
+			}
 			r.state = store.Classify(r.kind, conf, r.floor)
 			n["status"] = r.state
 			r.hash = r.stagedH[i]
+			r.markDerivative(n)
 			r.finalizeRec(n, r.stagedL[i], r.stagedK[i])
 		}
 	}
