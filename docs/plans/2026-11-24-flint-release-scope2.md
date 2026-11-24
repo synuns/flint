@@ -96,7 +96,7 @@ G→E·I 지반→H 시나리오(동 버전 내 생산-소비)·B abstention→I
 
 | 버전 | 상태 | 비고 |
 |---|---|---|
-| v1.33.0 | gating | 대시보드 에이전틱+건강 — 스펙 작성 완료(`2026-11-24-flint-v1.33.0.spec.md`)·G2 독립 리뷰 대기 |
+| v1.33.0 | building | 대시보드 에이전틱+건강 — G3 완료(make ci 50 ok·release-gate OK·G2/최종 리뷰 APPROVED)·PR #286 CI 후 머지·태그 |
 | v1.34.0 | todo | 지식 체계 I 전달 |
 | v1.35.0 | todo | AX 점검+작업 시스템 |
 | v1.36.0 | todo | 지식 체계 II 추출+교정 입구 결정 |
