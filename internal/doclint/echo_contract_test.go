@@ -15,9 +15,24 @@ var echoFlowMarkers = []string{
 	"if r.seen[h] {",
 	"existsMeta, exists, err := lookupHash(r.ctx, r.st, h)",
 	"scanEcho(r.ctx, r.st, n, r.th)",
+	"r.echoCands = scanEcho(r.ctx, r.st, n, r.th)",
 	"store.Classify(r.kind, conf, r.floor)",
 	"func (r *writeState) emitDuplicate()",
 	"InsertBatch(r.ctx, r.recs)",
+}
+
+func boundaryCell(table, name string) (string, bool) {
+	for _, line := range strings.Split(table, "\n") {
+		if !strings.Contains(line, name) {
+			continue
+		}
+		cells := strings.Split(line, "|")
+		if len(cells) < 4 {
+			return "", false
+		}
+		return strings.TrimSpace(cells[3]), true
+	}
+	return "", false
 }
 
 func sourceFile(t *testing.T, rel string) string {
@@ -114,8 +129,12 @@ func TestEchoContractFrozen(t *testing.T) {
 		{"EchoTopK", topK},
 		{"echoInputMaxRunes", maxRunes},
 	} {
-		if !strings.Contains(table, trimFloat(pair.value)) {
-			t.Fatalf("경계 케이스 표의 %s 기본값 %s 가 실물 소스와 불일치", pair.name, trimFloat(pair.value))
+		cell, ok := boundaryCell(table, pair.name)
+		if !ok {
+			t.Fatalf("경계 케이스 표에서 %s 행을 찾지 못함", pair.name)
+		}
+		if cell != trimFloat(pair.value) {
+			t.Fatalf("경계 케이스 표의 %s 기본값 %q 가 실물 소스 %s 와 불일치(정확 비교)", pair.name, cell, trimFloat(pair.value))
 		}
 	}
 
@@ -123,5 +142,66 @@ func TestEchoContractFrozen(t *testing.T) {
 		if !strings.Contains(table, `"`+rel+`"`) {
 			t.Fatalf("경계 케이스 표에 reason(relation) 값 %q 누락", rel)
 		}
+	}
+}
+
+func TestEchoContractNewRecordRegion(t *testing.T) {
+	doc := docStr(t, echoContractDoc)
+	writeSrc := sourceFile(t, "lib/knowledge/write.go")
+
+	dupScan := strings.Index(writeSrc, "scanEcho(r.ctx, r.st, n, r.th)")
+	newScan := strings.Index(writeSrc, "r.echoCands = scanEcho(r.ctx, r.st, n, r.th)")
+	classify := strings.Index(writeSrc, "store.Classify(r.kind, conf, r.floor)")
+	if newScan < 0 {
+		t.Fatal("write.go에서 신규 분기 echo 스캔 마커 소실")
+	}
+	if classify < 0 {
+		t.Fatal("write.go에서 Classify 마커 소실")
+	}
+	if newScan <= dupScan {
+		t.Fatalf("신규 분기 스캔 마커가 중복 분기 스캔보다 앞섬: new=%d dup=%d", newScan, dupScan)
+	}
+	if newScan >= classify {
+		t.Fatalf("신규 분기에서 scanEcho·Classify 순서 역전: scan=%d classify=%d", newScan, classify)
+	}
+
+	docScan := strings.Index(doc, "`scanEcho(r.ctx, r.st, n, r.th)`")
+	docNew := strings.Index(doc, "`r.echoCands = scanEcho(r.ctx, r.st, n, r.th)`")
+	docClassify := strings.Index(doc, "`store.Classify(r.kind, conf, r.floor)`")
+	if docNew < 0 {
+		t.Fatal("계약 문서에 신규 분기 영역 마커 없음 — 계약 개정 필요")
+	}
+	if docNew <= docScan || docNew >= docClassify {
+		t.Fatalf("계약 문서 신규 분기 마커 순서 불일치: scan=%d new=%d classify=%d", docScan, docNew, docClassify)
+	}
+}
+
+func TestEchoBoundaryCellExact(t *testing.T) {
+	synth := strings.Join([]string{
+		"| 항목 | 판정 조건 | 기본값 | 근거 소스 |",
+		"|---|---|---|---|",
+		"| duplicates 임계 | multiset bigram dice ≥ ConflictDupThreshold | 0.6 | lib/store/thresholds.go |",
+		"| contradicts 임계 | BigramDice(전체) ≥ EchoMinScore | 0.35 | lib/knowledge/echo.go |",
+		"| 보고 상한 | EchoTopK | 5 | lib/knowledge/echo.go |",
+		"| reason(relation) 필드 | 2분기 고정 | — | lib/knowledge/echo.go |",
+	}, "\n")
+
+	if cell, ok := boundaryCell(synth, "ConflictDupThreshold"); !ok || cell != "0.6" {
+		t.Fatalf("ConflictDupThreshold 셀 추출: cell=%q ok=%v", cell, ok)
+	}
+	if cell, ok := boundaryCell(synth, "EchoMinScore"); !ok || cell != "0.35" {
+		t.Fatalf("EchoMinScore 셀 추출: cell=%q ok=%v", cell, ok)
+	}
+	if cell, ok := boundaryCell(synth, "EchoTopK"); !ok || cell != "5" {
+		t.Fatalf("EchoTopK 셀 추출: cell=%q ok=%v", cell, ok)
+	}
+	if _, ok := boundaryCell(synth, "NoSuchMarker"); ok {
+		t.Fatal("미등재 마커가 매칭됨")
+	}
+	if cell, _ := boundaryCell(synth, "EchoTopK"); cell == trimFloat(6) {
+		t.Fatalf("substring 오탐 재발: EchoTopK 셀 %q 가 6 과 일치 판정", cell)
+	}
+	if cell, _ := boundaryCell(synth, "EchoMinScore"); cell == trimFloat(0.3) {
+		t.Fatalf("substring 오탐 재발: EchoMinScore 셀 %q 가 0.3 과 일치 판정", cell)
 	}
 }

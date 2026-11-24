@@ -102,6 +102,35 @@ func TestEvidenceGateStructuredOutput(t *testing.T) {
 	}
 }
 
+func TestEvidenceGateSentenceLevelDetection(t *testing.T) {
+	isRule, sig := IsRuleTypeKnowledge(map[string]any{
+		"summary": "데모 배경 설명이다. If the demo gate opens, run the check"})
+	if !isRule || sig != "pattern:if " {
+		t.Fatalf("2번째 문장 문형 판정: rule=%v sig=%q", isRule, sig)
+	}
+
+	out, code := run(t, &fakeStore{}, []string{"knowledge"},
+		`{"topic":"eg-sent","summary":"데모 배경 설명이다. If the demo gate opens, run the check","confidence":0.9}`)
+	if code != 3 {
+		t.Fatalf("2번째 문장 규칙형 미동봉 exit=%d, want 3; out=%s", code, out)
+	}
+	if fakeInserts(out) != 0 {
+		t.Fatalf("미동봉 규칙형 저장됨")
+	}
+
+	isRule, sig = IsRuleTypeKnowledge(map[string]any{
+		"summary": "데모 안내. Never run the demo check twice"})
+	if !isRule || sig != "pattern:never " {
+		t.Fatalf("NBSP 경계 문장 판정: rule=%v sig=%q", isRule, sig)
+	}
+
+	isRule, _ = IsRuleTypeKnowledge(map[string]any{
+		"summary": "demo factual body. more factual text follows"})
+	if isRule {
+		t.Fatal("사실형 복문장을 규칙형 판정")
+	}
+}
+
 func fakeInserts(out string) int {
 	n := 0
 	for _, line := range strings.Split(strings.TrimRight(out, "\n"), "\n") {

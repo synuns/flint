@@ -6,6 +6,32 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.36.1 patch (2026-11-25) — g5-derivative-domain
+
+5 findings from the G5 independent audit (v1.36.0), all fixed with
+regression tests.
+
+- **[fix] derivative hash domain aligned**: the derivative rule compared
+  a summary hash against vault_files' RAW-FILE hash — different byte
+  domains, dead in production. Now compares ContentHash(summary) against
+  ContentHash(vault_summary) with rune truncation aligned to the write
+  side (real-shape notes now tag; strictness preserved).
+- **[fix] contract gate hardening**: boundary-table values compared
+  exactly (substring containment passed both drift directions);
+  new-record-branch markers added (region-internal reorder detected).
+- **[fix] derivative tag collision**: colon-part comparison replaces
+  substring containment (no more double-part appends).
+- **[fix] evidence gate sentence-level**: rule-type detection splits
+  sentences ('.', '!', '?', newline) — second-sentence rules and NBSP
+  boundaries detected.
+- **[infra] test engine instability**: full-suite runs after repeated
+  failures leaked scratch DBs and degraded the engine — clean reset
+  (down -v) restores stability three times running; engine hygiene
+  between failed runs recorded.
+
+audit: G5 independent 5-angle (critical 0 · major 1 → fixed · minor 4 →
+fixed · record 4)
+
 ### v1.36.0 minor (2026-11-25) — extraction-contracts
 
 Fourth minor of the second release scope (release-scope2): area B

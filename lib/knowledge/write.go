@@ -52,10 +52,14 @@ func IsRuleTypeKnowledge(p map[string]any) (bool, string) {
 		}
 	}
 	summary, _ := p["summary"].(string)
-	low := strings.ToLower(summary)
-	for _, pat := range RuleEvidenceSummaryPatterns {
-		if strings.HasPrefix(low, pat) {
-			return true, "pattern:" + pat
+	for _, s := range strings.FieldsFunc(summary, func(r rune) bool {
+		return r == '.' || r == '!' || r == '?' || r == '\n'
+	}) {
+		low := strings.ToLower(strings.TrimSpace(s))
+		for _, pat := range RuleEvidenceSummaryPatterns {
+			if strings.HasPrefix(low, pat) {
+				return true, "pattern:" + pat
+			}
 		}
 	}
 	return false, ""

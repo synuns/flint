@@ -15,6 +15,7 @@
 | 1 | 배치 seen-dup — 같은 배치 내 중복 페이로드 스킵 | `if r.seen[h] {` |
 | 2 | content_hash 기존 행 조회 | `existsMeta, exists, err := lookupHash(r.ctx, r.st, h)` |
 | 3 | echo 어드바이저리 스캔 — duplicates/contradicts 보고 (기존 행 존재 시 단일 페이로드 `r.dupEcho`, 신규 분기 `r.echoCands`) | `scanEcho(r.ctx, r.st, n, r.th)` |
+| 3b | 신규 분기 echo 스캔 — 기존 행이 없을 때 Classify 직전에 스캔 고정 | `r.echoCands = scanEcho(r.ctx, r.st, n, r.th)` |
 | 4 | 상태 분류 — confidence 기반 pending/active | `store.Classify(r.kind, conf, r.floor)` |
 | 5 | 중복 NOOP 출력 — persist 단계에서 기존 행만 남으면 전체 배치는 emitDuplicate로 귀결 | `func (r *writeState) emitDuplicate()` |
 | 6 | 신규 추가 — InsertBatch | `InsertBatch(r.ctx, r.recs)` |

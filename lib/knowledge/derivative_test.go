@@ -5,18 +5,19 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/synuns/flint/lib/render"
 	"github.com/synuns/flint/lib/store"
 )
 
 const derivativeVaultSQLMark = "FROM vault_files"
 
-func derivativeFake(vaultHash string, hasRow bool) *fakeStore {
+func derivativeFake(vaultSummary string, hasRow bool) *fakeStore {
 	return &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, derivativeVaultSQLMark) {
 			if !hasRow {
 				return nil, nil
 			}
-			return [][]any{{vaultHash}}, nil
+			return [][]any{{vaultSummary}}, nil
 		}
 		return nil, nil
 	}}
@@ -28,26 +29,32 @@ func derivativeJSONL(topic, summary string) string {
 
 func TestDerivativeOfSourceDirect(t *testing.T) {
 	ctx := context.Background()
-	body := "demo source body"
-	st := derivativeFake(store.ContentHash(body), true)
+	vaultSummary := "demo source body"
+	runes := store.DefaultThresholds().VaultSummaryMaxRunes
+	st := derivativeFake(vaultSummary, true)
 
-	got, err := IsDerivativeOfSource(ctx, st, "demo-topic", body, "notes/demo-note.md")
+	got, err := IsDerivativeOfSource(ctx, st, "demo-topic", vaultSummary, "notes/demo-note.md", runes)
 	if err != nil || !got {
-		t.Fatalf("원본 해시 일치 → true, got=%v err=%v", got, err)
+		t.Fatalf("요약 일치 → true, got=%v err=%v", got, err)
 	}
 
-	got, err = IsDerivativeOfSource(ctx, st, "demo-topic", "reworded body", "notes/demo-note.md")
+	got, err = IsDerivativeOfSource(ctx, st, "demo-topic", "reworded body", "notes/demo-note.md", runes)
 	if err != nil || got {
-		t.Fatalf("해시 불일치 → false, got=%v err=%v", got, err)
+		t.Fatalf("요약 불일치 → false, got=%v err=%v", got, err)
 	}
 
-	got, err = IsDerivativeOfSource(ctx, st, "demo-topic", body, "")
+	got, err = IsDerivativeOfSource(ctx, st, "demo-topic", vaultSummary, "", runes)
 	if err != nil || got {
 		t.Fatalf("source_path 공백 → false, got=%v err=%v", got, err)
 	}
 
-	noRow := derivativeFake(store.ContentHash(body), false)
-	got, err = IsDerivativeOfSource(ctx, noRow, "demo-topic", body, "notes/missing.md")
+	got, err = IsDerivativeOfSource(ctx, st, "demo-topic", "", "notes/demo-note.md", runes)
+	if err != nil || got {
+		t.Fatalf("빈 요약 → false, got=%v err=%v", got, err)
+	}
+
+	noRow := derivativeFake(vaultSummary, false)
+	got, err = IsDerivativeOfSource(ctx, noRow, "demo-topic", vaultSummary, "notes/missing.md", runes)
 	if err != nil || got {
 		t.Fatalf("원본 없음 → false, got=%v err=%v", got, err)
 	}
@@ -56,7 +63,7 @@ func TestDerivativeOfSourceDirect(t *testing.T) {
 func TestDerivativeThreeBounds(t *testing.T) {
 	body := "demo source body"
 
-	match := derivativeFake(store.ContentHash(body), true)
+	match := derivativeFake(body, true)
 	out, code := run(t, match, []string{"knowledge"}, derivativeJSONL("dv-match", body))
 	if code != 0 {
 		t.Fatalf("exit=%d, want 0; out=%s", code, out)
@@ -88,7 +95,7 @@ func TestDerivativeThreeBounds(t *testing.T) {
 		t.Fatalf("해시 불일치를 파생 오분류: tags=%q", tags)
 	}
 
-	absent := derivativeFake(store.ContentHash(body), false)
+	absent := derivativeFake(body, false)
 	out, code = run(t, absent, []string{"knowledge"}, derivativeJSONL("dv-absent", body))
 	if code != 0 {
 		t.Fatalf("exit=%d, want 0; out=%s", code, out)
@@ -104,7 +111,7 @@ func TestDerivativeThreeBounds(t *testing.T) {
 
 func TestDerivativeNoopBoundary(t *testing.T) {
 	body := "demo source body"
-	f := derivativeFake(store.ContentHash(body), true)
+	f := derivativeFake(body, true)
 	f.exists = true
 
 	out, code := run(t, f, []string{"knowledge"}, derivativeJSONL("dv-noop", body))
@@ -152,7 +159,7 @@ func TestDerivativeCost(t *testing.T) {
 
 func TestDerivativeBatchedTagged(t *testing.T) {
 	body := "demo source body"
-	f := derivativeFake(store.ContentHash(body), true)
+	f := derivativeFake(body, true)
 	jsonl := derivativeJSONL("dv-batch-a", body) + "\n" +
 		`{"topic":"dv-batch-b","summary":"independent body","confidence":0.8,"source_path":"notes/demo-note.md"}`
 
@@ -174,5 +181,78 @@ func TestDerivativeBatchedTagged(t *testing.T) {
 	}
 	if tagged != 1 || untagged != 1 {
 		t.Fatalf("배치 줄별 판정 태그=%d·일반=%d, want 1·1", tagged, untagged)
+	}
+}
+
+func TestDerivativeRealShapeSummaryMatch(t *testing.T) {
+	ctx := context.Background()
+	runes := store.DefaultThresholds().VaultSummaryMaxRunes
+	vaultSummary := "The demo source note opens with this paragraph."
+
+	st := derivativeFake(vaultSummary, true)
+	got, err := IsDerivativeOfSource(ctx, st, "demo-topic", vaultSummary, "notes/demo-note.md", runes)
+	if err != nil || !got {
+		t.Fatalf("본문 첫 문단 요약 일치 → true, got=%v err=%v", got, err)
+	}
+
+	f := derivativeFake(vaultSummary, true)
+	out, code := run(t, f, []string{"knowledge"}, derivativeJSONL("dv-real-shape", vaultSummary))
+	if code != 0 {
+		t.Fatalf("exit=%d, want 0; out=%s", code, out)
+	}
+	if len(f.inserted) != 1 {
+		t.Fatalf("실물 형상 일치 시 저장 1건: %d", len(f.inserted))
+	}
+	tags, _ := f.inserted[0]["tags"].(string)
+	if !strings.Contains(tags, ":"+DerivativeTag+":") {
+		t.Fatalf("본문 요약 일치 시 파생 태그 누락: tags=%q", tags)
+	}
+
+	other := derivativeFake(vaultSummary, true)
+	out, code = run(t, other, []string{"knowledge"},
+		derivativeJSONL("dv-real-other", "A rewritten demo abstract unrelated to the note"))
+	if code != 0 {
+		t.Fatalf("exit=%d, want 0; out=%s", code, out)
+	}
+	if tags, _ := other.inserted[0]["tags"].(string); strings.Contains(tags, DerivativeTag) {
+		t.Fatalf("다른 요약을 파생 오분류: tags=%q", tags)
+	}
+}
+
+func TestDerivativeSummaryTruncationAligned(t *testing.T) {
+	ctx := context.Background()
+	runes := store.DefaultThresholds().VaultSummaryMaxRunes
+	long := strings.Repeat("데모 원본 문장이다. ", 30)
+	vaultSummary := render.TruncateRunes(long, runes)
+	if len([]rune(vaultSummary)) != runes {
+		t.Fatalf("픽스처 절단 검증: %d runes, want %d", len([]rune(vaultSummary)), runes)
+	}
+
+	st := derivativeFake(vaultSummary, true)
+	got, err := IsDerivativeOfSource(ctx, st, "demo-topic", long, "notes/demo-note.md", runes)
+	if err != nil || !got {
+		t.Fatalf("절단 길이 정렬 시 전문 요약 일치 → true, got=%v err=%v", got, err)
+	}
+
+	got, err = IsDerivativeOfSource(ctx, st, "demo-topic", "completely unrelated demo content", "notes/demo-note.md", runes)
+	if err != nil || got {
+		t.Fatalf("무관한 내용 → false, got=%v err=%v", got, err)
+	}
+}
+
+func TestDerivativeTagAppendNoCollision(t *testing.T) {
+	cases := []struct{ tags, want string }{
+		{":derivative:source:", ":derivative:source:"},
+		{":derivative:playbook:source:", ":derivative:playbook:source:"},
+		{":source:playbook:", ":derivative:playbook:source:"},
+		{":derivative:playbook:", ":derivative:playbook:source:"},
+		{":playbook:", ":derivative:playbook:source:"},
+		{"", ":derivative:source:"},
+		{":source:", ":derivative:source:"},
+	}
+	for _, c := range cases {
+		if got := appendNormalizedTag(c.tags, DerivativeTag); got != c.want {
+			t.Fatalf("appendNormalizedTag(%q, %q) = %q, want %q", c.tags, DerivativeTag, got, c.want)
+		}
 	}
 }
