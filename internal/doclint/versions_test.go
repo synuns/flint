@@ -942,8 +942,8 @@ func pinnedExamples(doc string) []string {
 
 func TestContractsExamplesNotPinned(t *testing.T) {
 	files, err := filepath.Glob("../../docs/contracts/*.md")
-	if err != nil || len(files) != 8 {
-		t.Fatalf("contracts/*.md 8종 탐색 실패: %v %v", files, err)
+	if err != nil || len(files) != 9 {
+		t.Fatalf("contracts/*.md 9종 탐색 실패: %v %v", files, err)
 	}
 	for _, f := range files {
 		for _, span := range pinnedExamples(docStr(t, f)) {

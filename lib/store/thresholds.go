@@ -6,6 +6,7 @@ import (
 	"math"
 	"reflect"
 	"strconv"
+	"strings"
 )
 
 type Thresholds struct {
@@ -462,4 +463,74 @@ func parseFloatNonNegative(val any, def float64, key string) float64 {
 		return def
 	}
 	return f
+}
+
+var tierCapKeys = []string{"manual", "hook", "import"}
+
+var tierCapDefaults = map[string]float64{
+	"manual": 1.0,
+	"hook":   0.9,
+	"import": 0.8,
+}
+
+const tierCapKeyPrefix = "tier_cap_"
+
+func TierCapKeys() []string {
+	return append([]string(nil), tierCapKeys...)
+}
+
+func DefaultTierCaps() map[string]float64 {
+	out := make(map[string]float64, len(tierCapKeys))
+	for _, k := range tierCapKeys {
+		out[k] = tierCapDefaults[k]
+	}
+	return out
+}
+
+func ParseTierCaps(rows [][2]any) map[string]float64 {
+	out := DefaultTierCaps()
+	registered := map[string]bool{}
+	for _, k := range tierCapKeys {
+		registered[k] = true
+	}
+	for _, row := range rows {
+		key, ok := row[0].(string)
+		if !ok || !strings.HasPrefix(key, tierCapKeyPrefix) {
+			continue
+		}
+		channel := strings.TrimPrefix(key, tierCapKeyPrefix)
+		if !registered[channel] {
+			continue
+		}
+		out[channel] = parseFloatOrDefault(row[1], tierCapDefaults[channel], key)
+	}
+	return out
+}
+
+func TierCapFor(caps map[string]float64, channel string) (float64, bool) {
+	v, ok := caps[channel]
+	return v, ok
+}
+
+func TierChannel(origin, sourcePath string) string {
+	o := strings.ToLower(strings.TrimSpace(origin))
+	switch {
+	case strings.HasPrefix(o, "import:"):
+		return "import"
+	case o == "hook":
+		return "hook"
+	case strings.TrimSpace(sourcePath) != "":
+		return "import"
+	default:
+		return "manual"
+	}
+}
+
+func CheckTierCap(caps map[string]float64, channel string, confidence float64) error {
+	cap, ok := caps[channel]
+	if !ok || confidence <= cap {
+		return nil
+	}
+	return &SchemaError{Field: "confidence",
+		Expect: fmt.Sprintf("tier cap %s <= %v — lower only", channel, cap)}
 }

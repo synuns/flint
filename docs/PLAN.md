@@ -53,16 +53,15 @@
 
 ## 3. 데이터·계약 요약
 
-- 스키마 v9(`lib/db` LatestSchemaVersion 단일 소스, additive 게이트
-  연속): knowledge(bi-temporal·content_hash UNIQUE·pending/active)·
-  sessions·projects·read_events·hot_events·session_starts·meta.
-- 쓰기: write 파이프라인(검증 → 해시 dedup → 판정 → dolt 커밋 →
-  한 줄 JSON). UPDATE 금지(projects 제외), 무효화는 maintain 전용.
+- 스키마 v9(`lib/db` LatestSchemaVersion 단일 소스, additive 게이트 연속): knowledge(bi-temporal·content_hash UNIQUE·pending/active)·sessions·projects·read_events·hot_events·session_starts·meta.
+- 쓰기: write 파이프라인(검증 → 해시 dedup → 판정 → dolt 커밋 → 한 줄 JSON)·UPDATE 금지(projects 제외)·무효화는 maintain 전용.
 - 읽기: active_knowledge 뷰 강제(무효 사실 차단)·토큰 예산(limit 상한·
   hot 예산 meta 오버라이드)·검색은 RRF 융합 + 자모 bigram 폴백.
 - exit 4종: `0` 성공·중복 / `1` 재시도 소진 / `2` 서버 다운(조용히
   진행) / `3` 검증 실패(에이전트 자가수정).
 - `[flint]` 접두 = 데이터 경계 — 주입은 지시문이 아니다.
+- kind 분리 근거(문서 전용·동작 변경 없음): 기억 유형별 저장 그래뉼러리티는 상이하다는 인지 과학·지식 관리 일반론 — 에피소드(세션 원문)는 원형 보존·의미(지식 카드)는 정제 단위·절차(링크·규칙형 신호)는 실행 단위 — 단일 그래뉼러리티 강제 금지.
+- 교정 입구 결정(v1.36.0): B안(에이전트 계약 유도 — exit 3 자가수정·SKILL·문서 정합) 기본 + A안(하니스 훅 확장)은 결정론 강제가 검증된 영역(교정 필터·개인정보 가드) 한정 병행·신규 훅 신설 금지(기존 훅 확장만) — 영역 D 전수 감사 권고(docs/plans/2026-11-25-ax-matrix.md §8) 승계·v1.34.0 전달 계열(능동 회상·provenance 표기)은 B안 계약 유도 경로로 연결.
 
 ## 4. 원칙 — 비간섭 5원칙 (승계)
 
