@@ -4,10 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 func TestSlowV15GateDedupeUniqueIndex(t *testing.T) {
@@ -62,6 +67,93 @@ func TestSlowV15GateDedupeUniqueIndex(t *testing.T) {
 	}
 }
 
+func isSequencingUniqueViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) {
+		return false
+	}
+	if pgErr.Code != "XX000" {
+		return false
+	}
+	named := pgErr.ConstraintName == "uq_knowledge_links_triple" ||
+		strings.Contains(pgErr.Message, "uq_knowledge_links_triple")
+	return named && strings.Contains(pgErr.Message, "transaction sequencing")
+}
+
+func retryParallelInsert(ctx context.Context, r *Repo, query string, args ...any) (int, error) {
+	const attempts = 4
+	var err error
+	tries := 0
+	for i := 0; i < attempts; i++ {
+		tries++
+		if _, err = r.pool.Exec(ctx, query, args...); err == nil || !isSequencingUniqueViolation(err) {
+			return tries, err
+		}
+		time.Sleep(time.Duration(i+1) * 25 * time.Millisecond)
+	}
+	return tries, err
+}
+
+func runParallelIdempotentInsert(ctx context.Context, r *Repo, fromID, toID int) ([]error, int) {
+	var wg sync.WaitGroup
+	errs := make([]error, 5)
+	var retries atomic.Int64
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			t, err := retryParallelInsert(ctx, r,
+				`INSERT INTO knowledge_links (from_id, to_id, relation)
+				 VALUES ($1, $2, $3)
+				 ON CONFLICT (from_id, to_id, relation) DO NOTHING`,
+				fromID, toID, "refines")
+			errs[i] = err
+			retries.Add(int64(t) - 1)
+		}(i)
+	}
+	wg.Wait()
+	return errs, int(retries.Load())
+}
+
+func TestSequencingViolationClassification(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"커밋 시퀀싱 유니크 위반(XX000·uq triple·sequencing)은 재시도 대상", &pgconn.PgError{
+			Code: "XX000",
+			Message: "Committing this transaction resulted in a working set with constraint violations ... " +
+				"Unique Key Constraint Violation, Name: uq_knowledge_links_triple. " +
+				"This constraint violation may be the result of a previous merge or the result of transaction sequencing",
+		}, true},
+		{"ConstraintName 필드 매칭도 재시도 대상", &pgconn.PgError{
+			Code:           "XX000",
+			Message:        "constraint violations ... the result of transaction sequencing",
+			ConstraintName: "uq_knowledge_links_triple",
+		}, true},
+		{"XX000이라도 uq triple이 아니면 전파", &pgconn.PgError{
+			Code: "XX000", Message: "Unique Key Constraint Violation, Name: other_key — transaction sequencing",
+		}, false},
+		{"XX000이라도 sequencing 근거 없으면 전파(마스킹 금지)", &pgconn.PgError{
+			Code:           "XX000",
+			Message:        "Unique Key Constraint Violation, Name: uq_knowledge_links_triple (2 row(s))",
+			ConstraintName: "uq_knowledge_links_triple",
+		}, false},
+		{"23505 일반 unique 위반은 전파", &pgconn.PgError{
+			Code: "23505", Message: `duplicate key value violates unique constraint "uq_knowledge_links_triple"`,
+		}, false},
+		{"pgconn.PgError 외 오류는 전파", fmt.Errorf("plain error"), false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isSequencingUniqueViolation(tc.err); got != tc.want {
+				t.Fatalf("isSequencingUniqueViolation = %v, want %v (err=%v)", got, tc.want, tc.err)
+			}
+		})
+	}
+}
+
 func TestSlowParallelLinkInsertSingleRowV1201(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
@@ -71,24 +163,17 @@ func TestSlowParallelLinkInsertSingleRowV1201(t *testing.T) {
 	if err != nil {
 		t.Fatalf("InsertBatch: %v", err)
 	}
-	var wg sync.WaitGroup
-	errs := make([]error, 5)
-	for i := 0; i < 5; i++ {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			_, errs[i] = r.pool.Exec(ctx,
-				`INSERT INTO knowledge_links (from_id, to_id, relation)
-				 VALUES ($1, $2, $3)
-				 ON CONFLICT (from_id, to_id, relation) DO NOTHING`,
-				ids[0], ids[1], "refines")
-		}(i)
-	}
-	wg.Wait()
+	errs, retries := runParallelIdempotentInsert(ctx, r, ids[0], ids[1])
 	for i, err := range errs {
 		if err != nil {
+			if isSequencingUniqueViolation(err) {
+				t.Fatalf("병렬 INSERT[%d]: 커밋 시퀀싱 XX000 재시도 소진(4회): %v", i, err)
+			}
 			t.Fatalf("병렬 INSERT[%d]: %v", i, err)
 		}
+	}
+	if retries > 0 {
+		t.Logf("시퀀싱 경합 관측: 재시도 %d회 — 멱등 패자 재시도 계약 동작", retries)
 	}
 	var n int
 	if err := r.pool.QueryRow(ctx,
@@ -99,6 +184,61 @@ func TestSlowParallelLinkInsertSingleRowV1201(t *testing.T) {
 	if n != 1 {
 		t.Fatalf("동일 링크 행=%d want 1 (ON CONFLICT 병렬 멱등)", n)
 	}
+}
+
+func TestSlowSuiteSerialGreen(t *testing.T) {
+	loops := 100
+	if v := os.Getenv("FLINT_SLOW_LOOPS"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 {
+			t.Fatalf("FLINT_SLOW_LOOPS=%q: 양의 정수 필요", v)
+		}
+		loops = n
+	}
+	r := newTestRepo(t)
+	ctx := context.Background()
+	rounds := make([]int, 0, loops)
+	for round := 0; round < loops; round++ {
+		ids, err := r.InsertBatch(ctx, []map[string]any{
+			knowledgeRec(fmt.Sprintf("v1201-dist-a-%04d", round)),
+			knowledgeRec(fmt.Sprintf("v1201-dist-b-%04d", round)),
+		})
+		if err != nil {
+			t.Fatalf("round %d InsertBatch: %v", round, err)
+		}
+		errs, retries := runParallelIdempotentInsert(ctx, r, ids[0], ids[1])
+		for i, err := range errs {
+			if err != nil {
+				t.Fatalf("round %d 병렬 INSERT[%d]: %v (커밋 시퀀싱 재시도 소진 포함 — 100회 루프 분포 red)", round, i, err)
+			}
+		}
+		rounds = append(rounds, retries)
+		var n int
+		if err := r.pool.QueryRow(ctx,
+			`SELECT count(*) FROM knowledge_links WHERE from_id = $1 AND to_id = $2 AND relation = 'refines'`,
+			ids[0], ids[1]).Scan(&n); err != nil {
+			t.Fatalf("round %d 링크 수 조회: %v", round, err)
+		}
+		if n != 1 {
+			t.Fatalf("round %d 동일 링크 행=%d want 1 (병렬 멱등)", round, n)
+		}
+		if _, err := r.pool.Exec(ctx,
+			`DELETE FROM knowledge_links WHERE from_id = $1 AND to_id = $2 AND relation = 'refines'`,
+			ids[0], ids[1]); err != nil {
+			t.Fatalf("round %d 링크 정리: %v", round, err)
+		}
+		if _, err := r.pool.Exec(ctx,
+			fmt.Sprintf(`DELETE FROM knowledge WHERE id IN (%d, %d)`, ids[0], ids[1])); err != nil {
+			t.Fatalf("round %d 지식 행 정리: %v", round, err)
+		}
+	}
+	contentious := 0
+	for _, retries := range rounds {
+		if retries > 0 {
+			contentious++
+		}
+	}
+	t.Logf("분포 수집(%d회 루프): 시퀀싱 경합 라운드 %d/%d — red 0건", loops, contentious, loops)
 }
 
 func TestSlowSupersedeCrossRaceV1201(t *testing.T) {
