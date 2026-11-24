@@ -6,6 +6,17 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.32.4 patch (2026-11-24) — setup-exemption-clarity
+
+R131 finding (1, low): the blanket "no `--json` route" phrasing was
+false for setup.
+
+- **[low] setup exemption stated precisely**: QUICKSTART and both
+  READMEs now say the exempt commands keep the exemption on every route
+  — setup by design (its `--json` mode is one-shot), while tuning ·
+  maintain · export · report have no `--json` flag. RUNBOOK was already
+  accurate.
+
 ### v1.32.3 patch (2026-11-24) — doc-scope-narrow
 
 R130 finding (1, low): documentation wording narrowed.

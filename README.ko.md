@@ -26,7 +26,7 @@
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 하네스">
   <a href="https://github.com/synuns/flint/actions/workflows/ci.yml"><img src="https://github.com/synuns/flint/actions/workflows/ci.yml/badge.svg" alt="CI 상태"></a>
-  <img src="https://img.shields.io/badge/release-v1.32.3-blue" alt="v1.32.3">
+  <img src="https://img.shields.io/badge/release-v1.32.4-blue" alt="v1.32.4">
 </p>
 <p align="center">
   <sub>8종은 자동 등록(A급) 하니스 기준 — 전체 지원 목록은 아래 <a href="#에이전트--어댑터">어댑터 표</a>에 있습니다.</sub>
@@ -48,7 +48,8 @@ flint는 이걸 바꿉니다. 에이전트가 무언가 배우면 — 결정, �
 
 사람은 Obsidian에 노트를 남깁니다. 에이전트는 flint에 기억을 남깁니다 — 불과 도구를 얻기 위해 두드리는 부싯돌처럼.
 
-> v1.32.3 · r130 패치 — --json 상한 문장을 실제 이중 모드 명령(read·pending)으로 한정·나머지 면제 명령은 --json 경로 없음 · [전체 변경 이력](docs/HISTORY.md)
+> v1.32.4 · r131 패치 — setup 면제 정확 서술(설계상 모든 경로 면제·--json 모드 포함)·통칭 문구 정정(QUICKSTART·README 양어) · [전체 변경 이력](docs/HISTORY.md)
+> v1.32.3 · r130 패치 — --json 상한 문장을 실제 이중 모드 명령(read·pending)으로 한정·나머지 면제 명령은 모든 경로에서 면제 유지(setup은 설계상 — --json 모드도 1회성·tuning·maintain·export·report는 --json 플래그 없음) · [전체 변경 이력](docs/HISTORY.md)
 > v1.32.2 · r129 패치 — 이중 모드 명령(read·pending)의 300s 면제는 대화형 호출만: --json 경로(MCP flint_read·스킬 스크립트)는 행 엔진(hung engine) 가드 유지·양 경로 Run 수준 probe 테스트·래핑 데드라인 테스트 실제 래핑·RUNBOOK 모순 정정 · [전체 변경 이력](docs/HISTORY.md)
 > v1.32.1 · r128 패치 — QueryOnce가 래핑된 DeadlineExceeded도 영구 오류로(v1.32.0 상한이 죽은 ctx를 재시도하던 것)·사용자 대기 경로(TUI 폼·setup 다운로드) 300s 상한 면제(hooks와 동일)·FLINT_COMMAND_TIMEOUT QUICKSTART·RUNBOOK 문서화·릴리스 문서 수치 정정·분할 문자열 게이트 우회는 수용 선언(방언 게이트가 임계값 키까지 오탐 — 패턴 확장은 후속) · [전체 변경 이력](docs/HISTORY.md)
 > v1.32.0 · 구조 청산 — 무기한 블록 자리에 context 데드라인(명령 상한 300s·FLINT_COMMAND_TIMEOUT 오버라이드·hooks 세션 경로는 무제한 유지·서비스 매니저 출력 조회 5s)·MCP Serve 초과행 재귀 대신 루프 재프레이밍(초과 행 통째로 스킵 — 잔여 바이트가 요청으로 재해석되던 결함 제거)·QueryOnce 영구 오류(context.Canceled) 즉시 반환(재시도는 일시 오류만·호출부 116곳 무변경)·thresholds 단일 소스(thresholdMetas 1행 편집이 reflect로 기본값·파싱·fallback 생성)·maintain 2,190→446줄 등록 슬라이스+모드 파일 6종(핸들러 바이트 동일 이동)·doctor 2,050→345+8파일(체크 7종+hookfix·등록 테이블 유지)·RunWrite 535→19줄(parse→validate→dedupe→persist→render)·스키마 게이트 1단계(lib/db 대표 쿼리 3종+TestSchemaSealedOutsideDB)·errLine 단일 경로+printErr 헬퍼·seam 규칙 문서화(docs/contracts/seam.md) · [전체 변경 이력](docs/HISTORY.md)
