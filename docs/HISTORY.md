@@ -6,6 +6,41 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.33.0 minor (2026-11-24) — serve-dashboard-freshness
+
+First minor of the second release scope (release-scope2): area A agentic
+dashboard + area F observation health. No schema change (v19).
+
+- **[feature] `flint report --serve`**: localhost-only HTTP view over the
+  same diagnose source as report — `/api/diagnose.json` and
+  `/api/sections/<area>.json` (5 areas), ETag conditional revalidation,
+  per-request engine connection, `--port` flag (default 7480, +1 retry
+  ×5), embedded HTML skeleton with `--flint-*` CSS token slots (hand
+  tokens — human-in-the-loop design track pending), manual refresh with
+  opt-in `?poll=<s>`.
+- **[feature] area F doctor checks (+5)**: hook-path resolution (hook
+  shell resolvability, separate from registration), DSN failure
+  classification (engine down vs malformed, masked detail), collection
+  freshness (`collection_freshness_hours`, default 72, range 6..168),
+  plugin-CLI version gap (`plugin_version_gap_minors`, default 2), and
+  service remnant detection (launchd/systemd user). Detect-and-advise
+  only — no auto-repair.
+- **[feature] METRICS raw-data catalog (§7)**: full counter-key list
+  derived from the MeteringKindRegistry with collection conditions and a
+  retention column; 5 stale keys corrected (correction_preference,
+  correction_fact, merge_audit_pairs, recall_audit_listed,
+  recall_audit_disposed); doclint registry-sync gate added.
+- **[deprecation] `report --html/--out`**: the via-path keeps working
+  with a migration notice pointing to `--serve`; removal timing is a
+  tracked open item.
+- **[contract]** PLAN "2 views + serve — same diagnose source";
+  QUICKSTART serve surface and 29-check counts; thresholds keys
+  registered with the frozen guard.
+
+spec: docs/plans/2026-11-24-flint-v1.33.0.spec.md (G2 APPROVED) · plan:
+docs/plans/2026-11-24-flint-v1.33.0.md · scope:
+docs/plans/2026-11-24-flint-release-scope2.md §2
+
 ### v1.32.4 patch (2026-11-24) — setup-exemption-clarity
 
 R131 finding (1, low): the blanket "no `--json` route" phrasing was
