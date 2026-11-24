@@ -123,3 +123,12 @@ For audit response, contamination handling, recovery drills, and backup
 retention procedures, see [docs/RUNBOOK.md](RUNBOOK.md) — §11 also covers
 the engine image upgrade procedure and the manual conversion path for
 pre-v1.30.0 installs.
+
+## Environment variables
+
+- `FLINT_COMMAND_TIMEOUT` — per-command deadline in seconds (default 300;
+  `0` disables). Hooks (session-start · session-end · done · compact ·
+  nudge) and interactive TUI commands (read · tuning · pending · maintain ·
+  export · report · setup) are never capped — they wait on the user.
+  Applies to one-shot commands (`doctor`, `write`, `hot`, ...) so a hung
+  engine cannot block a session indefinitely.

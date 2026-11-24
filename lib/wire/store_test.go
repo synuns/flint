@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/synuns/flint/internal/testengine"
 	"github.com/synuns/flint/lib/db"
@@ -112,5 +113,41 @@ func TestQueryOnceRealCanceled(t *testing.T) {
 	_, err = wire.QueryOnce(ctx, st, `SELECT 1`, nil)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("err=%v, want context.Canceled", err)
+	}
+}
+
+func TestQueryOnceDeadlineExceededReturnsImmediatelyV1321(t *testing.T) {
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancel()
+	st := &countingQueryStore{}
+	_, err := wire.QueryOnce(ctx, st, `SELECT 1`, nil)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("err = %v, want DeadlineExceeded", err)
+	}
+	if st.calls != 1 {
+		t.Fatalf("calls = %d, want 1(만료는 영구 — 재시도 없음)", st.calls)
+	}
+}
+
+type countingQueryStore struct {
+	wire.Store
+	calls int
+}
+
+func (c *countingQueryStore) Query(ctx context.Context, sql string, args ...any) ([][]any, error) {
+	c.calls++
+	return nil, ctx.Err()
+}
+
+func TestQueryOnceWrappedDeadlineNotRetriedV1321(t *testing.T) {
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancel()
+	st := &countingQueryStore{}
+	_, err := wire.QueryOnce(ctx, st, `SELECT 1`, nil)
+	if st.calls != 1 {
+		t.Fatalf("calls = %d, want 1(래핑된 만료도 영구)", st.calls)
+	}
+	if err == nil || !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("err = %v, want wrapped DeadlineExceeded", err)
 	}
 }

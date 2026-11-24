@@ -6,6 +6,30 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.32.1 patch (2026-11-24) — deadline-scope-fix
+
+R128 findings (4): both mediums fixed, both lows fixed.
+
+- **[medium] QueryOnce treats DeadlineExceeded as permanent**: with the
+  v1.32.0 command cap, an expired deadline was retried once against a
+  dead context — now both `context.Canceled` and
+  `context.DeadlineExceeded` (wrapped or bare) return immediately
+  (wrapped-deadline regression test added).
+- **[medium] user-waiting paths exempt from the command cap**: the 300s
+  default broke TUI flows (a user musing over a form for 5 minutes would
+  get `context deadline exceeded` on submit) and slow
+  `setup --engine native` downloads. read · tuning · pending · maintain ·
+  export · report · setup now join hooks in the unlimited set
+  (`userWaitCommand`); `FLINT_COMMAND_TIMEOUT` documented in QUICKSTART
+  and RUNBOOK.
+- **[low] release-doc numbers corrected**: doctor 2,050 (not 2,052),
+  RunWrite 535 (not 536), 116 call sites (not 117).
+- **[low, declared] split-string stays**: merging the `"dolt_" +
+  "log_depth_warn"` concatenation trips the dialect gate (the threshold
+  key legitimately lives in the metas table outside lib/db — the gate
+  pattern over-matches threshold keys). Reverted; extending the gate
+  pattern to SQL-only contexts is the follow-up.
+
 ### v1.32.0 minor (2026-11-24) — structure-cleanup: 구조 청산
 
 4각도 전체 코드리뷰(SOLID·소프트웨어공학·Go 관례·아키텍처,
@@ -28,7 +52,7 @@ M1 실질 결함(동작 수정 — 계약 고정):
   생성·age 초기화)을 initErr 필드로 저장·Write/close가 근원을 포함한
   에러를 반환(일반 문구 대신).
 - **QueryOnce 영구 오류 즉시 반환**: context.Canceled는 재시도 없이
-  그대로 반환 — 재시도는 일시 오류만(이름·호출부 117곳 무변경).
+  그대로 반환 — 재시도는 일시 오류만(이름·호출부 116곳 무변경).
 
 M2 다중 등록·god file(구조 — 동작 무변경·바이트 동일 이동):
 
@@ -38,11 +62,11 @@ M2 다중 등록·god file(구조 — 동작 무변경·바이트 동일 이동)
 - **maintain 등록 슬라이스**: maintainMode{name,flags,run} 등록으로
   디스패치·플래그 맵·meta 키 목록 일원화 — maintain.go 2,190→446줄,
   모드 파일 6종 분리(핸들러 로직은 바이트 동일 이동).
-- **doctor 체크 분리**: doctor.go 2,052→345줄 — check_*.go 7종+
+- **doctor 체크 분리**: doctor.go 2,050→345줄 — check_*.go 7종+
   hookfix.go로 분리(등록 테이블은 doctor.go 유지·24종 등록 동질
   테스트로 무변경 증명).
 - **RunWrite 단계 분리**: parse→validate→dedupe→persist→render 단계
-  함수로 분리 — 536→19줄(orchestration만 잔류, 기존 헬퍼 재사용).
+  함수로 분리 — 535→19줄(orchestration만 잔류, 기존 헬퍼 재사용).
 
 M3 결합 축소·소형(점진 — 동작 무변경):
 

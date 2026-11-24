@@ -24,7 +24,7 @@ type Store interface {
 
 func QueryOnce(ctx context.Context, st Store, sql string, args []any) ([][]any, error) {
 	rows, err := st.Query(ctx, sql, args...)
-	if err == nil || errors.Is(err, context.Canceled) {
+	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return rows, err
 	}
 	rows, err = st.Query(ctx, sql, args...)
