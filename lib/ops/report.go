@@ -6,9 +6,12 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"os"
+	"os/signal"
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"golang.org/x/sync/errgroup"
@@ -177,6 +180,45 @@ type TrendPoint struct {
 
 const reportSessionLookback = 24 * time.Hour
 
+var serveNewStoreFn func(context.Context) (wire.Store, error)
+
+func SetServeNewStoreFn(fn func(context.Context) (wire.Store, error)) { serveNewStoreFn = fn }
+
+func serveStoreFactory() func(context.Context) (wire.Store, error) {
+	return serveNewStoreFn
+}
+
+func runReportServe(ctx context.Context, st wire.Store, days, port int, stdout io.Writer) int {
+	factory := serveStoreFactory()
+	if factory == nil {
+		fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("report: --serve store factory not injected")))
+		return 3
+	}
+	s := NewServeServer(factory, days, port)
+	if s.err != nil {
+		fmt.Fprintln(stdout, wire.ErrLine(s.err))
+		return 1
+	}
+	defer s.Close()
+	fmt.Fprintf(stdout, "flint report --serve: http://127.0.0.1:%d (Ctrl-C to stop)\n", s.Port)
+	fmt.Fprintln(stdout, "  GET / · GET /api/diagnose.json · GET /api/sections/<area>.json")
+	serveCtx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	done := make(chan error, 1)
+	go func() { done <- s.ListenAndServe() }()
+	select {
+	case <-serveCtx.Done():
+		s.Close()
+		return 0
+	case err := <-done:
+		if err != nil {
+			fmt.Fprintln(stdout, wire.ErrLine(err))
+			return 1
+		}
+		return 0
+	}
+}
+
 func DupPct(days []ReportDay) int {
 	var write, dup int
 	for _, d := range days {
@@ -208,8 +250,10 @@ func RunReport(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 			{Name: "--text"},
 			{Name: "--out", Value: true},
 			{Name: "--days", Value: true},
+			{Name: "--serve"},
+			{Name: "--port", Value: true},
 		},
-		Usage: i18n.T("usage.report.args"),
+		Usage: i18n.T("usage.report.args") + " [--serve] [--port N]",
 	})
 	if perr != nil {
 		fmt.Fprintln(stdout, wire.ErrLine(perr))
@@ -218,8 +262,24 @@ func RunReport(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 	days := reportDaysDefault
 	htmlOut := ""
 	textOut := res.Given("--text")
+	serveOn := false
+	servePort := 0
+	portGiven := false
 	for _, o := range res.AllOccs() {
 		switch o.Name {
+		case "--serve":
+			serveOn = true
+		case "--port":
+			if !o.HasValue {
+				fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("report: --port requires a number — %s", i18n.T("usage.report.args")+" [--serve] [--port N]")))
+				return 3
+			}
+			n, err := strconv.Atoi(o.Value)
+			if err != nil || n < 1 || n > 65535 {
+				fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("report: invalid port %q — "+i18n.T("usage.report.args")+" [--serve] [--port N]", o.Value)))
+				return 3
+			}
+			servePort, portGiven = n, true
 		case "--html":
 			htmlOut = "report.html"
 		case "--out":
@@ -256,7 +316,22 @@ func RunReport(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 		days = max
 	}
 
+	if serveOn && htmlOut != "" {
+		fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("%s", "report: --serve and --html/--out are exclusive — "+i18n.T("usage.report.args")+" [--serve] [--port N]")))
+		return 3
+	}
+	if portGiven && !serveOn {
+		fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("%s", "report: --port requires --serve — "+i18n.T("usage.report.args")+" [--serve] [--port N]")))
+		return 3
+	}
+	if serveOn {
+		return runReportServe(ctx, st, days, servePort, stdout)
+	}
+
 	if htmlOut != "" {
+		if res.Given("--out") {
+			fmt.Fprintln(stdout, DeprecationNotice("--out"))
+		}
 		return runReportHTML(ctx, st, days, htmlOut, stdout)
 	}
 	out := ReportOutput{Days: make([]ReportDay, 0, days)}

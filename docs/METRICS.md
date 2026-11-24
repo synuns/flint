@@ -390,8 +390,8 @@ never blocks operation.
 ### diagnose metering_silent — coverage (A5)
 
 The registry-vs-observed set difference (the Prometheus `absent()`
-convention): the unified observation-kind registry (24 keys — usage 10 ·
-curation 11 · bytes 3) minus the report window sums. Registered kinds
+convention): the unified observation-kind registry (29 keys — usage 10 ·
+curation 16 · bytes 3) minus the report window sums. Registered kinds
 with a zero total over the 30-day window (a code constant — no
 thresholds key, TUNING §2) are dead-wiring candidates, reported
 group-qualified ("usage:dup_mcp"). Informational guidance only — a
@@ -399,6 +399,13 @@ legitimately unused surface is also silent; windows shorter than 30
 days defer (the curation·maintain paths fire at most once a day). The
 3 curation kinds report does not carry (correction_approved·
 gap_approved·survived_sessions) are excluded as unjudgeable here.
+The initial 24-key account grew with the write-path and maintain-path
+metering — correction_preference · correction_fact (write-time
+correction classification) · merge_audit_pairs (maintain --dup merged
+pairs) · recall_audit_listed · recall_audit_disposed (maintain
+--recall-audit listing and disposal) are registry members since their
+introduction and are subject to the same dead-wiring check (the full
+inventory: §7).
 
 ## 4.10 Autonomous tuning shadow (schema v18, v1.23.0)
 
@@ -471,3 +478,59 @@ phase with the independent-metric pair, not here.
   separation · Mem0 evaluation conventions (same-condition comparison) ·
   the offline-online gap convention (floor, not ceiling) · IR implicit
   feedback (return→usage chain).
+
+## 7. Raw data source master list (v1.33.0)
+
+The full inventory of the raw data sources flint records. The truth
+source is the code registry (`lib/db/usage.go` MeteringKindRegistry) —
+this section is a derivative, kept in sync by
+`internal/doclint` (TestMetricsRegistrySync: a registry kind missing
+from — or an unknown kind present in — the table fails the gate).
+Collection conditions describe code paths and registry counts only; no
+measured operational numbers are cited (§5.4).
+
+### Metering kinds (daily flat counters)
+
+| kind | collection condition | retention |
+|---|---|---|
+| `usage:write` | knowledge write path (RecordUsageCount, source-qualified mirror key) | daily_retention_days (default 14) |
+| `usage:hot` | hot --full injection (hot.go) | daily_retention_days (default 14) |
+| `usage:read` | knowledge read path (read.go) | daily_retention_days (default 14) |
+| `usage:dup` | duplicate-blocked write (write.go dedup) | daily_retention_days (default 14) |
+| `usage:dup_hook` | dup mirror key — hook source | daily_retention_days (default 14) |
+| `usage:dup_manual` | dup mirror key — manual (cli) source | daily_retention_days (default 14) |
+| `usage:dup_mcp` | dup mirror key — mcp source | daily_retention_days (default 14) |
+| `usage:dup_correction` | dup mirror key — correction source | daily_retention_days (default 14) |
+| `usage:dup_gap` | dup mirror key — gap source | daily_retention_days (default 14) |
+| `usage:brief` | brief generation (brief.go) | daily_retention_days (default 14) |
+| `curation:approve_done` | approve path — entry approved (BumpCurationCounter) | daily_retention_days (default 14) |
+| `curation:approve_not_found` | approve path — pending entry not found | daily_retention_days (default 14) |
+| `curation:approve_supersede_err` | approve path — supersede error | daily_retention_days (default 14) |
+| `curation:maintain_supersede` | maintain path — supersede (maintain_supersede.go) | daily_retention_days (default 14) |
+| `curation:maintain_expire` | maintain path — stale expire (maintain_stale.go) | daily_retention_days (default 14) |
+| `curation:maintain_prune_rows` | maintain path — prune deleted rows | daily_retention_days (default 14) |
+| `curation:import_added` | import path — rows imported (import.go) | daily_retention_days (default 14) |
+| `curation:import_skipped` | import path — rows skipped | daily_retention_days (default 14) |
+| `curation:correction_approved` | approve path — correction-kind resolution | daily_retention_days (default 14) |
+| `curation:correction_preference` | write path — preference-classified correction (write.go) | daily_retention_days (default 14) |
+| `curation:correction_fact` | write path — fact-classified correction (write.go) | daily_retention_days (default 14) |
+| `curation:gap_approved` | approve path — gap-kind resolution | daily_retention_days (default 14) |
+| `curation:survived_sessions` | survived-session rollup (survived.go) | daily_retention_days (default 14) |
+| `curation:merge_audit_pairs` | maintain --dup audit — merged pairs (maintain_dup.go) | daily_retention_days (default 14) |
+| `curation:recall_audit_listed` | maintain --recall-audit — listed items (maintain_recall.go) | daily_retention_days (default 14) |
+| `curation:recall_audit_disposed` | maintain --recall-audit — disposed items | daily_retention_days (default 14) |
+| `bytes:read` | read surface output bytes (RecordBytes, stored as `read_bytes`) | daily_retention_days (default 14) |
+| `bytes:hot` | hot surface output bytes (stored as `hot_bytes`) | daily_retention_days (default 14) |
+| `bytes:brief` | brief surface output bytes (stored as `brief_bytes`) | daily_retention_days (default 14) |
+
+### Event tables · gates
+
+| source | collection condition | retention |
+|---|---|---|
+| read_events | one row per read (hits · zero · near · fallback · session · ids · first_rank · bytes · zero_reason · source · near_score) | events_retention_days (default 14) |
+| session_starts | one row per SessionStart hook fire | events_retention_days (default 14) |
+| hot_events | one row per hot --full injection | hot_events_retention_days (default 30) |
+| knowledge_reads | per-item recall history (kind hot or read) | knowledge_reads_retention_days (default 14) |
+| weekly_rollups | daily rollup pass over the fully-elapsed UTC week (§4.9 A2) | not pruned |
+| tuning_predictions | append-only shadow round rows (§4.10) | not pruned |
+| meta counters (daily · pb_ · last_ · gate stamps) | RecordUsageCount · RecordBytes · BumpCurationCounter · playbook and rollover gates | daily keys daily_retention_days (default 14); gate stamps cumulative |
