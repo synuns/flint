@@ -1991,7 +1991,7 @@ func TestWriteConditionsRealSlow(t *testing.T) {
 }
 
 func v124Body(topic string) string {
-	return `{"topic":"` + topic + `","summary":"v124 T2 합성 데모 본문","tags":["demo"],"confidence":0.9}`
+	return `{"topic":"` + topic + `","summary":"v124 T2 합성 데모 본문","tags":["demo"],"confidence":0.8}`
 }
 
 func stampCalls(f *fakeStore) []writeQueryCall {

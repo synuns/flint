@@ -89,21 +89,6 @@ func printEvidenceGateFailure(w io.Writer, lineNo int, signal string, missing []
 	fmt.Fprintf(w, "fix: attach origin (or source_path) and status to the rule-type record\n")
 }
 
-func loadTierCaps(ctx context.Context, st wire.Store) map[string]float64 {
-	caps := store.DefaultTierCaps()
-	if rows, err := wire.QueryOnce(ctx, st,
-		`SELECT key, value FROM meta WHERE key IN ('tier_cap_manual','tier_cap_hook','tier_cap_import')`, nil); err == nil {
-		kv := make([][2]any, 0, len(rows))
-		for _, row := range rows {
-			if len(row) == 2 {
-				kv = append(kv, [2]any{row[0], row[1]})
-			}
-		}
-		caps = store.ParseTierCaps(kv)
-	}
-	return caps
-}
-
 func checkTierCap(r *writeState, n map[string]any) error {
 	origin, _ := n["origin"].(string)
 	sp, _ := n["source_path"].(string)
@@ -684,27 +669,34 @@ func parseWriteRequest(ctx context.Context, st wire.Store, args []string, stdin 
 		ctx: ctx, st: st, stdout: stdout,
 		kind: kind, session: session, source: source,
 		payloads: payloads, th: th, floor: th.ConfFloor,
-		tierCaps: loadTierCaps(ctx, st),
+		tierCaps: store.DefaultTierCaps(),
 		recs:     make([]map[string]any, 0, len(payloads)), dropped: map[string]bool{},
 		seen: map[string]bool{}, batched: len(payloads) > 1,
 		state: "active", correctionQuota: -1,
 	}
 
 	if rows, err := wire.QueryOnce(ctx, st,
-		`SELECT key, value FROM meta WHERE key IN ('vocab_tags','vocab_domains')`, nil); err == nil {
+		`SELECT key, value FROM meta WHERE key IN ('vocab_tags','vocab_domains','tier_cap_manual','tier_cap_hook','tier_cap_import')`, nil); err == nil {
 		var tags, domains []string
+		kv := make([][2]any, 0, len(rows))
 		for _, r2 := range rows {
 			if len(r2) != 2 {
 				continue
 			}
-			vals := strings.Split(fmt.Sprint(r2[1]), ",")
-			if fmt.Sprint(r2[0]) == "vocab_tags" {
-				tags = vals
-			} else {
-				domains = vals
+			key := fmt.Sprint(r2[0])
+			if key == "vocab_tags" || key == "vocab_domains" {
+				vals := strings.Split(fmt.Sprint(r2[1]), ",")
+				if key == "vocab_tags" {
+					tags = vals
+				} else {
+					domains = vals
+				}
+				continue
 			}
+			kv = append(kv, [2]any{r2[0], r2[1]})
 		}
 		store.SetVocabExtras(tags, domains)
+		r.tierCaps = store.ParseTierCaps(kv)
 	}
 
 	if source == "correction" && kind == "knowledge" {
