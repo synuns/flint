@@ -861,4 +861,4 @@ DB 잔재)과 레거시 DB가 운영 엔진에 남아 있다. **사람 운영자
   interactive TUI paths (read · tuning · pending · maintain · export ·
   report · setup), and machine routes with `--json` (MCP `flint_read` ·
   skill scripts) are the exemption split: interactive invocations never
-  expire, `--json` invocations stay capped. Tune on slow engine starts.
+  expire, dual-mode (read · pending) `--json` invocations stay capped. Tune on slow engine starts.

@@ -6,6 +6,17 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.32.3 patch (2026-11-24) — doc-scope-narrow
+
+R130 finding (1, low): documentation wording narrowed.
+
+- **[low] `--json` cap sentence scoped to dual-mode commands**: the
+  QUICKSTART/RUNBOOK wording implied all seven exempt commands gain a
+  cap with `--json` — in reality only read · pending are dual-mode
+  (setup is always exempt by design; the rest have no `--json` route).
+  Both sentences now say "dual-mode (read · pending)". The Korean README
+  "hung engine" phrasing is glossed.
+
 ### v1.32.2 patch (2026-11-24) — machine-route-cap
 
 R129 findings (4): the medium fixed, all three lows fixed.

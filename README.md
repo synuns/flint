@@ -26,7 +26,7 @@
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 harnesses">
   <a href="https://github.com/synuns/flint/actions/workflows/ci.yml"><img src="https://github.com/synuns/flint/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
-  <img src="https://img.shields.io/badge/release-v1.32.2-blue" alt="v1.32.2">
+  <img src="https://img.shields.io/badge/release-v1.32.3-blue" alt="v1.32.3">
 </p>
 <p align="center">
   <sub>8 counts the auto-registration (tier A) harnesses — the full support list is in the <a href="#agents--adapters">adapter table</a> below.</sub>
@@ -48,6 +48,7 @@ It adds up. Week one, it learns the stack. By week four, it remembers why you ch
 
 Humans take notes in Obsidian. Agents take notes in flint — the stone you strike to make fire and tools.
 
+> v1.32.3 · r130 patch — the `--json` cap sentence scoped to the actual dual-mode commands (read · pending); the other exempt commands have no `--json` route · [full changelog](docs/HISTORY.md)
 > v1.32.2 · r129 patch — dual-mode commands (read · pending) exempt the 300s cap only when interactive: `--json` routes (MCP flint_read · skill scripts) keep the hung-engine guard · Run-level probe tests for both routes · the wrapped-deadline test actually wraps · RUNBOOK contradiction fixed · [full changelog](docs/HISTORY.md)
 > v1.32.1 · r128 patch — QueryOnce treats a wrapped DeadlineExceeded as permanent (the v1.32.0 cap made an expired deadline retry a dead context) · user-waiting paths (TUI forms · setup downloads) exempt from the 300s cap, joining hooks · FLINT_COMMAND_TIMEOUT documented in QUICKSTART·RUNBOOK · release-doc numbers corrected · the split-string gate-bypass question declared (the dialect gate over-matches threshold keys — pattern extension is the follow-up) · [full changelog](docs/HISTORY.md)
 > v1.32.0 · structure-cleanup — context deadlines where blocking was unbounded (command cap 300s with FLINT_COMMAND_TIMEOUT override · hooks session paths stay unlimited · service-manager output probe 5s) · MCP Serve reframes over-long lines in a loop instead of recursing (the whole line is skipped — remnant bytes no longer re-parse as requests) · QueryOnce returns context.Canceled immediately (retry is transient-only, 116 call sites unchanged) · thresholds single source (one thresholdMetas row drives defaults·parsing·fallback via reflect) · maintain split 2,190→446 lines into a registration slice + 6 mode files (byte-identical handler moves) · doctor split 2,050→345 + 8 files (7 checks + hookfix, registry intact) · RunWrite 535→19 lines (parse→validate→dedupe→persist→render) · schema gate stage 1 (3 canonical queries in lib/db + TestSchemaSealedOutsideDB) · errLine single path + printErr helper · seam rules documented (docs/contracts/seam.md) · [full changelog](docs/HISTORY.md)
