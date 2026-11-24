@@ -6,9 +6,37 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"strconv"
+	"time"
 
 	"github.com/synuns/flint/lib/store"
 )
+
+const commandTimeoutDefault = 300 * time.Second
+
+func commandTimeoutFromEnv() (time.Duration, bool) {
+	v := os.Getenv("FLINT_COMMAND_TIMEOUT")
+	if v == "" {
+		return commandTimeoutDefault, true
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 0 {
+		return commandTimeoutDefault, true
+	}
+	if n == 0 {
+		return 0, false
+	}
+	return time.Duration(n) * time.Second, true
+}
+
+func sessionHookCommand(cmd string) bool {
+	switch cmd {
+	case "session-start", "session-end", "done", "compact", "nudge":
+		return true
+	}
+	return false
+}
 
 func DSNFromEnv() string {
 	return ResolveDSN()
@@ -35,6 +63,13 @@ func Run(args []string, stdin io.Reader, stdout io.Writer, newStore func(ctx con
 		return 3
 	}
 	ctx := context.Background()
+	if !sessionHookCommand(cmd) {
+		if d, limited := commandTimeoutFromEnv(); limited {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithTimeout(ctx, d)
+			defer cancel()
+		}
+	}
 
 	if cmd == "version" || cmd == "teardown" || cmd == "mcp" || cmd == "update" || cmd == "seed" || cmd == "engine" {
 		return run(ctx, nil, rest, stdin, stdout)

@@ -18,49 +18,77 @@ type rpcRequest struct {
 	Params  map[string]any `json:"params"`
 }
 
+const serveMaxLine = 4 * 1024 * 1024
+
 func Serve(r io.Reader, w io.Writer, handle func(method string, params map[string]any) (any, error)) error {
 	bw := bufio.NewWriter(w)
 	defer bw.Flush()
-	sc := bufio.NewScanner(r)
-
-	sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
-	for sc.Scan() {
-		line := bytes.TrimSpace(sc.Bytes())
-		if len(line) == 0 {
-			continue
+	br := bufio.NewReaderSize(r, 64*1024)
+	buf := new(bytes.Buffer)
+	for {
+		tooLong := false
+		eof := false
+		buf.Reset()
+		for {
+			chunk, err := br.ReadSlice('\n')
+			if !tooLong {
+				if buf.Len()+len(chunk) > serveMaxLine {
+					tooLong = true
+					buf.Reset()
+				} else {
+					buf.Write(chunk)
+				}
+			}
+			if err == bufio.ErrBufferFull {
+				continue
+			}
+			if err == io.EOF {
+				eof = true
+			} else if err != nil {
+				return err
+			}
+			break
 		}
-		var req rpcRequest
-		if err := json.Unmarshal(line, &req); err != nil {
-			continue
-		}
-		if req.ID == nil || req.Method == "" {
-			continue
-		}
-		if err := writeResponse(bw, req, handle); err != nil {
-			return err
-		}
-
-		if err := bw.Flush(); err != nil {
-			return err
-		}
-	}
-	if err := sc.Err(); errors.Is(err, bufio.ErrTooLong) {
-
-		resp := response{JSONRPC: "2.0", Error: &rpcError{
-			Code:    -32600,
-			Message: "invalid request: line exceeds 4MB limit",
-		}}
-		if b, merr := json.Marshal(resp); merr == nil {
-			if _, werr := bw.Write(append(b, '\n')); werr != nil {
+		if tooLong {
+			if werr := writeTooLongResponse(bw); werr != nil {
 				return werr
 			}
-			if ferr := bw.Flush(); ferr != nil {
-				return ferr
+			if eof {
+				return nil
+			}
+			continue
+		}
+		line := bytes.TrimSpace(buf.Bytes())
+		if len(line) > 0 {
+			var req rpcRequest
+			if err := json.Unmarshal(line, &req); err == nil && req.ID != nil && req.Method != "" {
+				if err := writeResponse(bw, req, handle); err != nil {
+					return err
+				}
+				if err := bw.Flush(); err != nil {
+					return err
+				}
 			}
 		}
-		return Serve(r, w, handle)
+		if eof {
+			return nil
+		}
 	}
-	return sc.Err()
+}
+
+func writeTooLongResponse(bw *bufio.Writer) error {
+	resp := response{JSONRPC: "2.0", Error: &rpcError{
+		Code:    -32600,
+		Message: "invalid request: line exceeds 4MB limit",
+	}}
+	b, err := json.Marshal(resp)
+	if err != nil {
+		return nil
+	}
+	if _, werr := bw.Write(append(b, '\n')); werr != nil {
+		return werr
+	}
+	return bw.Flush()
 }
 
 type response struct {

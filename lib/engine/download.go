@@ -158,6 +158,8 @@ func fetchTarball(ctx context.Context, u, dst string) (string, error) {
 	h := sha256.New()
 	n, err := io.Copy(io.MultiWriter(f, h), io.LimitReader(resp.Body, maxDownloadBytes+1))
 	if err != nil {
+		f.Close()
+		os.Remove(dst)
 		return "", fmt.Errorf("engine: download %s: %w", u, err)
 	}
 	if n > maxDownloadBytes {

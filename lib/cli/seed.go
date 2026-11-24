@@ -131,16 +131,16 @@ func runSeed(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 		Usage: i18n.T("usage.seed"),
 	})
 	if perr != nil {
-		fmt.Fprintln(stdout, errLine(perr))
+		fmt.Fprintln(stdout, wire.ErrLine(perr))
 		return 3
 	}
 	if !res.Given("--demo") {
-		fmt.Fprintln(stdout, errLine(wire.UsageErrorf("%s", i18n.T("err.demo_required")+" — "+i18n.T("usage.seed"))))
+		fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("%s", i18n.T("err.demo_required")+" — "+i18n.T("usage.seed"))))
 		return 3
 	}
 	demoDSN, dbName, err := resolveDemoDSN()
 	if err != nil {
-		fmt.Fprintln(stdout, errLine(wire.UsageErrorf("%v", err)))
+		fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("%v", err)))
 		return 3
 	}
 
@@ -152,7 +152,7 @@ func runSeed(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 		}
 	}
 	if err != nil {
-		fmt.Fprintln(stdout, errLine(err))
+		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
 	}
 	defer demoSt.Close()
@@ -173,7 +173,7 @@ func runSeedDemo(ctx context.Context, demoSt Store, dbName string, stdout io.Wri
 		}
 		var p map[string]any
 		if err := json.Unmarshal([]byte(line), &p); err != nil {
-			fmt.Fprintln(stdout, errLine(fmt.Errorf("seed: embedded seed.jsonl parse failure: %w", err)))
+			fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("seed: embedded seed.jsonl parse failure: %w", err)))
 			return 1
 		}
 		kind, _ := p["kind"].(string)
@@ -183,12 +183,12 @@ func runSeedDemo(ctx context.Context, demoSt Store, dbName string, stdout io.Wri
 		case "project":
 			p["name"] = demoTopicPrefix + fmt.Sprint(p["name"])
 		default:
-			fmt.Fprintln(stdout, errLine(fmt.Errorf("seed: embedded kind %q not seedable", kind)))
+			fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("seed: embedded kind %q not seedable", kind)))
 			return 1
 		}
 		b, err := json.Marshal(p)
 		if err != nil {
-			fmt.Fprintln(stdout, errLine(err))
+			fmt.Fprintln(stdout, wire.ErrLine(err))
 			return 1
 		}
 		if _, ok := byKind[kind]; !ok {
@@ -210,12 +210,12 @@ func runSeedDemo(ctx context.Context, demoSt Store, dbName string, stdout io.Wri
 	}
 
 	if err := setMetaKV(ctx, demoSt, demoOwnerKey, demoOwnerValue); err != nil {
-		fmt.Fprintln(stdout, errLine(err))
+		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return 1
 	}
 	b, err := json.Marshal(seedSummary{Status: "ok", Database: dbName, Results: results})
 	if err != nil {
-		fmt.Fprintln(stdout, errLine(err))
+		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return 1
 	}
 	fmt.Fprintln(stdout, string(b))
@@ -234,7 +234,7 @@ func writeStatus(line string) string {
 func runSeedReset(ctx context.Context, demoSt Store, yes bool, dbName string, stdout io.Writer) int {
 	owner, ok := getMetaKV(ctx, demoSt, demoOwnerKey)
 	if !ok || owner != demoOwnerValue {
-		fmt.Fprintln(stdout, errLine(wire.UsageErrorf(
+		fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf(
 			"seed --reset: demo_owner marker %s — refusing to reset %s (run flint seed --demo first, or point FLINT_DEMO_DSN at a demo database)",
 			map[bool]string{true: "mismatch", false: "missing"}[ok], dbName)))
 		return 3
@@ -249,7 +249,7 @@ func runSeedReset(ctx context.Context, demoSt Store, yes bool, dbName string, st
 	} {
 		rows, err := wire.QueryOnce(ctx, demoSt, q.sql, []any{q.like})
 		if err != nil {
-			fmt.Fprintln(stdout, errLine(err))
+			fmt.Fprintln(stdout, wire.ErrLine(err))
 			return 1
 		}
 		if len(rows) > 0 {
@@ -264,7 +264,7 @@ func runSeedReset(ctx context.Context, demoSt Store, yes bool, dbName string, st
 			Next: fmt.Sprintf("would delete %d demo rows — re-run with --yes to execute", n),
 		})
 		if err != nil {
-			fmt.Fprintln(stdout, errLine(err))
+			fmt.Fprintln(stdout, wire.ErrLine(err))
 			return 1
 		}
 		fmt.Fprintln(stdout, string(b))
@@ -280,7 +280,7 @@ func runSeedReset(ctx context.Context, demoSt Store, yes bool, dbName string, st
 		{`DELETE FROM meta WHERE key = $1`, demoOwnerKey},
 	} {
 		if _, err := wire.QueryOnce(ctx, demoSt, q.sql, []any{q.like}); err != nil {
-			fmt.Fprintln(stdout, errLine(err))
+			fmt.Fprintln(stdout, wire.ErrLine(err))
 			return 1
 		}
 		if q.like != demoOwnerKey {
@@ -289,7 +289,7 @@ func runSeedReset(ctx context.Context, demoSt Store, yes bool, dbName string, st
 	}
 	b, err := json.Marshal(seedSummary{Status: "ok", Database: dbName, Deleted: deleted})
 	if err != nil {
-		fmt.Fprintln(stdout, errLine(err))
+		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return 1
 	}
 	fmt.Fprintln(stdout, string(b))

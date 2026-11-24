@@ -173,6 +173,55 @@ func TestServeSkipTooLongLine(t *testing.T) {
 	}
 }
 
+func TestServeTwoTooLongLinesThenNormal(t *testing.T) {
+	huge1 := strings.Repeat("x", 4*1024*1024) + `{"jsonrpc":"2.0","id":42,"method":"shadow","params":{}}` + "\n"
+	huge2 := strings.Repeat("y", 5*1024*1024) + "\n"
+	normal := `{"jsonrpc":"2.0","id":1,"method":"ping","params":{}}` + "\n"
+	var out bytes.Buffer
+	called := map[string]int{}
+	err := Serve(io.MultiReader(
+		strings.NewReader(huge1),
+		strings.NewReader(huge2),
+		strings.NewReader(normal)), &out,
+		func(m string, p map[string]any) (any, error) {
+			called[m]++
+			return "ok", nil
+		})
+	if err != nil {
+		t.Fatalf("Serve err=%v — 초과 줄로 서버 사망(생존 계약 위반)", err)
+	}
+	if called["shadow"] != 0 {
+		t.Fatalf("초과 줄 잔여 프래그먼트가 요청으로 재프레이밍됨(shadow %d회 호출)", called["shadow"])
+	}
+	if called["ping"] != 1 {
+		t.Fatalf("정상 줄 처리 %d회, want 1", called["ping"])
+	}
+	lines := strings.Split(strings.TrimRight(out.String(), "\n"), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("output lines=%d, want 3(초과 응답 2+정상 1): %q", len(lines), out.String())
+	}
+	for i := 0; i < 2; i++ {
+		var resp map[string]any
+		if err := json.Unmarshal([]byte(lines[i]), &resp); err != nil {
+			t.Fatalf("lines[%d] unmarshal: %v — %q", i, err, lines[i])
+		}
+		rpcErr, ok := resp["error"].(map[string]any)
+		if !ok {
+			t.Fatalf("lines[%d] error 필드 없음: %q", i, lines[i])
+		}
+		if code, _ := rpcErr["code"].(float64); int(code) != -32600 {
+			t.Errorf("lines[%d] error.code=%v, want -32600", i, rpcErr["code"])
+		}
+	}
+	var second map[string]any
+	if err := json.Unmarshal([]byte(lines[2]), &second); err != nil {
+		t.Fatalf("unmarshal lines[2]: %v — %q", err, lines[2])
+	}
+	if id, _ := second["id"].(float64); id != 1 || second["result"] != "ok" {
+		t.Fatalf("정상 줄 응답=%v, want id=1 result=ok", lines[2])
+	}
+}
+
 func TestServeFlushesEachResponseImmediately(t *testing.T) {
 	pr, pw := io.Pipe()
 	cr, cw := io.Pipe()

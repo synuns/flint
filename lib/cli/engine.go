@@ -33,21 +33,21 @@ type setupEngineSummary struct {
 
 func engineErrLine(stdout io.Writer, err error) int {
 	if errors.Is(err, engine.ErrNotWired) {
-		fmt.Fprintln(stdout, errLine(fmt.Errorf("%v — %s", err, i18n.T("engine.setup"))))
+		fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("%v — %s", err, i18n.T("engine.setup"))))
 		return 1
 	}
-	fmt.Fprintln(stdout, errLine(err))
+	printErr(stdout, err)
 	return 1
 }
 
 func runEngine(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stdout, errLine(wire.UsageErrorf("%s", i18n.T("usage.engine"))))
+		fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("%s", i18n.T("usage.engine"))))
 		return 3
 	}
 	sub, rest := args[0], args[1:]
 	if len(rest) > 0 {
-		fmt.Fprintln(stdout, errLine(wire.UsageErrorf("%s — unexpected argument %q", i18n.T("usage.engine"), wire.MaskToken(rest[0]))))
+		fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("%s — unexpected argument %q", i18n.T("usage.engine"), wire.MaskToken(rest[0]))))
 		return 3
 	}
 	switch sub {
@@ -58,7 +58,7 @@ func runEngine(ctx context.Context, st Store, args []string, stdin io.Reader, st
 		}
 		b, err := json.Marshal(s)
 		if err != nil {
-			fmt.Fprintln(stdout, errLine(err))
+			fmt.Fprintln(stdout, wire.ErrLine(err))
 			return 1
 		}
 		fmt.Fprintln(stdout, string(b))
@@ -75,13 +75,13 @@ func runEngine(ctx context.Context, st Store, args []string, stdin io.Reader, st
 		}
 		b, err := json.Marshal(engineActionSummary{Status: "ok", Mode: engine.CurrentMode(), Action: sub})
 		if err != nil {
-			fmt.Fprintln(stdout, errLine(err))
+			fmt.Fprintln(stdout, wire.ErrLine(err))
 			return 1
 		}
 		fmt.Fprintln(stdout, string(b))
 		return 0
 	}
-	fmt.Fprintln(stdout, errLine(wire.UsageErrorf("%s — unknown subcommand %q", i18n.T("usage.engine"), wire.MaskToken(sub))))
+	fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("%s — unknown subcommand %q", i18n.T("usage.engine"), wire.MaskToken(sub))))
 	return 3
 }
 
@@ -89,7 +89,7 @@ func runSetupEngineMode(ctx context.Context, stdout io.Writer, mode string) int 
 	switch mode {
 	case engine.ModeManagedContainer, engine.ModeNative, engine.ModeExternal:
 	default:
-		fmt.Fprintln(stdout, errLine(wire.UsageErrorf("setup: --engine requires managed-container|native|external, got %q", mode)))
+		fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("setup: --engine requires managed-container|native|external, got %q", mode)))
 		return 3
 	}
 	if mode == engine.ModeNative {
@@ -98,18 +98,18 @@ func runSetupEngineMode(ctx context.Context, stdout io.Writer, mode string) int 
 				continue
 			}
 			if err := fn(ctx); err != nil {
-				fmt.Fprintln(stdout, errLine(err))
+				fmt.Fprintln(stdout, wire.ErrLine(err))
 				return 1
 			}
 		}
 	}
 	if err := engine.SetMode(mode); err != nil {
-		fmt.Fprintln(stdout, errLine(err))
+		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return 1
 	}
 	b, err := json.Marshal(setupEngineSummary{Status: "ok", Mode: mode})
 	if err != nil {
-		fmt.Fprintln(stdout, errLine(err))
+		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return 1
 	}
 	fmt.Fprintln(stdout, string(b))

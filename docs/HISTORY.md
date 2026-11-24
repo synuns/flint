@@ -6,6 +6,62 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.32.0 minor (2026-11-24) — structure-cleanup: 구조 청산
+
+4각도 전체 코드리뷰(SOLID·소프트웨어공학·Go 관례·아키텍처,
+2026-11-24)의 교차 발견 6건·실질 결함 4건·소형 정리군을 청산한
+버전 — 신기능 0·스키마 변경 없음. 동작 변경은 M1 계약 고정(결함
+수정)에 한정하고, M2 구조 이동은 핸들러를 바이트 동일로 옮겨 기존
+테스트 전수 green으로 무변경을 증명했다.
+
+M1 실질 결함(동작 수정 — 계약 고정):
+
+- **context 데드라인 3건**: 명령 ctx에 상한(기본 300s·
+  FLINT_COMMAND_TIMEOUT env 오버라이드·hooks 세션 경로는 무제한
+  유지)·runManagerOutput이 ctx를 전파해 exec.CommandContext(5s)로
+  실행·RestartCountFn도 CommandContext(2s)로 관례 정렬.
+- **MCP Serve 초과행 프레이밍**: ErrTooLong 시 Serve를 재귀 재호출하던
+  구조를 for 루프+버퍼 리셋으로 교체 — 초과 행을 통째로 스킵하고 다음
+  행 프레이밍을 계속한다(재개 지점 이후 잔여 바이트가 요청으로
+  재프레이밍되던 결함 제거).
+- **lazyDumpFile 근원 보존**: 초기화 실패 원인(mkdir·키 로드·파일
+  생성·age 초기화)을 initErr 필드로 저장·Write/close가 근원을 포함한
+  에러를 반환(일반 문구 대신).
+- **QueryOnce 영구 오류 즉시 반환**: context.Canceled는 재시도 없이
+  그대로 반환 — 재시도는 일시 오류만(이름·호출부 117곳 무변경).
+
+M2 다중 등록·god file(구조 — 동작 무변경·바이트 동일 이동):
+
+- **thresholds 단일 소스**: thresholdMetas 1행 편집이 reflect로
+  기본값·파싱·fallback 리스트를 생성 — 편집 지점 5곳→1곳, parity
+  테스트는 방어 이중화로 유지.
+- **maintain 등록 슬라이스**: maintainMode{name,flags,run} 등록으로
+  디스패치·플래그 맵·meta 키 목록 일원화 — maintain.go 2,190→446줄,
+  모드 파일 6종 분리(핸들러 로직은 바이트 동일 이동).
+- **doctor 체크 분리**: doctor.go 2,052→345줄 — check_*.go 7종+
+  hookfix.go로 분리(등록 테이블은 doctor.go 유지·24종 등록 동질
+  테스트로 무변경 증명).
+- **RunWrite 단계 분리**: parse→validate→dedupe→persist→render 단계
+  함수로 분리 — 536→19줄(orchestration만 잔류, 기존 헬퍼 재사용).
+
+M3 결합 축소·소형(점진 — 동작 무변경):
+
+- **errLine 단일 경로+printErr**: cliwire_alias의 errLine/wire.ErrLine
+  이중 경로 수렴·printErr 헬퍼로 fmt.Fprintln+ErrLine 조합 통합(치환
+  후 출력 바이트 동일 테스트).
+- **스키마 게이트 1단계**: lib/db에 대표 쿼리 3종(MetaLookup·
+  KnowledgeCount·ReadEventsCount)을 두고 TestSchemaSealedOutsideDB로
+  봉인(방언 게이트 패턴) — 산재 11파일 중 최다 3쿼리 이전, 잔여는
+  점진 이관.
+- **seam 규칙 문서화**: docs/contracts/seam.md — var func seam은
+  프로세스 경계 한정·신규 내부 로직은 인터페이스 주입 우선·기존
+  인프로세스 seam은 명목 등록 후 점진 축소.
+- **소형**: fetchTarball 실패 시 dst 정리(방어적 완결성)·CellToInt를
+  db 내부 복제(render 의존 제거)·SetNativeService 와이어링 cli 부팅
+  반영·ADR-0019 결번 채움·mcp→cli 재진입 계약 기록
+  (docs/contracts/engine.md)·usageOrder 자동화는 보류 Ruling(등록
+  순서 명시성 유지)·realStore 패키지 이전은 v1.33.0+ 이월 Ruling.
+
 ### v1.31.3 patch (2026-11-24) — native-entry-guard
 
 R126 finding (1): the v1.31.2 fix removed the call-site nil guard along

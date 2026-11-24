@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -8,6 +9,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 type serviceRecorder struct {
@@ -25,19 +27,19 @@ func setupService(t *testing.T, osName, versionOutput string, versionErr error) 
 	savedHome := userHomeDir
 	userHomeDir = func() (string, error) { return rec.home, nil }
 	savedL := launchctlCmd
-	launchctlCmd = func(args ...string) error {
+	launchctlCmd = func(ctx context.Context, args ...string) error {
 		rec.launchArgs = append(rec.launchArgs, args)
 		return nil
 	}
 	savedS := systemctlCmd
-	systemctlCmd = func(args ...string) error {
+	systemctlCmd = func(ctx context.Context, args ...string) error {
 		rec.sysArgs = append(rec.sysArgs, args)
 		return nil
 	}
 	savedLQ := launchctlQuery
-	launchctlQuery = func(args ...string) (string, error) { return "", nil }
+	launchctlQuery = func(ctx context.Context, args ...string) (string, error) { return "", nil }
 	savedSQ := systemctlQuery
-	systemctlQuery = func(args ...string) (string, error) { return "", nil }
+	systemctlQuery = func(ctx context.Context, args ...string) (string, error) { return "", nil }
 	savedState := serviceStateFn
 	serviceStateFn = func() (string, error) {
 		if versionErr != nil {
@@ -338,7 +340,7 @@ func TestUnregisterNotRegistered(t *testing.T) {
 }
 
 func TestServiceManagerMissingGuidance(t *testing.T) {
-	err := runManagerCmd("flint-no-such-manager-xyz")
+	err := runManagerCmd(context.Background(), "flint-no-such-manager-xyz")
 	if err == nil {
 		t.Fatal("runManagerCmd succeeded for missing binary, want error")
 	}
@@ -440,7 +442,7 @@ func TestRegisterDarwinToleratesBootoutFailureV1311(t *testing.T) {
 	rec := setupService(t, "darwin", "", nil)
 	fakeCurrentBinary(t, rec.home)
 	saved := launchctlCmd
-	launchctlCmd = func(args ...string) error {
+	launchctlCmd = func(ctx context.Context, args ...string) error {
 		if args[0] == "bootout" {
 			return errors.New("bootout boom — service not loaded")
 		}
@@ -537,7 +539,7 @@ func TestNativeStatusStoppedDespiteVersionProbeV1311(t *testing.T) {
 func TestServiceStateDefaultDarwinLaunchctlPrintV1311(t *testing.T) {
 	setupService(t, "darwin", "", nil)
 	var got []string
-	launchctlQuery = func(args ...string) (string, error) {
+	launchctlQuery = func(ctx context.Context, args ...string) (string, error) {
 		got = args
 		return "\tstate = running\n", nil
 	}
@@ -553,7 +555,7 @@ func TestServiceStateDefaultDarwinLaunchctlPrintV1311(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("launchctl args = %v, want %v", got, want)
 	}
-	launchctlQuery = func(args ...string) (string, error) { return "\tstate = waiting\n", nil }
+	launchctlQuery = func(ctx context.Context, args ...string) (string, error) { return "\tstate = waiting\n", nil }
 	serviceStateFn = serviceStateDefault
 	if state, err = serviceStateDefault(); err != nil || state != "stopped" {
 		t.Fatalf("state = %q, %v — want stopped without running line", state, err)
@@ -563,7 +565,7 @@ func TestServiceStateDefaultDarwinLaunchctlPrintV1311(t *testing.T) {
 func TestServiceStateDefaultLinuxSystemctlIsActiveV1311(t *testing.T) {
 	setupService(t, "linux", "", nil)
 	var got []string
-	systemctlQuery = func(args ...string) (string, error) {
+	systemctlQuery = func(ctx context.Context, args ...string) (string, error) {
 		got = args
 		return "active\n", nil
 	}
@@ -578,5 +580,29 @@ func TestServiceStateDefaultLinuxSystemctlIsActiveV1311(t *testing.T) {
 	want := []string{"--user", "is-active", "flint-engine.service"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("systemctl args = %v, want %v", got, want)
+	}
+}
+
+func TestRunManagerOutputCancelledCtxV1320(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	start := time.Now()
+	if _, err := runManagerOutput(ctx, "echo", "hi"); err == nil {
+		t.Fatal("취소 ctx에서 runManagerOutput 성공 — ctx 전파 실패")
+	}
+	if el := time.Since(start); el > time.Second {
+		t.Fatalf("종료까지 %s — 취소 ctx는 즉시 에러여야 함", el)
+	}
+}
+
+func TestRunManagerOutputCtxDeadlinePropagatesV1320(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	if _, err := runManagerOutput(ctx, "sleep", "10"); err == nil {
+		t.Fatal("부모 데드라인 내 미종료 명령 성공 — CommandContext 미적용")
+	}
+	if el := time.Since(start); el > 3*time.Second {
+		t.Fatalf("종료까지 %s — ctx 데드라인이 exec에 전파되지 않음", el)
 	}
 }

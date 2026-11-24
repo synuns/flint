@@ -2,6 +2,7 @@ package wire
 
 import (
 	"context"
+	"reflect"
 	"strings"
 
 	"github.com/synuns/flint/lib/store"
@@ -23,57 +24,42 @@ func thresholdsKeySQL() string {
 
 func ApplyThresholdsFallback(th store.Thresholds) store.Thresholds {
 	def := store.DefaultThresholds()
-	for _, f := range []struct {
-		cur   *int
-		def   int
-		allow bool
-	}{
-		{&th.StaleDays, def.StaleDays, false},
-		{&th.StallHotH, def.StallHotH, false},
-		{&th.StallWriteH, def.StallWriteH, false},
-		{&th.SuggestScanCap, def.SuggestScanCap, false},
-		{&th.BackupAgeWarnH, def.BackupAgeWarnH, false},
-		{&th.ZeroNearMinRead, def.ZeroNearMinRead, false},
-		{&th.ZeroNearWarnPct, def.ZeroNearWarnPct, false},
-		{&th.PendingAgeDays, def.PendingAgeDays, false},
-		{&th.PendingPromoteDays, def.PendingPromoteDays, false},
-		{&th.PendingPromoteMinRunes, def.PendingPromoteMinRunes, false},
-		{&th.InvalidatedPruneDays, def.InvalidatedPruneDays, false},
-		{&th.RecallWarnWrites, def.RecallWarnWrites, true},
-		{&th.DeadDays, def.DeadDays, false},
-		{&th.PairWindowMin, def.PairWindowMin, false},
-		{&th.ChainWindowH, def.ChainWindowH, false},
-		{&th.EventsRetentionD, def.EventsRetentionD, false},
-		{&th.HotRetentionD, def.HotRetentionD, false},
-		{&th.EventsVolumeWarn, def.EventsVolumeWarn, false},
-		{&th.DrillMaxDays, def.DrillMaxDays, false},
-		{&th.SecretsScanRows, def.SecretsScanRows, false},
-		{&th.SessionKnowledgeDays, def.SessionKnowledgeDays, true},
-		{&th.DailyRetentionD, def.DailyRetentionD, false},
-		{&th.RecallEventRetentionD, def.RecallEventRetentionD, false},
-		{&th.CorrectionDailyMax, def.CorrectionDailyMax, false},
-
-		{&th.DoltLogDepthWarn, def.DoltLogDepthWarn, false},
-		{&th.DbSizeWarnMB, def.DbSizeWarnMB, false},
-
-		{&th.DroppedDBsWarn, def.DroppedDBsWarn, false},
-		{&th.StrayDBsWarn, def.StrayDBsWarn, false},
-
-		{&th.UpdateCacheAgeH, def.UpdateCacheAgeH, false},
-	} {
-		if *f.cur == 0 || (!f.allow && *f.cur < 0) {
-			*f.cur = f.def
+	tv := reflect.ValueOf(&th).Elem()
+	dv := reflect.ValueOf(&def).Elem()
+	seen := map[string]bool{}
+	for _, m := range store.ThresholdMetas() {
+		if !m.Fallback || seen[m.Field] {
+			continue
 		}
-	}
-	if th.SuggestMinScore <= 0 {
-		th.SuggestMinScore = def.SuggestMinScore
-	}
-
-	if th.CorrectionConfidence <= 0 {
-		th.CorrectionConfidence = def.CorrectionConfidence
-	}
-	if th.ConflictDupThreshold <= 0 {
-		th.ConflictDupThreshold = def.ConflictDupThreshold
+		seen[m.Field] = true
+		cur := tv.FieldByName(m.Field)
+		d := dv.FieldByName(m.Field)
+		if !cur.IsValid() || !cur.CanSet() || !d.IsValid() {
+			continue
+		}
+		switch m.Type {
+		case "int":
+			if cur.Kind() != reflect.Int {
+				continue
+			}
+			if cur.Int() == 0 || cur.Int() < 0 {
+				cur.SetInt(d.Int())
+			}
+		case "int-neg":
+			if cur.Kind() != reflect.Int {
+				continue
+			}
+			if cur.Int() == 0 {
+				cur.SetInt(d.Int())
+			}
+		case "ratio", "pos-float", "nonneg-float":
+			if cur.Kind() != reflect.Float64 {
+				continue
+			}
+			if cur.Float() <= 0 {
+				cur.SetFloat(d.Float())
+			}
+		}
 	}
 	return th
 }

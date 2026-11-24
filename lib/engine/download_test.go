@@ -244,3 +244,24 @@ func TestDownloadSelectsNestedPrefixedBinaryV1310(t *testing.T) {
 		t.Fatal("dir 공백")
 	}
 }
+
+func TestFetchTarballRemovesDstOnCopyFailure(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", "4096")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("partial-body"))
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+		panic("abort mid-body")
+	}))
+	defer srv.Close()
+	dst := filepath.Join(t.TempDir(), "engine.tar.gz")
+	_, err := fetchTarball(context.Background(), srv.URL, dst)
+	if err == nil {
+		t.Fatal("복사 중단 에러 기대")
+	}
+	if _, statErr := os.Stat(dst); !os.IsNotExist(statErr) {
+		t.Fatalf("실패 후 dst 잔존: statErr=%v", statErr)
+	}
+}
