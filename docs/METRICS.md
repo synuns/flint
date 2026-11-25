@@ -220,6 +220,27 @@ report effect section (the `effect` object) is the single source.
   separating abstention from retrieval failure before any injection
   correlation is read.
 
+### Regression ground metrics (v1.37.0)
+
+- **recall_ground_pass** / **recall_ground_total** — the synthetic
+  regression ground (`tests/regression` TestRecallGround): a known-answer
+  synthetic seed is loaded into the isolated test engine
+  (FLINT_TEST_DSN — never the operational database), a fixed query set
+  runs through the normal read path, and each query is judged by the
+  **exact-match criterion** — the returned rows must reach the answer
+  row (topic) and its key field (summary), with no extra sentinel rows.
+  No approximate scoring is created for this judgment; existing echo
+  score consumption only (T2 determinism — verdicts stay identical
+  across versions). `recall_ground_total` is the fixed query count,
+  `recall_ground_pass` the queries whose exact-match judgment passed.
+  The query set carries tag and domain coverage (tag-only · domain-only
+  · entity · min-confidence · combined keyword filters). These are not
+  operational observability metrics — no counters or event tables feed
+  them; they are computed at test time only. Evidence tier: **Tier 3**
+  (§3 — synthetic scenarios, a floor not a ceiling). Consumers
+  (abstention scoring · census · B5 sentinel) read this ground; they do
+  not redefine the judgment.
+
 ### Instrumentation sources (schema v6 · v7 · v10)
 
 - **read_events** (v6, ids added in v0.20.0): one row per read

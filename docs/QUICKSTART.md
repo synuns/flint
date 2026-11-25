@@ -23,7 +23,7 @@ is Docker: flint ships the engine compose definition inside the binary.
 ```sh
 flint setup           # ①embedded compose up --wait ②migrate (stdout closes with one JSON status: {"status":"ok","mode":"managed","port":N})
 flint seed --demo     # synthetic demo data (isolated demo database)
-flint doctor          # diagnostics: verify the install (29 checks; fail → exit 1)
+flint doctor          # diagnostics: verify the install (30 checks; fail → exit 1)
 ```
 
 `setup` writes its embedded compose file — project name `flint`, engine
@@ -70,7 +70,8 @@ polluting production databases). Verify:
 flint read dump        # search: active_knowledge view only
 flint hot --session x  # inject at session start (hot_budget default 2,000 chars)
 flint audit --limit 5  # audit: last 5 entries of dolt_log
-flint doctor --check db   # diagnostics: db subset of the 29 checks (fail → exit 1)
+flint doctor --check db   # diagnostics: db subset of the 30 checks (fail → exit 1)
+flint doctor --check smoke   # onboarding smoke: connect → hook detect → synthetic demo write → read → [flint] inject → cleanup (isolated `_demo` database, never the operational one; fail → exit 1)
 flint report --days 7     # report: daily intake · zero_pct · p95 · stale (default 7 days)
 flint report --serve      # dashboard: localhost-only HTTP view of the same diagnose source (Ctrl-C to stop)
 flint restore --file <dump> --drill  # recovery drill (source untouched, row-count compare only)
@@ -84,6 +85,10 @@ flint restore --file <dump> --drill  # recovery drill (source untouched, row-cou
 /plugin marketplace add synuns/flint
 /plugin install flint@flint
 ```
+
+Plugin updates: `flint doctor` reports a `plugin-version-gap` when the installed
+plugin falls behind the CLI by the registered minor threshold — reinstall with
+`/plugin install flint@flint` (or run `flint update`) after each CLI upgrade.
 
 **Codex · Gemini · Cursor · OpenCode · Copilot** — automatic registration:
 

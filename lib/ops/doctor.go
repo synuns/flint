@@ -98,6 +98,9 @@ func doctorChecks() []CheckSpec {
 		{Name: "plugin-version-gap", Chain: "tail", OnStoreNil: "", ThFn: CheckPluginGapTh},
 		{Name: "service-remnant", Chain: "tail", OnStoreNil: "",
 			Fn: func(ctx context.Context, st wire.Store) DoctorCheck { return CheckServiceRemnant() }},
+
+		{Name: "smoke", Chain: "tail", OnStoreNil: "",
+			Fn: func(ctx context.Context, st wire.Store) DoctorCheck { return runSmokeDoctorCheck(ctx) }},
 	}
 }
 

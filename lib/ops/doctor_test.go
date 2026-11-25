@@ -187,8 +187,8 @@ func TestDoctorListChecks(t *testing.T) {
 	if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &m); err != nil {
 		t.Fatalf("JSON 아님: %q", out)
 	}
-	if len(m.Checks) != 29 {
-		t.Errorf("checks %d종, want 29종(코어6+tail23): %v", len(m.Checks), m.Checks)
+	if len(m.Checks) != 30 {
+		t.Errorf("checks %d종, want 30종(코어6+tail24): %v", len(m.Checks), m.Checks)
 	}
 	if m.Checks[0] != "hook-file" || m.Checks[4] != "last-seen" || m.Checks[5] != "port" {
 		t.Errorf("코어 6종 순서 회귀: %v", m.Checks)
