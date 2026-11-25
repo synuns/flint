@@ -549,6 +549,9 @@ var versionDocContracts = []struct {
 	{name: "TestVersion01361Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.36.1", "g5-derivative-domain",
 	}},
+	{name: "TestVersion01370Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.37.0", "trust-foundation",
+	}},
 	{name: "TestVersion0170Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.7.0", "sync",
 	}},
@@ -948,8 +951,8 @@ func pinnedExamples(doc string) []string {
 
 func TestContractsExamplesNotPinned(t *testing.T) {
 	files, err := filepath.Glob("../../docs/contracts/*.md")
-	if err != nil || len(files) != 9 {
-		t.Fatalf("contracts/*.md 9종 탐색 실패: %v %v", files, err)
+	if err != nil || len(files) != 10 {
+		t.Fatalf("contracts/*.md 10종 탐색 실패: %v %v", files, err)
 	}
 	for _, f := range files {
 		for _, span := range pinnedExamples(docStr(t, f)) {

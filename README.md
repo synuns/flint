@@ -26,7 +26,7 @@
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 harnesses">
   <a href="https://github.com/synuns/flint/actions/workflows/ci.yml"><img src="https://github.com/synuns/flint/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
-  <img src="https://img.shields.io/badge/release-v1.36.1-blue" alt="v1.36.1">
+  <img src="https://img.shields.io/badge/release-v1.37.0-blue" alt="v1.37.0">
 </p>
 <p align="center">
   <sub>8 counts the auto-registration (tier A) harnesses — the full support list is in the <a href="#agents--adapters">adapter table</a> below.</sub>
@@ -48,6 +48,7 @@ It adds up. Week one, it learns the stack. By week four, it remembers why you ch
 
 Humans take notes in Obsidian. Agents take notes in flint — the stone you strike to make fire and tools.
 
+> v1.37.0 · trust foundation — synthetic regression ground (exact-match reach judging, engine-isolated) · poisoning regressions ×3 frozen · write-boundary contract with drift gate · 7-stage doctor smoke · [full changelog](docs/HISTORY.md)
 > v1.36.1 · r136 patch — G5 audit hardening: derivative hash domain aligned to vault summaries (the tagging feature was dead against real notes) · contract gate hardening (exact boundary values · region markers) · tag collision fix · sentence-level evidence detection · [full changelog](docs/HISTORY.md)
 > v1.36.0 · extraction contracts — echo disposition frozen as a contract with a drift gate · derivative tagging by strict source hash identity · evidence gate for rule-type knowledge (origin/status required) · trust tier registry (down-only, K2) · remediation entry decided (B-default) · [full changelog](docs/HISTORY.md)
 > v1.35.1 · r135 patch — G5 audit hardening: `flint-waiver:` comment convention implemented in the LLM import gate (CI_REVIEW §6 aligned) · F3~F5 audit findings fixed (sync exit contract · engine state key · 4-hook docs) · import-block comment parsing · FLINT_SLOW_LOOPS cap · [full changelog](docs/HISTORY.md)

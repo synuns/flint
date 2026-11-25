@@ -6,6 +6,34 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.37.0 minor (2026-11-25) — trust-foundation
+
+Fifth and final minor of the second release scope (release-scope2):
+area I regression ground + area H injection defense + area G onboarding
+smoke. No schema change (v19).
+
+- **[feature] regression ground**: 12-row synthetic seed · 8 queries ·
+  exact-match reach judging (engine-isolated FLINT_TEST_DSN · ops-DSN
+  contact guard) + abstention scoring consistent with
+  zero_hit_unowned_pct (single source) + report/serve metric exposure
+  (recall_ground_pass/total, METRICS-registered).
+- **[feature] poisoning regression ×3 frozen**: instruction write→read
+  (sanitization + pending + [flint] boundary), query-only auto-ingest
+  (echo·recheck paths), sanitize bypass (SanitizeText + jokeypoint) —
+  current defenses locked as tests, no new mechanisms.
+- **[feature] write-boundary contract**: docs/contracts/write-boundary.md
+  documents sanitization positions (SanitizePayload·sanitizeFields·
+  render.Text/Masked), K2 promotion lock, gap-candidate as the only
+  read-path state mutation — 10-marker drift gate.
+- **[feature] doctor smoke (7 stages)**: connect→hook→demo-db→write→
+  read→inject→cleanup with demo isolation (same-DSN rejection)·--reset
+  cleanup·structured per-step output; registered (30 checks); QUICKSTART
+  smoke rows + plugin update guidance.
+
+spec: docs/plans/archive/2026-11/2026-11-25-flint-v1.37.0.spec.md (G2
+APPROVED) · plan: docs/plans/2026-11-25-flint-v1.37.0.md · scope:
+docs/plans/2026-11-24-flint-release-scope2.md §2
+
 ### v1.36.1 patch (2026-11-25) — g5-derivative-domain
 
 5 findings from the G5 independent audit (v1.36.0), all fixed with
