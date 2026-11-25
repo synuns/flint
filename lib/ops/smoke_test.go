@@ -2,6 +2,8 @@ package ops
 
 import (
 	"context"
+	"errors"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -182,20 +184,16 @@ func TestSmokeRegistered(t *testing.T) {
 	if s.Fn == nil {
 		t.Fatal("smoke check Fn 미결합 — 등록표 계약 위반")
 	}
-	wired := 0
 	for _, ds := range doctorChecks() {
 		if ds.Name == s.Name {
-			wired++
-			if ds.Chain != "tail" {
-				t.Errorf("doctor 등록 smoke chain = %q, want tail", ds.Chain)
-			}
+			t.Fatal("기본 doctorChecks()에 smoke 존재 — 온보딩 서브모드 상시 실행 위반(G 룰링)")
 		}
 	}
-	if wired != 1 {
-		t.Fatalf("doctor 등록표 smoke = %d건, want 1 (단일 배선)", wired)
+	if _, ok := doctorSpec("smoke"); ok {
+		t.Fatal("doctorSpec(smoke) 등록됨 — 기본 등록표 온보딩 배제 계약 위반")
 	}
-	if spec, ok := doctorSpec("smoke"); !ok || spec.Chain != "tail" {
-		t.Fatal("doctorSpec(smoke) 미등록 또는 chain 불일치 — 동질 가드 위반")
+	if !smokeAddressable("smoke") {
+		t.Fatal("smoke --check 주소화 실패 — 옵트인 경로 상실")
 	}
 
 	ctx := context.Background()
@@ -204,6 +202,71 @@ func TestSmokeRegistered(t *testing.T) {
 	c := s.Fn(ctx, nil)
 	if c.Name != "smoke" || (c.Status != "ok" && c.Status != "fail") {
 		t.Fatalf("doctor surface = %+v, want name=smoke status ok|fail", c)
+	}
+}
+
+func TestSmokeHookFailStops(t *testing.T) {
+	ctx := context.Background()
+	smokeEnvScratch(t)
+	withSmokeSeams(t, DoctorCheck{Name: "hook-file", Status: "fail", Detail: "settings.json not found"})
+	prevDial := smokeDialFn
+	smokeDialFn = func(context.Context) bool { return true }
+	t.Cleanup(func() { smokeDialFn = prevDial })
+
+	steps, code := smokeSequence(ctx)
+	if code == 0 {
+		t.Fatalf("hook 실패인데 smoke exit=0 — 실패가 종료 코드에 미반영: %+v", steps)
+	}
+	s := smokeStepByName(steps, "hook")
+	if s.Status != "fail" || s.Detail == "" {
+		t.Fatalf("hook step = %+v, want fail + detail 보존", s)
+	}
+	if len(steps) != 2 || steps[0].Step != "connect" {
+		t.Fatalf("steps = %+v, want [connect hook(fail)] — hook 실패에서 시퀀스 정지", steps)
+	}
+	if got := smokeStepByName(steps, "demo-db"); got.Status != "missing" {
+		t.Errorf("hook 실패 후 demo-db 이후 단계 실행됨: %+v", got)
+	}
+}
+
+func TestSmokeSameEngineReject(t *testing.T) {
+	ctx := context.Background()
+	prod := smokeEnvScratch(t)
+
+	u, err := url.Parse(prod)
+	if err != nil {
+		t.Fatalf("prod DSN 파싱: %v", err)
+	}
+	u.Path = "/flint_shadow"
+	t.Setenv("FLINT_DEMO_DSN", u.String())
+
+	withSmokeSeams(t, smokeFakeHook())
+	prevDial := smokeDialFn
+	smokeDialFn = func(context.Context) bool { return true }
+	t.Cleanup(func() { smokeDialFn = prevDial })
+	prevEnsure := smokeEnsureDBFn
+	smokeEnsureDBFn = func(context.Context, string, string) error {
+		t.Error("운영 엔진에 demo-db 접촉(ensure) — 동일 엔진 거부가 접속 전에 발동해야 함")
+		return errors.New("guard must reject before ensure")
+	}
+	t.Cleanup(func() { smokeEnsureDBFn = prevEnsure })
+	prevStore := smokeNewStoreFn
+	smokeNewStoreFn = func(context.Context, string) (wire.Store, error) {
+		t.Error("동일 엔진 비demo DB에 store 개설 — 거부 계약 위반(migrate·기록 발생)")
+		return nil, errors.New("guard must reject before store")
+	}
+	t.Cleanup(func() { smokeNewStoreFn = prevStore })
+
+	steps, code := smokeSequence(ctx)
+	if code == 0 {
+		t.Fatalf("운영 엔진 비demo DB demo DSN이 통과 — 거부 계약 위반: %+v", steps)
+	}
+	s := smokeStepByName(steps, "demo-db")
+	if s.Status != "fail" {
+		t.Fatalf("demo-db step = %+v, want fail(동일 엔진 거부)", s)
+	}
+	if !strings.Contains(s.Detail, smokeDemoDSNSuffix) {
+		t.Errorf("거부 상세에 %s 조건 안내 없음: %s", smokeDemoDSNSuffix, s.Detail)
 	}
 }
 

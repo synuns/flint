@@ -98,9 +98,6 @@ func doctorChecks() []CheckSpec {
 		{Name: "plugin-version-gap", Chain: "tail", OnStoreNil: "", ThFn: CheckPluginGapTh},
 		{Name: "service-remnant", Chain: "tail", OnStoreNil: "",
 			Fn: func(ctx context.Context, st wire.Store) DoctorCheck { return CheckServiceRemnant() }},
-
-		{Name: "smoke", Chain: "tail", OnStoreNil: "",
-			Fn: func(ctx context.Context, st wire.Store) DoctorCheck { return runSmokeDoctorCheck(ctx) }},
 	}
 }
 
@@ -202,7 +199,7 @@ func RunDoctor(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 	if subset != "" {
 
 		_, ok := doctorSpec(subset)
-		if subset == "skill-file" || strings.HasPrefix(subset, "harness-") {
+		if subset == "skill-file" || strings.HasPrefix(subset, "harness-") || smokeAddressable(subset) {
 			ok = true
 		}
 		if !ok {
@@ -313,6 +310,11 @@ func runDoctorCheck(ctx context.Context, st wire.Store, name string) DoctorCheck
 			}
 		}
 		return DoctorCheck{Name: name, Status: "ok", Detail: "skill source not found — check skipped"}
+	}
+	for _, s := range SmokeChecks() {
+		if s.Name == name {
+			return s.Fn(ctx, st)
+		}
 	}
 	if strings.HasPrefix(name, "harness-") {
 

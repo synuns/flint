@@ -25,6 +25,8 @@ var writeBoundaryAnchors = []boundaryAnchor{
 	{"lib/store/pipeline.go", "func Classify(kind string, conf, floor float64) string {"},
 	{"lib/knowledge/pending.go", "type pendingVerdict struct {"},
 	{"lib/knowledge/approve.go", "func RunApprove("},
+	{"lib/ops/backup.go", `sum, verr := backup.VerifyBytes(raw, file+".sha256")`},
+	{"lib/ops/backup.go", "if err := RestoreFn(ctx, wire.DSNFromEnv(), bytes.NewReader(data)); err != nil {"},
 }
 
 func TestWriteBoundaryDoc(t *testing.T) {
@@ -45,6 +47,8 @@ func TestWriteBoundaryDoc(t *testing.T) {
 		"`maybeAccrueGapCandidate`",
 		"`NormalizeGapQuery`",
 		"`gap_daily_max`",
+		"`RestoreFn`",
+		"`backup.VerifyBytes`",
 	} {
 		i := strings.Index(doc[pos:], m)
 		if i < 0 {

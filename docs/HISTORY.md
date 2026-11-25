@@ -6,6 +6,34 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.37.1 patch (2026-11-25) — g5-smoke-guards
+
+5 findings from the G5 independent audit (v1.37.0), all fixed with
+regression tests.
+
+- **[fix] smoke hook failure reflected**: a failing hook stage now stops
+  the sequence (fail("hook", detail), exit 1) instead of reporting
+  all-green.
+- **[fix] smoke demo-DSN guard hardened**: same engine host:port with a
+  non-_demo DB name is rejected before ensure/migrate (typos can no
+  longer migrate a second prod DB).
+- **[fix] regression ground guard hardened**: FLINT_TEST_DSN vs ops-DSN
+  guard compares host·port·db separately (localhost normalized) —
+  5434 spelling variants rejected.
+- **[fix] regression ground discriminating power**: groundtag-high now
+  includes a sub-0.95 row so --min-confidence filters are actually
+  exercised (red-proven bypass detection).
+- **[fix] restore exception documented**: write-boundary contract notes
+  that restore replays dump SQL without payload sanitization (read-path
+  chokepoints remain the defense; unsigned sidecar noted).
+- **[fix] smoke opt-in placement**: smoke moved out of the always-on
+  doctor tail into a --check smoke addressable surface (onboarding
+  submode — non-interference; a 7-stage write sequence on every doctor
+  was the wrong placement).
+
+audit: G5 independent 5-angle (critical 0 · major 1 → fixed · minor 4 →
+fixed · record 3)
+
 ### v1.37.0 minor (2026-11-25) — trust-foundation
 
 Fifth and final minor of the second release scope (release-scope2):

@@ -138,6 +138,18 @@ func dsnPathName(dsn string) string {
 	return strings.TrimPrefix(u.Path, "/")
 }
 
+func smokeSameEngineHost(a, b string) bool {
+	ca, err := pgx.ParseConfig(a)
+	if err != nil {
+		return false
+	}
+	cb, err := pgx.ParseConfig(b)
+	if err != nil {
+		return false
+	}
+	return ca.Host == cb.Host && ca.Port == cb.Port
+}
+
 func openSmokeStore(ctx context.Context, dsn string) (wire.Store, error) {
 	return smokeNewStoreFn(ctx, dsn)
 }
@@ -254,6 +266,9 @@ func smokeSequence(ctx context.Context) ([]SmokeStep, int) {
 	if status == "pass" {
 		status = "ok"
 	}
+	if status == "fail" {
+		return fail("hook", hc.Detail)
+	}
 	steps = append(steps, SmokeStep{Step: "hook", Status: status, Detail: hc.Detail})
 
 	demoDSN, err := smokeResolveDemoDSNFn()
@@ -261,8 +276,12 @@ func smokeSequence(ctx context.Context) ([]SmokeStep, int) {
 		return fail("demo-db", err.Error())
 	}
 	prodDB := dsnPathName(wire.ResolveDSN())
-	if dsnPathName(demoDSN) == prodDB {
+	demoDB := dsnPathName(demoDSN)
+	if demoDB == prodDB {
 		return fail("demo-db", "demo DSN equals the production database — refusing to touch the operational DB (set "+smokeDemoDSNEnv+")")
+	}
+	if smokeSameEngineHost(demoDSN, wire.ResolveDSN()) && !strings.HasSuffix(demoDB, smokeDemoDSNSuffix) {
+		return fail("demo-db", "demo DSN targets the production engine with a non-"+smokeDemoDSNSuffix+" database — refusing to migrate or write next to the operational DB (set "+smokeDemoDSNEnv+")")
 	}
 	if err := smokeEnsureDBFn(ctx, wire.ResolveDSN(), dsnPathName(demoDSN)); err != nil {
 		return fail("demo-db", "ensure demo database: "+err.Error())
@@ -358,4 +377,13 @@ func SmokeChecks() []CheckSpec {
 		Name: smokeCheckName, Chain: "tail", OnStoreNil: "",
 		Fn: func(ctx context.Context, st wire.Store) DoctorCheck { return runSmokeDoctorCheck(ctx) },
 	}}
+}
+
+func smokeAddressable(name string) bool {
+	for _, s := range SmokeChecks() {
+		if s.Name == name {
+			return true
+		}
+	}
+	return false
 }

@@ -18,7 +18,8 @@ and document diverge, that is drift, not a specification change, and
 | masked read output | `render.Masked`, `render.MaskedStrict` in `lib/render/render.go` | `store.SanitizeText` plus `store.MaskSecrets` / `store.MaskSecretsStrict` |
 
 Sanitization is applied at write time (stored text is already clean) and
-again at read time (`render.Text` chokepoint). Neither layer is optional.
+again at read time (`render.Text` chokepoint). Neither layer is optional —
+restore is the one documented exception (below).
 
 ## `[flint]` marker = secondary mitigation
 
@@ -56,5 +57,17 @@ a per-day cap (`gap_daily_max`). The candidate lands as `pending` and is
 governed by the same K2 promotion boundary as any other write — it never
 becomes active by itself. No other read-path code path inserts, updates
 or deletes knowledge rows; any further state change must go through a
-write entrance (`lib/knowledge/write.go`) or a maintenance entrance, both
-of which run the sanitization and review positions documented above.
+write entrance (`lib/knowledge/write.go`) or a maintenance entrance, which
+run the sanitization and review positions documented above — with one
+documented exception: restore, below.
+
+## Restore exception — dump replay skips payload sanitization
+
+`RestoreFn` in `lib/ops/backup.go` replays dump SQL as-is:
+`SanitizePayload` is not called on the restore path, so stored text is
+not guaranteed clean for restored rows. The integrity sidecar is an
+unsigned sha256 checksum (`backup.VerifyBytes` in `lib/ops/backup.go`) —
+it detects accidental corruption only and does not authenticate the
+payload, so a tampered dump replays as-is. The defense for restored rows
+stays at the read-path chokepoints (`render.Text`, masked variants)
+documented above.

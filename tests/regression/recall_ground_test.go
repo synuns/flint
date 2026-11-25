@@ -8,12 +8,32 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/synuns/flint/internal/testengine"
 )
 
 const groundTopicPrefix = "reg-ground-"
 
 const groundOpsGuardDSN = "postgresql://flint:flint-dev@localhost:5434/flint"
+
+func groundOpsGuardMatch(dsn string) bool {
+	ops, err := pgx.ParseConfig(groundOpsGuardDSN)
+	if err != nil {
+		return false
+	}
+	cfg, err := pgx.ParseConfig(dsn)
+	if err != nil {
+		return false
+	}
+	host := func(h string) string {
+		if h == "localhost" {
+			return "127.0.0.1"
+		}
+		return h
+	}
+	return host(cfg.Host) == host(ops.Host) && cfg.Port == ops.Port && cfg.Database == ops.Database
+}
 
 type groundSeedRow struct {
 	name       string
@@ -36,6 +56,7 @@ func groundSeedRows() []groundSeedRow {
 		{"hotel", ":demo-hotel:", "demo-entity-2", "demo-b", 0.75, "ground hotel second demo-b row note"},
 		{"india", ":demo-india:", "demo-entity-3", "demo-a", 0.65, "ground india confidence below note"},
 		{"juliet", ":groundtag-high:", "demo-entity-1", "main", 0.99, "ground juliet high confidence note"},
+		{"tango", ":groundtag-high:", "demo-entity-4", "main", 0.6, "ground tango low confidence tagged note"},
 		{"kilo", ":demo-kilo:", "demo-entity-2", "demo-a", 0.9, "ground kilo domain keyword note"},
 		{"lima", ":demo-lima:", "demo-entity-3", "main", 0.5, "ground lima low floor note"},
 	}
@@ -211,9 +232,32 @@ func judgeGroundCase(t *testing.T, qc groundQueryCase) bool {
 	return true
 }
 
+func TestGroundGuardHostPort(t *testing.T) {
+	variants := []string{
+		"postgresql://flint:flint-dev@127.0.0.1:5434/flint",
+		"postgresql://flint:flint-dev@localhost:5434/flint?sslmode=disable",
+	}
+	for _, v := range variants {
+		if v == groundOpsGuardDSN {
+			t.Fatal("변형 DSN이 원본과 문자열 동일 — 변형 선정 오류(구 가드의 문자열 동등 맹점 소실)")
+		}
+		if !groundOpsGuardMatch(v) {
+			t.Errorf("운영 DSN 변형이 가드 통과 — seed/cleanup SQL이 운영 엔진 도달 위험: %s", v)
+		}
+	}
+	for _, safe := range []string{
+		testengine.TestDSNDefault(),
+		"postgresql://flint:flint-dev@localhost:5434/flint_demo",
+	} {
+		if groundOpsGuardMatch(safe) {
+			t.Errorf("비운영 DSN을 운영으로 오판: %s", safe)
+		}
+	}
+}
+
 func TestRecallGround(t *testing.T) {
-	if dsn := regTestDSN(); dsn == groundOpsGuardDSN {
-		t.Fatalf("ground DSN이 운영 DSN과 일치 — 엔진 격리 위반: %s", dsn)
+	if dsn := regTestDSN(); groundOpsGuardMatch(dsn) {
+		t.Fatalf("ground DSN이 운영 DSN(host:port·db 일치)과 충돌 — 엔진 격리 위반: %s", dsn)
 	}
 	cleanup := groundSeed(t)
 	defer cleanup()
