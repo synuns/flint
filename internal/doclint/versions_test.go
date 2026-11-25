@@ -549,6 +549,9 @@ var versionDocContracts = []struct {
 	{name: "TestVersion01361Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.36.1", "g5-derivative-domain",
 	}},
+	{name: "TestVersion01370Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.37.0", "trust-foundation",
+	}},
 	{name: "TestVersion0170Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.7.0", "sync",
 	}},

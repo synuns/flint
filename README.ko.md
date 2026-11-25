@@ -26,7 +26,7 @@
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 하네스">
   <a href="https://github.com/synuns/flint/actions/workflows/ci.yml"><img src="https://github.com/synuns/flint/actions/workflows/ci.yml/badge.svg" alt="CI 상태"></a>
-  <img src="https://img.shields.io/badge/release-v1.36.1-blue" alt="v1.36.1">
+  <img src="https://img.shields.io/badge/release-v1.37.0-blue" alt="v1.37.0">
 </p>
 <p align="center">
   <sub>8종은 자동 등록(A급) 하니스 기준 — 전체 지원 목록은 아래 <a href="#에이전트--어댑터">어댑터 표</a>에 있습니다.</sub>
@@ -48,6 +48,7 @@ flint는 이걸 바꿉니다. 에이전트가 무언가 배우면 — 결정, �
 
 사람은 Obsidian에 노트를 남깁니다. 에이전트는 flint에 기억을 남깁니다 — 불과 도구를 얻기 위해 두드리는 부싯돌처럼.
 
+> v1.37.0 · 신뢰 기반 — 합성 회귀 지반(정확 일치 도달 판정·엔진 격리)·포이즈닝 회귀 3종 고정·쓰기 경계 계약(드리프트 게이트)·7단계 doctor smoke · [전체 변경 이력](docs/HISTORY.md)
 > v1.36.1 · r136 패치 — G5 감사 경화: 파생 태깅 해시 도메인 정렬(실물 노트에서 불발이던 기능 수리)·계약 게이트 경화(경계값 완전 일치·영역 마커)·태그 충돌 수리·문장 단위 근거 검출 · [전체 변경 이력](docs/HISTORY.md)
 > v1.36.0 · 추출 계약 — echo 처분 위계 계약 고정(드리프트 게이트)·엄격 원본 해시 일치 파생 태깅·규칙형 근거 동봉 강제(origin/status)·신뢰 tier 등록표(하향만·K2)·교정 입구 B안 결정 · [전체 변경 이력](docs/HISTORY.md)
 > v1.35.1 · r135 패치 — G5 감사 경화: LLM import 게이트에 flint-waiver 주석 관례 구현(CI_REVIEW §6 정합)·F3~F5 감사 발견 수리(sync exit 계약·엔진 상태 키·훅 4종 문서)·import 블록 주석 파싱·FLINT_SLOW_LOOPS 상한 · [전체 변경 이력](docs/HISTORY.md)
