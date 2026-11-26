@@ -32,4 +32,3 @@ func TestVerdictForPromoteOverflow(t *testing.T) {
 		t.Fatalf("판정 = %s(%s), want promote(래프 시 승급 불가)", v.Kind, v.Why)
 	}
 }
-

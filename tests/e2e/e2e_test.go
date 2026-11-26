@@ -1329,7 +1329,6 @@ func TestBackupEncryptDrillE2E(t *testing.T) {
 	}
 }
 
-
 func dbPassword(t *testing.T) string {
 	t.Helper()
 	u, err := url.Parse(dsn())

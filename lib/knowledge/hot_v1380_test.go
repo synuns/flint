@@ -177,9 +177,9 @@ func TestHotProjectFirstThenRecent(t *testing.T) {
 	now := time.Now().UTC()
 	open := []map[string]any{
 		synthState(1, 9, "타프로젝트최신", "", now.Add(-time.Minute)),
-		synthState(2, 7, "현재프로젝트오래됨", "", now.Add(-5 * time.Hour)),
+		synthState(2, 7, "현재프로젝트오래됨", "", now.Add(-5*time.Hour)),
 		synthState(3, 7, "현재프로젝트최신", "", now.Add(-time.Hour)),
-		synthState(4, 9, "타프로젝트중간", "", now.Add(-2 * time.Hour)),
+		synthState(4, 9, "타프로젝트중간", "", now.Add(-2*time.Hour)),
 	}
 	f := hotStateStore(t, nil, open)
 	f.queryFn = func(sql string, args []any) ([][]any, error) {
@@ -211,7 +211,7 @@ func TestHotSnapshotExcludesStale(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().UTC()
 	open := []map[string]any{
-		synthState(1, 7, "신선한 과업", "", now.Add(-13 * 24 * time.Hour)),
+		synthState(1, 7, "신선한 과업", "", now.Add(-13*24*time.Hour)),
 		synthState(2, 7, "부패한 과업", "", now.Add(-14*24*time.Hour-time.Minute)),
 	}
 	f := hotStateStore(t, nil, open)
@@ -228,7 +228,7 @@ func TestHotSnapshotRuneCap(t *testing.T) {
 	long := strings.Repeat("가", 200)
 	open := []map[string]any{
 		synthState(1, 7, long, "", now.Add(-time.Hour)),
-		synthState(2, 7, "후행 과업", "", now.Add(-2 * time.Hour)),
+		synthState(2, 7, "후행 과업", "", now.Add(-2*time.Hour)),
 	}
 	f := hotStateStore(t, nil, open)
 	f.queryFn = func(sql string, args []any) ([][]any, error) {
