@@ -29,8 +29,8 @@ zero-hit 감소·주입 프로필 확장)·어댑터 확장·마케팅 계열·b
 
 | 버전 | 상태 | 비고 |
 |---|---|---|
-| v1.38.0 | patch-loop 대비 | 빌드 완료(10+1 태스크·실DB 왕복 PASS·docs-sync green)·최종 수리 3건 진행(smoke·가드·계기) — freeze→실커밋→release-gate→태그→감사 |
-| v1.38.x | todo | 감사는 v1.38.0 발행 직후 개시(R143~)·4각도 로테이션 |
+| v1.38.0 | patch-loop | **발행 완료(2026-11-26 15:53 UTC·Latest)** — release-gate green·태그 v1.38.0(HEAD b923a0c)·CI 전 job green(3회 재판정: gofmt 3파일·e2e 정렬 6종·실코드 결함 2건 수리 과정 포함)·전수 GREEN 20/0/183s | 
+| v1.38.x | building | 패치 루프 R143~ — 독립 감사 4각도 로테이션(각도1=계약·스키마 정합→2=보안·개인데이터→3=성능·자원→4=문서·계약 동기)·발견 0까지·testengine purge 수리 검증·release-gate e2e 편입·heavy 직렬화 |
 | v1.39.0 | todo | 착수 전 기획 리뷰 게이트(2단계 설계는 승인된 문서 §8에 존재 — 플랜 신설 필요) |
 | v1.40.0 | todo | |
 | v1.41.0 | todo | |
