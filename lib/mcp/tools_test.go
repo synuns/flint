@@ -493,7 +493,7 @@ func (f *capStore) Query(ctx context.Context, sql string, args ...any) ([][]any,
 }
 func (f *capStore) Close() {}
 
-func (f *capStore) Approve(ctx context.Context, id int) error {
+func (f *capStore) Approve(ctx context.Context, id int, claim string) error {
 	f.approved = append(f.approved, id)
 	return nil
 }

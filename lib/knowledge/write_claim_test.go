@@ -1,10 +1,15 @@
 package knowledge
 
 import (
+	"bytes"
 	"context"
+	"fmt"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/synuns/flint/internal/testengine"
+	"github.com/synuns/flint/lib/db"
 	"github.com/synuns/flint/lib/wire"
 )
 
@@ -15,8 +20,9 @@ type claimGateStore struct {
 	rowFound bool
 	queryErr error
 
-	approved []int
-	queries  []string
+	approved       []int
+	approvedClaims []string
+	queries        []string
 }
 
 func (f *claimGateStore) Migrate(ctx context.Context) error { return nil }
@@ -57,8 +63,9 @@ func (f *claimGateStore) Query(ctx context.Context, sql string, args ...any) ([]
 	return nil, nil
 }
 
-func (f *claimGateStore) Approve(ctx context.Context, id int) error {
+func (f *claimGateStore) Approve(ctx context.Context, id int, claim string) error {
 	f.approved = append(f.approved, id)
+	f.approvedClaims = append(f.approvedClaims, claim)
 	return nil
 }
 
@@ -231,5 +238,125 @@ func TestWriteRejectsSessionSummaryCopy(t *testing.T) {
 		`{"topic":"demo-summary-distinct","summary":"synthetic demo knowledge distinct from session text","confidence":0.5}`)
 	if code != 0 {
 		t.Fatalf("exit = %d, want 0 (out: %s)", code, out)
+	}
+}
+
+func TestApproveWithClaimPersistsClaim(t *testing.T) {
+	st := &claimGateStore{rowFound: true, rowClaim: "event"}
+	s, err := ApproveWithClaim(context.Background(), st, 900007, "decision")
+	if err != nil {
+		t.Fatalf("err = %v, want nil", err)
+	}
+	if s != "promoted" {
+		t.Errorf("status = %q, want promoted", s)
+	}
+	if len(st.approvedClaims) != 1 || st.approvedClaims[0] != "decision" {
+		t.Errorf("승격 시 claim 전달=%v, want [decision]", st.approvedClaims)
+	}
+
+	stValid := &claimGateStore{rowFound: true, rowClaim: "decision"}
+	if _, err := ApproveWithClaim(context.Background(), stValid, 900008, ""); err != nil {
+		t.Fatalf("err = %v, want nil", err)
+	}
+	if len(stValid.approvedClaims) != 1 || stValid.approvedClaims[0] != "" {
+		t.Errorf("무 claim 승격 시 행 claim 보존 전달=%v, want [\"\", nil]", stValid.approvedClaims)
+	}
+}
+
+func TestWriteNormalizesClaimOnInsert(t *testing.T) {
+	f := &fakeStore{}
+	out, code := run(t, f, []string{"knowledge"},
+		`{"topic":"demo-claim-norm","summary":"synthetic demo claim normalization","confidence":0.9,"claim":" EVENT "}`)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0 (out: %s)", code, out)
+	}
+	if len(f.inserted) != 1 {
+		t.Fatalf("inserted = %d, want 1", len(f.inserted))
+	}
+	if got := f.inserted[0]["claim"]; got != "event" {
+		t.Errorf("claim = %v, want event(정규화 저장)", got)
+	}
+}
+
+func TestWriteRejectsInvalidClaimVocabulary(t *testing.T) {
+	f := &fakeStore{}
+	out, code := run(t, f, []string{"knowledge"},
+		`{"topic":"demo-claim-invalid","summary":"synthetic demo invalid claim","confidence":0.9,"claim":"foo"}`)
+	if code != 3 {
+		t.Fatalf("exit = %d, want 3 (out: %s)", code, out)
+	}
+	if !strings.Contains(out, `"claim"`) {
+		t.Errorf("out = %q, want claim 필드 에러", out)
+	}
+	if len(f.inserted) != 0 {
+		t.Errorf("inserted = %d, want 0(거부 경로)", len(f.inserted))
+	}
+}
+
+func TestApproveWithClaimPersistsClaimRealSlow(t *testing.T) {
+	if _, ok := seamRealDSN(); !ok {
+		t.Skip("SUPERLITE_REAL=1 required")
+	}
+	ctx := context.Background()
+	scratchDSN := testengine.Scratch(t)
+	repo, err := db.NewRepo(ctx, scratchDSN)
+	if err != nil {
+		t.Skipf("repo unavailable: %v", err)
+	}
+	t.Cleanup(repo.Close)
+	if err := repo.Migrate(ctx); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	for _, g := range db.SchemaGates() {
+		if err := g.Ensure(ctx, repo); err != nil {
+			t.Fatalf("schema gate v%d: %v", g.Version, err)
+		}
+	}
+	pool, err := db.Connect(ctx, scratchDSN)
+	if err != nil {
+		t.Skipf("pool unavailable: %v", err)
+	}
+	t.Cleanup(pool.Close)
+	st := &writeRealStore{Repo: repo, pool: pool}
+
+	uniq := fmt.Sprintf("demo claim persist %d", time.Now().UnixNano())
+	t.Cleanup(func() {
+		if _, err := pool.Exec(ctx, `DELETE FROM knowledge WHERE topic = $1`, uniq); err != nil {
+			t.Errorf("정리 실패: %v", err)
+		}
+	})
+	ids, err := st.InsertBatch(ctx, []map[string]any{{
+		"kind": "knowledge", "topic": uniq, "summary": "합성 데모 claim 영속 회귀",
+		"confidence": 0.9, "content_hash": uniq, "status": "pending",
+		"ingested_at": time.Now(),
+	}})
+	if err != nil {
+		t.Fatalf("시딩 실패: %v", err)
+	}
+	id := ids[0]
+
+	s, err := ApproveWithClaim(ctx, st, id, "decision")
+	if err != nil || s != "promoted" {
+		t.Fatalf("ApproveWithClaim = (%q, %v), want (promoted, nil)", s, err)
+	}
+	var claim, status string
+	if err := pool.QueryRow(ctx,
+		`SELECT claim, status FROM knowledge WHERE id = $1`, id).Scan(&claim, &status); err != nil {
+		t.Fatalf("행 조회 실패: %v", err)
+	}
+	if claim != "decision" || status != "active" {
+		t.Fatalf("claim/status=%q/%q, want decision/active", claim, status)
+	}
+
+	h, ok := wire.Lookup("read")
+	if !ok {
+		t.Fatal("read 미등록")
+	}
+	var out bytes.Buffer
+	if code := h(ctx, st, []string{"--claim", "decision", uniq}, strings.NewReader(""), &out); code != 0 {
+		t.Fatalf("read exit=%d out=%s", code, out.String())
+	}
+	if !strings.Contains(out.String(), uniq) {
+		t.Errorf("read --claim decision 결과에 승격 행 미노출: %s", out.String())
 	}
 }

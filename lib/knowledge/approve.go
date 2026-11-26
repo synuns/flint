@@ -15,7 +15,7 @@ import (
 )
 
 type approveStore interface {
-	Approve(ctx context.Context, id int) error
+	Approve(ctx context.Context, id int, claim string) error
 }
 
 var ApproveFn = func(ctx context.Context, id int) error {

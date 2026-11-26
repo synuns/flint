@@ -959,10 +959,11 @@ func (r *Repo) ensureSchemaV20(ctx context.Context) error {
 	return nil
 }
 
-func (r *Repo) Approve(ctx context.Context, id int) error {
+func (r *Repo) Approve(ctx context.Context, id int, claim string) error {
 	ct, err := r.pool.Exec(ctx,
-		`UPDATE knowledge SET status = 'active', invalid_at = NULL
-		 WHERE id = $1 AND status = 'pending'`, id)
+		`UPDATE knowledge SET status = 'active', invalid_at = NULL,
+			claim = CASE WHEN $2 <> '' THEN $2 ELSE claim END
+		 WHERE id = $1 AND status = 'pending'`, id, claim)
 	if err != nil {
 		return fmt.Errorf("approve: %w", err)
 	}

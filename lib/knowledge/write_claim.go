@@ -81,11 +81,33 @@ func knowledgeRowClaim(ctx context.Context, st wire.Store, id int) (string, bool
 	return claimString(rows[0][0]), true
 }
 
-func approveExisting(ctx context.Context, st wire.Store, id int) error {
+func approveExisting(ctx context.Context, st wire.Store, id int, claim string) error {
 	if as, ok := st.(approveStore); ok {
-		return as.Approve(ctx, id)
+		return as.Approve(ctx, id, claim)
 	}
 	return ApproveFn(ctx, id)
+}
+
+func normalizeWriteClaim(rec map[string]any) *store.SchemaError {
+	raw, ok := rec["claim"]
+	if !ok || raw == nil {
+		return nil
+	}
+	s, ok := raw.(string)
+	if !ok {
+		return &store.SchemaError{Field: "claim",
+			Expect: strings.Join(claimVocabulary, "|")}
+	}
+	c := normalizeClaim(s)
+	if c == "" {
+		return nil
+	}
+	if !validClaims[c] {
+		return &store.SchemaError{Field: "claim",
+			Expect: strings.Join(claimVocabulary, "|")}
+	}
+	rec["claim"] = c
+	return nil
 }
 
 func ApproveWithClaim(ctx context.Context, st wire.Store, id int, claim string) (string, error) {
@@ -100,7 +122,7 @@ func ApproveWithClaim(ctx context.Context, st wire.Store, id int, claim string) 
 			"claim gate: knowledge row claim is unset (backfill=event) — re-run with --claim %s",
 			strings.Join(claimVocabulary, "|"))
 	}
-	if err := approveExisting(ctx, st, id); err != nil {
+	if err := approveExisting(ctx, st, id, c); err != nil {
 		return "", err
 	}
 	return "promoted", nil

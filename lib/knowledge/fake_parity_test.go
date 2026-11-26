@@ -123,7 +123,7 @@ func TestFakeParityKnowledgeCanned(t *testing.T) {
 		func() error { _, err := f.StaleSessionRuns(ctx, "claude"); return err },
 		func() error { return f.LogPlaybookUse(ctx, 9, true) },
 		func() error { _, err := f.UpdateSessionSummary(ctx, 7, "요약", "[]"); return err },
-		func() error { return f.Approve(ctx, 5) },
+		func() error { return f.Approve(ctx, 5, "") },
 		func() error { return f.CommitTelemetry(ctx, "read") },
 	}
 	for i, call := range calls {

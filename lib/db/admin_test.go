@@ -29,10 +29,10 @@ func slowApproveIdempotent(t *testing.T, r *Repo) {
 		t.Fatalf("InsertBatch: %v", err)
 	}
 	id := ids[0]
-	if err := r.Approve(ctx, id); err != nil {
+	if err := r.Approve(ctx, id, ""); err != nil {
 		t.Fatalf("first Approve: %v", err)
 	}
-	if err := r.Approve(ctx, id); err != nil {
+	if err := r.Approve(ctx, id, ""); err != nil {
 		t.Fatalf("second Approve (want idempotent no-op): %v", err)
 	}
 	var status string
@@ -46,7 +46,7 @@ func slowApproveIdempotent(t *testing.T, r *Repo) {
 }
 
 func slowApproveMissing(t *testing.T, r *Repo) {
-	if err := r.Approve(context.Background(), 99999); !errors.Is(err, ErrNotFound) {
+	if err := r.Approve(context.Background(), 99999, ""); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("want ErrNotFound, got %v", err)
 	}
 }

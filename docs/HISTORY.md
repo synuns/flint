@@ -6,6 +6,29 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.38.1 patch (2026-11-27) — r143-claim-integrity
+
+5 findings from the R143 independent audit (angle 1: contract·schema
+conformance), all fixed with regression tests.
+
+- **[fix] approve --claim persists the claim**: Repo.Approve now takes the
+  claim and writes it (CASE-preserved when absent) — a promoted row no
+  longer stays claim=''/'event' and vanishes from the recall view
+  forever; verified on real DB (promote → read --claim decision).
+- **[fix] claim normalization at write**: the gate validated
+  lower+trimmed values but stored raw text — ' EVENT ' rows leaked into
+  recall. Claims are normalized before hashing now.
+- **[fix] invalid claim vocabulary rejected at write**: claim="foo" could
+  promote without --claim; writes with out-of-vocabulary claims exit 3.
+- **[fix] hot snapshot budget invariant**: knowledge was clamped to the
+  full budget before appending the snapshot (up to 120%); the clamp
+  reserves snapshot usage first (invariant test: total ≤ budget), and
+  the snapshot-absent path keeps byte-identical output.
+- **[fix] newTestRepo runs the schema gates**: the R143-1 claim column
+  read against a pre-v20 fixture schema; the fixture now migrates and
+  applies gates (idempotent, ≥20 circuit-break).
+Design: docs/plans/2026-11-25-flint-knowledge-growth-model.md §6~§7
+
 ### v1.38.0 minor (2026-11-26) — knowledge-growth-model
 
 The knowledge growth model, phase 1: knowledge now carries a claim axis

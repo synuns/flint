@@ -343,6 +343,8 @@ func hotCounts(rows [][]any) (active, pending, recent int) {
 
 const hotSnapshotKind = "state"
 
+const hotClampSuffixRunes = 12
+
 func hotSnapshotRuneCap(budget int) int { return budget / 5 }
 
 func hotSnapshotCell(s string) string {
@@ -501,8 +503,19 @@ func RunHot(ctx context.Context, st wire.Store, args []string, stdin io.Reader, 
 	var lines []string
 	if full {
 		lines = hotSuffixedLines(rows, time.Now().UTC())
-		clamped := query.ClampHot(hotFullOutput(lines), budget)
 		snap := hotSnapshotLines(ctx, st, 0, time.Now().UTC())
+		snapRunes := 0
+		for _, ln := range snap {
+			snapRunes += utf8.RuneCountInString(ln) + 1
+		}
+		limit := budget - snapRunes
+		if snapRunes > 0 {
+			limit -= hotClampSuffixRunes
+		}
+		if limit < 0 {
+			limit = 0
+		}
+		clamped := query.ClampHot(hotFullOutput(lines), limit)
 		out := clamped
 		for _, ln := range snap {
 			out += ln + "\n"

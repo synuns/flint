@@ -804,6 +804,11 @@ func (r *writeState) validateAndDedupe() int {
 				return 3
 			}
 
+			if ce := normalizeWriteClaim(n); ce != nil {
+				fmt.Fprintln(r.stdout, wire.ErrLine(ce))
+				return 3
+			}
+
 			if raw, ok := p["tags"].([]any); ok {
 				tags := make([]string, 0, len(raw))
 				for _, tag := range raw {

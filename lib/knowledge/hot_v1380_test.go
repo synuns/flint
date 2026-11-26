@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 type hotStateFake struct {
@@ -218,6 +219,42 @@ func TestHotSnapshotExcludesStale(t *testing.T) {
 	lines := hotSnapshotLines(ctx, f, 7, now)
 	if len(lines) != 1 || !strings.Contains(lines[0], "신선한 과업") {
 		t.Errorf("stale 제외 결과 = %v, want 신선한 과업 1행(state_stale_days 14)", lines)
+	}
+}
+
+func TestHotBudgetCoversKnowledgePlusSnapshot(t *testing.T) {
+	injectHotSeams(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+	ts := now.Truncate(time.Second)
+	rows := [][]any{
+		{"decision", strings.Repeat("지", 300), strings.Repeat("요", 300), ts, int32(3), ts, ts},
+		{"decision", strings.Repeat("석", 300), strings.Repeat("명", 300), ts, int32(4), ts, ts},
+	}
+	open := []map[string]any{
+		synthState(1, 1, strings.Repeat("가", 60), strings.Repeat("나", 60), now.Add(-time.Hour)),
+		synthState(2, 1, strings.Repeat("다", 60), "", now.Add(-2 * time.Hour)),
+	}
+	f := hotStateStore(t, rows, open)
+	f.queryFn = func(sql string, args []any) ([][]any, error) {
+		switch {
+		case strings.Contains(sql, "FROM hot_view"):
+			return rows, nil
+		case strings.Contains(sql, "FROM meta"):
+			return [][]any{{"120"}}, nil
+		}
+		return nil, nil
+	}
+	var out bytes.Buffer
+	if code := RunHot(ctx, f, []string{"--full"}, strings.NewReader(""), &out); code != 0 {
+		t.Fatalf("RunHot --full exit = %d: %s", code, out.String())
+	}
+	total := utf8.RuneCountInString(out.String())
+	if total > 120 {
+		t.Errorf("지식+스냅샷 총 rune = %d, want ≤ 120(hot_budget 내 하위 배분 — §4)", total)
+	}
+	if !strings.Contains(out.String(), "[truncated]") {
+		t.Errorf("지식 절단 부재 — 상한 단언이 구속력 없음: %q", out.String())
 	}
 }
 

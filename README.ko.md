@@ -26,7 +26,7 @@
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 하네스">
   <a href="https://github.com/synuns/flint/actions/workflows/ci.yml"><img src="https://github.com/synuns/flint/actions/workflows/ci.yml/badge.svg" alt="CI 상태"></a>
-  <img src="https://img.shields.io/badge/release-v1.38.0-blue" alt="v1.38.0">
+  <img src="https://img.shields.io/badge/release-v1.38.1-blue" alt="v1.38.1">
 </p>
 <p align="center">
   <sub>8종은 자동 등록(A급) 하니스 기준 — 전체 지원 목록은 아래 <a href="#에이전트--어댑터">어댑터 표</a>에 있습니다.</sub>
@@ -48,6 +48,7 @@ flint는 이걸 바꿉니다. 에이전트가 무언가 배우면 — 결정, �
 
 사람은 Obsidian에 노트를 남깁니다. 에이전트는 flint에 기억을 남깁니다 — 불과 도구를 얻기 위해 두드리는 부싯돌처럼.
 
+> v1.38.1 · r143 패치 — claim 무결성: approve --claim 영속화(승격 행이 recall에서 소멸하지 않음)·write 시 claim 정규화·무효 어휘 거부·hot 스냅샷 예산 불변식(총합 ≤ 예산)·fixture 스키마 게이트 · [전체 변경 이력](docs/HISTORY.md)
 > v1.38.0 · 지식 성장 모델 1단계 — claim 축(decision/procedure/lesson/event·event는 회상 제외)·work_state 테이블(의도는 open→resolve·무조건 기록)·수집 3단(유한 보류→Δ≠0 승격 심사→사후 증명)·approve claim 게이트·flint state CLI+MCP flint_work·hot 상태 스냅샷·testengine scratch 근본 수리 · [전체 변경 이력](docs/HISTORY.md)
 > v1.37.1 · r137 패치 — G5 감사 경화: smoke 훅 실패 시퀀스 정지·demo-DSN·ops-DSN 가드 강화(host·port·db)·회귀 지반 판별력 케이스 추가·restore 살균 예외 문서화·smoke --check 옵트인 전환 · [전체 변경 이력](docs/HISTORY.md)
 > v1.37.0 · 신뢰 기반 — 합성 회귀 지반(정확 일치 도달 판정·엔진 격리)·포이즈닝 회귀 3종 고정·쓰기 경계 계약(드리프트 게이트)·7단계 doctor smoke · [전체 변경 이력](docs/HISTORY.md)

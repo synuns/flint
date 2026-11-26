@@ -26,7 +26,7 @@
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 harnesses">
   <a href="https://github.com/synuns/flint/actions/workflows/ci.yml"><img src="https://github.com/synuns/flint/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
-  <img src="https://img.shields.io/badge/release-v1.38.0-blue" alt="v1.38.0">
+  <img src="https://img.shields.io/badge/release-v1.38.1-blue" alt="v1.38.1">
 </p>
 <p align="center">
   <sub>8 counts the auto-registration (tier A) harnesses — the full support list is in the <a href="#agents--adapters">adapter table</a> below.</sub>
@@ -48,6 +48,7 @@ It adds up. Week one, it learns the stack. By week four, it remembers why you ch
 
 Humans take notes in Obsidian. Agents take notes in flint — the stone you strike to make fire and tools.
 
+> v1.38.1 · r143 patch — claim integrity: approve --claim persists the claim (promoted rows no longer vanish from recall) · claim normalized at write · invalid vocabulary rejected · hot snapshot budget invariant (total ≤ budget) · fixture schema gates · [full changelog](docs/HISTORY.md)
 > v1.38.0 · knowledge growth model phase 1 — claim axis (decision/procedure/lesson/event, events out of recall) · work_state table (intentions open→resolve, unconditional recording) · 3-stage collection (bounded pending → Δ≠0 promotion → post-hoc proof) · claim gate at approve · flint state CLI + MCP flint_work · hot work-state snapshot · testengine scratch root fix · [full changelog](docs/HISTORY.md)
 > v1.37.1 · r137 patch — G5 audit hardening: smoke hook failure now stops the sequence · demo-DSN and ops-DSN guards hardened (host·port·db) · regression ground gains discriminating confidence case · restore sanitization exception documented · smoke moved to --check opt-in · [full changelog](docs/HISTORY.md)
 > v1.37.0 · trust foundation — synthetic regression ground (exact-match reach judging, engine-isolated) · poisoning regressions ×3 frozen · write-boundary contract with drift gate · 7-stage doctor smoke · [full changelog](docs/HISTORY.md)
