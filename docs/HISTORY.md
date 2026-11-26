@@ -6,6 +6,37 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.38.0 minor (2026-11-26) — knowledge-growth-model
+
+The knowledge growth model, phase 1: knowledge now carries a claim axis
+(decision / procedure / lesson / event — events are evidence records,
+excluded from recall), work gains its own table (work_state — intentions
+live open→resolve, unconditional recording, server-side normalized
+state_hash), and collection runs a three-stage pipeline (bounded pending
+→ Δ≠0 promotion review → post-hoc proof via counters).
+
+- **schema v20**: knowledge.claim (backfill 'event') + work_state
+  (partial-unique open rows, nullable project) + recall_knowledge /
+  open_work_state views.
+- **claim gate at approve**: a claim-less knowledge write is forced
+  pending regardless of confidence; approve is the single gate
+  (exit 3 without --claim) across CLI and MCP.
+- **flint state CLI + MCP flint_work** (6 tools): open / list / resolve
+  with server-side normalization; session-done accepts tasks and fills
+  sessions.tasks (the "[]" hardcode is gone); compact no longer deposits
+  raw session text as knowledge.
+- **hot synthesis**: the injection composes a work-state snapshot
+  (project-first → newest, capped by state_snapshot_max, stale rows
+  excluded) under a 20% sub-budget of the hot budget.
+- **ops**: maintain --stale-state (approve-style resolve proposals),
+  doctor secrets scans work_state task/detail/next_action, thresholds
+  state_stale_days · state_snapshot_max.
+- **testengine root fix**: scratch databases now DROP per test
+  (t.Cleanup) — the accumulated-scratch memory growth that OOM-killed
+  the dedicated engine during full suites is gone.
+Design: docs/plans/2026-11-25-flint-knowledge-growth-model.md ·
+Plan: docs/plans/2026-11-26-flint-v1.38.0.md
+
 ### v1.37.1 patch (2026-11-25) — g5-smoke-guards
 
 5 findings from the G5 independent audit (v1.37.0), all fixed with
