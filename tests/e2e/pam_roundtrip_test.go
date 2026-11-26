@@ -42,16 +42,16 @@ func TestPAMRoundtrip(t *testing.T) {
 	t.Cleanup(func() { cleanupPAMRoundtrip(t, pool) })
 
 	kA := writeKnowledge(t,
-		`{"topic":"e2e-pam-a","summary":"PAM 왕복 프로브 본문 A — 합성 데모.","confidence":0.9,"tags":["e2e-pam"]}`)
+		`{"topic":"e2e-pam-a","summary":"PAM 왕복 프로브 본문 A — 합성 데모.","confidence":0.9,"claim":"procedure","tags":["e2e-pam"]}`)
 	kB := writeKnowledge(t,
-		`{"topic":"e2e-pam-b","summary":"PAM 왕복 프로브 본문 B — 합성 데모.","confidence":0.9,"tags":["e2e-pam"]}`)
+		`{"topic":"e2e-pam-b","summary":"PAM 왕복 프로브 본문 B — 합성 데모.","confidence":0.9,"claim":"lesson","tags":["e2e-pam"]}`)
 	kC := writeKnowledge(t,
 		`{"topic":"e2e-pam-c","summary":"PAM 왕복 프로브 본문 C — 합성 데모(대체 승격).","confidence":0.7,"tags":["e2e-pam"]}`)
 	if kB["state"] != "active" || kC["state"] != "pending" {
 		t.Fatalf("seed state kB=%v kC=%v, want active/pending", kB["state"], kC["state"])
 	}
 	idA, idC := int(kA["id"].(float64)), int(kC["id"].(float64))
-	outAppr, code := runCLI(t, []string{"approve", "--id", strconv.Itoa(idC), "--supersede", strconv.Itoa(idA)}, "")
+	outAppr, code := runCLI(t, []string{"approve", "--id", strconv.Itoa(idC), "--supersede", strconv.Itoa(idA), "--claim", "procedure"}, "")
 	if code != 0 {
 		t.Fatalf("approve --supersede exit=%d, want 0; out=%s", code, outAppr)
 	}

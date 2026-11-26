@@ -49,7 +49,8 @@ var readColumns = []string{
 	"conditions", "status", "read_count",
 }
 
-var recallColumns = readColumns[:9]
+var recallColumns = []string{"id", "topic", "summary", "tags", "entity", "domain",
+	"claim", "confidence", "conditions", "status"}
 
 func tokenizeQuery(q string) []string {
 	fields := strings.Fields(q)

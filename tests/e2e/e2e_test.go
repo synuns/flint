@@ -420,8 +420,12 @@ func TestApprovePromotesPendingToActive(t *testing.T) {
 	}
 
 	out, code := runCLI(t, []string{"approve", "--id", strconv.Itoa(id)}, "")
+	if code != 3 {
+		t.Fatalf("approve 무claim exit=%d, want 3(claim 게이트); out=%s", code, out)
+	}
+	out, code = runCLI(t, []string{"approve", "--id", strconv.Itoa(id), "--claim", "decision"}, "")
 	if code != 0 {
-		t.Fatalf("approve exit=%d, want 0; out=%s", code, out)
+		t.Fatalf("approve --claim exit=%d, want 0; out=%s", code, out)
 	}
 	if am := decode(t, out); am["status"] != "approved" || am["id"] != float64(id) {
 		t.Fatalf("approve 출력=%v, want approved/%d", am, id)
@@ -628,8 +632,8 @@ func TestMCPRoundtripRealDB(t *testing.T) {
 	}
 
 	tools, _ := resps[1]["result"].(map[string]any)["tools"].([]any)
-	if len(tools) != 5 {
-		t.Fatalf("도구 %d건, want 5; out=%s", len(tools), out.String())
+	if len(tools) != 6 {
+		t.Fatalf("도구 %d건, want 6(flint_work 포함); out=%s", len(tools), out.String())
 	}
 	got := map[string]bool{}
 	for _, tl := range tools {
@@ -637,7 +641,7 @@ func TestMCPRoundtripRealDB(t *testing.T) {
 			got[td["name"].(string)] = true
 		}
 	}
-	for _, want := range []string{"flint_read", "flint_write", "flint_hot"} {
+	for _, want := range []string{"flint_read", "flint_write", "flint_hot", "flint_work"} {
 		if !got[want] {
 			t.Fatalf("tools/list에 %q 없음; out=%s", want, out.String())
 		}

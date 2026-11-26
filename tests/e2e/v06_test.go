@@ -27,7 +27,7 @@ func TestV06VisibilityChain(t *testing.T) {
 
 	seedTopic := "e2e-v06-seed"
 	out, code := runCLI(t, []string{"write", "knowledge"},
-		`{"topic":"`+seedTopic+`","summary":"91일 전 시드","confidence":0.9}`)
+		`{"topic":"`+seedTopic+`","summary":"91일 전 시드","confidence":0.9,"claim":"lesson"}`)
 	if code != 0 {
 		t.Fatalf("시드 write exit=%d, want 0; out=%s", code, out)
 	}

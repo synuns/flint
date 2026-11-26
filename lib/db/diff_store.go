@@ -10,10 +10,9 @@ import (
 const diffCommitsMax = 20
 
 var diffCommitsSQL = fmt.Sprintf(`SELECT l.commit_hash, l.date, l.message,
-  COALESCE(bool_or(d.data_change), false),
-  COALESCE(bool_or(d.schema_change), false)
+  COALESCE((SELECT bool_or(d.data_change) FROM dolt_diff d WHERE d.commit_hash = l.commit_hash), false),
+  COALESCE((SELECT bool_or(d.schema_change) FROM dolt_diff d WHERE d.commit_hash = l.commit_hash), false)
 FROM dolt_log l
-LEFT JOIN dolt_diff d ON d.commit_hash = l.commit_hash
 WHERE l.commit_order > (SELECT commit_order FROM dolt_log WHERE commit_hash = $1)
   AND l.commit_order <= (SELECT commit_order FROM dolt_log WHERE commit_hash = $2)
 GROUP BY l.commit_hash, l.commit_order, l.date, l.message

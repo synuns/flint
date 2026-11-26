@@ -937,7 +937,7 @@ func (r *Repo) ensureSchemaV20(ctx context.Context) error {
 		`CREATE UNIQUE INDEX IF NOT EXISTS flint_work_state_open_idx
 		 ON work_state (project_id, state_hash) WHERE status = 'open'`,
 		`CREATE OR REPLACE VIEW recall_knowledge AS
-		 SELECT id, topic, summary, tags, entity, domain, claim, confidence, conditions
+		 SELECT id, topic, summary, tags, entity, domain, claim, confidence, conditions, status
 		 FROM knowledge
 		 WHERE invalid_at IS NULL AND claim <> 'event'`,
 		`CREATE OR REPLACE VIEW open_work_state AS
