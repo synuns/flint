@@ -64,7 +64,7 @@ func TestRunReadRecordsBytes(t *testing.T) {
 	t.Run("히트 — 최종 출력 바이트", func(t *testing.T) {
 		st := &bytesRecorder{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 			switch {
-			case strings.Contains(sql, "FROM active_knowledge"):
+			case readQueryMatch(sql):
 				return hitRowsFixture, nil
 			}
 			return nil, nil
@@ -111,6 +111,11 @@ var hitRowsFixture = [][]any{
 	{"2", "백업 절차", "매일", ":b:", "", "", "0.9", "active", "0"},
 }
 
+func readQueryMatch(sql string) bool {
+	return strings.Contains(sql, "FROM recall_knowledge") ||
+		strings.Contains(sql, "FROM active_knowledge")
+}
+
 func TestRunReadZeroHitExit0Silent(t *testing.T) {
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		return nil, nil
@@ -153,7 +158,7 @@ func TestRunReadSessionAutoLabel(t *testing.T) {
 
 	st := &readEventRecorder{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		switch {
-		case strings.Contains(sql, "FROM active_knowledge"):
+		case readQueryMatch(sql):
 			return hitRowsFixture, nil
 		case strings.Contains(sql, "SELECT value FROM meta"):
 			return [][]any{{`{"calls":5,"zero":2}`}}, nil
@@ -228,8 +233,8 @@ func TestRunReadAsOfAddsField(t *testing.T) {
 	if len(st.asOfCalls) != 1 {
 		t.Fatalf("QueryAsOf 호출 %d회, want 1: %v", len(st.asOfCalls), st.asOfCalls)
 	}
-	if aq := st.asOfCalls[0]; aq.Hash != asOfHash || aq.Table != "active_knowledge" {
-		t.Errorf("AsOfQuery = %+v, want Hash·Table=active_knowledge", aq)
+	if aq := st.asOfCalls[0]; aq.Hash != asOfHash || aq.Table != "recall_knowledge" {
+		t.Errorf("AsOfQuery = %+v, want Hash·Table=recall_knowledge(v1.38.0 기본 뷰)", aq)
 	}
 
 	for _, raw := range st.fakeStore.queries {
@@ -331,7 +336,7 @@ func TestReadRRFKInjectionBeforeReorder(t *testing.T) {
 
 	f := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		switch {
-		case strings.Contains(sql, "FROM active_knowledge"):
+		case readQueryMatch(sql):
 			if strings.Contains(sql, " OR ") {
 				return [][]any{{"1", "백업 정책", "매일", ":b:", "", "", "0.9", "active", "0"}}, nil
 			}
@@ -375,7 +380,7 @@ func TestReadUnknownFlagExit3(t *testing.T) {
 func TestReadLimitClampJSONLine(t *testing.T) {
 	newStore := func() *fakeStore {
 		return &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
-			if strings.Contains(sql, "FROM active_knowledge") {
+			if readQueryMatch(sql) {
 				return hitRowsFixture, nil
 			}
 			return nil, nil
@@ -458,7 +463,7 @@ func (tc *telemetryCommitter) CommitTelemetry(ctx context.Context, cmd string) e
 func TestRunReadCommitsTelemetryOnce(t *testing.T) {
 	newStore := func() *telemetryCommitter {
 		return &telemetryCommitter{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
-			if strings.Contains(sql, "FROM active_knowledge") {
+			if readQueryMatch(sql) {
 				return hitRowsFixture, nil
 			}
 			return nil, nil
@@ -611,7 +616,7 @@ func (r *recallBumperRecorder) BumpRecallScores(ctx context.Context, ids []int) 
 
 func TestRunReadBumpsRecallScores(t *testing.T) {
 	st := &recallBumperRecorder{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
-		if strings.Contains(sql, "FROM active_knowledge") {
+		if readQueryMatch(sql) {
 			return hitRowsFixture, nil
 		}
 		return nil, nil
@@ -828,7 +833,7 @@ func TestRunReadAsOfSkipsGapCount(t *testing.T) {
 
 func TestRunReadPhraseHitTokenRerank(t *testing.T) {
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
-		if strings.Contains(sql, "FROM active_knowledge") {
+		if readQueryMatch(sql) {
 			return [][]any{
 				{"1", "설정 가이드", "백업 정책 안내 포함", ":b:", "", "", "0.95", "active", "0"},
 				{"2", "백업 정책", "매일 실행", ":b:", "", "", "0.8", "active", "0"},
@@ -862,11 +867,11 @@ func TestRunReadPhraseHitTokenRerank(t *testing.T) {
 func TestRunReadFallbackOrderNotRerankedByTokenScore(t *testing.T) {
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		switch {
-		case strings.Contains(sql, "FROM active_knowledge"):
+		case readQueryMatch(sql):
 			if strings.Contains(sql, " OR ") {
 				return [][]any{
-					{"1", "설정", "백업 절차 안내", ":d:", "", "", "0.9", "active", int32(100)},
-					{"2", "백업", "메모 없음", ":d:", "", "", "0.8", "active", int32(0)},
+					{"1", "설정", "백업 절차 안내", ":d:", "", "", "decision", "0.9", "", "active", int32(100)},
+					{"2", "백업", "메모 없음", ":d:", "", "", "procedure", "0.8", "", "active", int32(0)},
 				}, nil
 			}
 			return nil, nil
@@ -979,7 +984,7 @@ func TestRunReadNearScoreScanMax(t *testing.T) {
 	t.Run("히트 — 스캔 미실행 0", func(t *testing.T) {
 
 		st := &readEventRecorder{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
-			if strings.Contains(sql, "FROM active_knowledge") {
+			if readQueryMatch(sql) {
 				return hitRowsFixture, nil
 			}
 			return nil, nil
@@ -1021,7 +1026,7 @@ func TestRunReadMinConfidence(t *testing.T) {
 			if !strings.Contains(sql, "FROM vault_files") {
 				gotSQL, gotArgs = sql, args
 			}
-			if strings.Contains(sql, "FROM active_knowledge") {
+			if readQueryMatch(sql) {
 				return hitRowsFixture, nil
 			}
 			return nil, nil
@@ -1070,7 +1075,7 @@ func TestRunReadOrigin(t *testing.T) {
 				if !strings.Contains(sql, "FROM vault_files") {
 					gotSQL, gotArgs = sql, args
 				}
-				if strings.Contains(sql, "FROM active_knowledge") {
+				if readQueryMatch(sql) {
 					return hitRowsFixture, nil
 				}
 				return nil, nil
@@ -1172,7 +1177,7 @@ func vaultQueryFn(knowledge, vault [][]any, vaultErr error) func(string, []any) 
 			return vault, nil
 		case strings.Contains(sql, "count(*) FROM knowledge"):
 			return [][]any{{"0"}}, nil
-		case strings.Contains(sql, "FROM active_knowledge"):
+		case readQueryMatch(sql):
 			return knowledge, nil
 		}
 		return nil, nil
@@ -1265,8 +1270,8 @@ func TestRunReadVaultAsOfCurrentState(t *testing.T) {
 	if !strings.Contains(got, "vault|/tmp/demo-vault/note-a.md") {
 		t.Errorf("vault 현재 상태 행 부재: %q", got)
 	}
-	if len(st.asOfCalls) != 1 || st.asOfCalls[0].Table != "active_knowledge" {
-		t.Errorf("QueryAsOf = %v, want 1회 active_knowledge(시점여행은 지식만)", st.asOfCalls)
+	if len(st.asOfCalls) != 1 || st.asOfCalls[0].Table != "recall_knowledge" {
+		t.Errorf("QueryAsOf = %v, want 1회 recall_knowledge(시점여행은 지식 recall 뷰만)", st.asOfCalls)
 	}
 }
 
@@ -1296,7 +1301,7 @@ func TestRunReadVaultFiltersDoNotApply(t *testing.T) {
 		if strings.Contains(sql, "count(*) FROM knowledge") {
 			return [][]any{{"0"}}, nil
 		}
-		if (strings.Contains(sql, "FROM active_knowledge") || strings.Contains(sql, "FROM knowledge")) &&
+		if (readQueryMatch(sql) || strings.Contains(sql, "FROM knowledge")) &&
 			strings.Contains(sql, "WHERE") {
 			knowledgeSQL = sql
 		}
@@ -1426,7 +1431,7 @@ func relatedQueryFn(knowledge, related [][]any) func(string, []any) ([][]any, er
 			return [][]any{{args[0]}}, nil
 		case strings.Contains(sql, "count(*) FROM knowledge"):
 			return [][]any{{"0"}}, nil
-		case strings.Contains(sql, "FROM active_knowledge"):
+		case readQueryMatch(sql):
 			return knowledge, nil
 		}
 		return nil, nil
@@ -1613,7 +1618,7 @@ func whyQueryFn(knowledge, fallback [][]any, count string) func(string, []any) (
 				return nil, nil
 			}
 			return [][]any{{count}}, nil
-		case strings.Contains(sql, "FROM active_knowledge"):
+		case readQueryMatch(sql):
 			return knowledge, nil
 		}
 		return nil, nil
@@ -1659,8 +1664,8 @@ func TestRunReadWhyDefaultSeal(t *testing.T) {
 
 func TestRunReadWhyFallbackRRFEvidence(t *testing.T) {
 	fallbackRows := [][]any{
-		{"1", "backup policy demo", "synthetic note", "", "", "", "0.9", "active", int32(5)},
-		{"2", "demo subject", "backup method synthetic", "", "", "", "0.8", "active", int32(2)},
+		{"1", "backup policy demo", "synthetic note", "", "", "", "decision", "0.9", "", "active", int32(5)},
+		{"2", "demo subject", "backup method synthetic", "", "", "", "decision", "0.8", "", "active", int32(2)},
 	}
 	st := &fakeStore{queryFn: whyQueryFn(nil, fallbackRows, "0")}
 	var out strings.Builder

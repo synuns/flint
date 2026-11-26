@@ -10,6 +10,7 @@ import (
 
 var _ dumpStore = (*dumpDelegFake)(nil)
 var _ MaintStore = (*fakeMaintStore)(nil)
+var _ workStateStore = (*fakeMaintStore)(nil)
 var _ ConflictStore = (*fakeMaintStore)(nil)
 var _ conflictStore = (*fakeMaintStore)(nil)
 var _ metaDeleteStore = (*fakeStore)(nil)

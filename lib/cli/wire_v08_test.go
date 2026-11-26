@@ -25,6 +25,7 @@ func TestUsageRestInvariant(t *testing.T) {
 	got = strings.Replace(got, "|index", "", 1)
 	got = strings.Replace(got, "|distill", "", 1)
 	got = strings.Replace(got, "|seed", "", 1)
+	got = strings.Replace(got, "|state", "", 1)
 	got = strings.Replace(got, "audit|diff|update|tuning|import", "audit", 1)
 	if got != want {
 		t.Fatalf("usage 나머지 불변 위반:\n got=%s\nwant=%s", got, want)

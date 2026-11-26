@@ -4,10 +4,8 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 	"testing"
-	"time"
 )
 
 func compactRun(t *testing.T, f *fakeStore, stdin string) (string, int) {
@@ -145,18 +143,15 @@ func TestCompact(t *testing.T) {
 	t.Run("write_fail_exit0", test_compact_write_fail_exit0)
 	t.Run("st_nil_noop", test_compact_st_nil_noop)
 	t.Run("store_error_quiet", test_compact_store_error_quiet)
-	t.Run("accrues_session_knowledge", test_compact_accrues_session_knowledge)
+	t.Run("no_knowledge_deposit", test_compact_no_knowledge_deposit)
 }
 
-func test_compact_accrues_session_knowledge(t *testing.T) {
+func test_compact_no_knowledge_deposit(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	f := &fakeStore{}
 
-	cleanupRealResidue(`DELETE FROM meta WHERE key = 'session_knowledge_last'`)
-	summary := fmt.Sprintf("API 설계와 구현을 마쳤고 리뷰 피드백을 반영했다 (%s %d)",
-		t.Name(), time.Now().UnixNano())
 	out, code := compactRun(t, f,
-		`{"hook_event_name":"PostCompact","session_id":"s1","compact_summary":"`+summary+`"}`)
+		`{"hook_event_name":"PostCompact","session_id":"s1","compact_summary":"API 설계와 구현을 마쳤고 리뷰 피드백을 반영한 합성 요약 본문"}`)
 	if code != 0 {
 		t.Fatalf("exit=%d, want 0; out=%s", code, out)
 	}
@@ -167,19 +162,13 @@ func test_compact_accrues_session_knowledge(t *testing.T) {
 		}
 		if rec["kind"] == "knowledge" {
 			knowledge++
-			if rec["status"] != "pending" {
-				t.Errorf("지식 상태=%v, want pending", rec["status"])
-			}
-			if tags, ok := rec["tags"].(string); !ok || tags != ":process:" {
-				t.Errorf("지식 tags=%#v, want \":process:\"", rec["tags"])
-			}
 		}
 	}
 	if session != 1 {
 		t.Fatalf("세션 행=%d, want 1", session)
 	}
-	if knowledge != 1 {
-		t.Fatalf("세션 지식화 적립=%d, want 1(PostCompact 표준 경로)", knowledge)
+	if knowledge != 0 {
+		t.Fatalf("compact 지식 적립=%d, want 0(세션 행만 적립)", knowledge)
 	}
 }
 

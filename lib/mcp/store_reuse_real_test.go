@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -77,10 +78,19 @@ func TestMCPCapabilityRoundtripRealSlow(t *testing.T) {
 	id := committed.ID
 
 	out, code = DispatchTool("flint_approve", map[string]any{"id": id})
-	if code != 0 || !strings.Contains(out, `"status":"approved"`) || !strings.Contains(out, fmt.Sprintf(`"id":%d`, id)) {
-		t.Fatalf("② approve code=%d out=%q, want approved id=%d", code, out, id)
+	if code != 3 || !strings.Contains(out, `"error":"usage"`) || !strings.Contains(out, "--claim") {
+		t.Fatalf("② claim 게이트 code=%d out=%q, want exit 3+--claim 유도", code, out)
 	}
 	rows, err := st.Query(ctx, `SELECT status FROM knowledge WHERE id = $1`, id)
+	if err != nil || len(rows) != 1 || fmt.Sprint(rows[0][0]) != "pending" {
+		t.Fatalf("② 게이트 미적용: %v (%v)", rows, err)
+	}
+
+	out, code = runCall([]string{"approve", "--id", strconv.Itoa(id), "--claim", "decision"}, strings.NewReader(""))
+	if code != 0 || !strings.Contains(out, `"status":"approved"`) || !strings.Contains(out, fmt.Sprintf(`"id":%d`, id)) {
+		t.Fatalf("② approve(--claim) code=%d out=%q, want approved id=%d", code, out, id)
+	}
+	rows, err = st.Query(ctx, `SELECT status FROM knowledge WHERE id = $1`, id)
 	if err != nil || len(rows) != 1 || fmt.Sprint(rows[0][0]) != "active" {
 		t.Fatalf("② 승격 미반영: %v (%v)", rows, err)
 	}

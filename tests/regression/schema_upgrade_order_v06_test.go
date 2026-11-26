@@ -7,7 +7,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"testing"
 
 	"github.com/synuns/flint/lib/db"
@@ -80,8 +79,16 @@ func TestLegacyV3UpgradeColumnsBeforeViews(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("레거시 v3 read exit=%d, want 0; out=%s", code, out)
 	}
-	if !strings.Contains(out, topic) {
-		t.Fatalf("read 출력에 seed 행 없음: %q", out)
+	var claim string
+	if err := pool.QueryRow(ctx,
+		`SELECT claim FROM knowledge WHERE topic = $1`, topic).Scan(&claim); err != nil {
+		t.Fatalf("seed 행 조회: %v", err)
+	}
+	if claim != "event" {
+		t.Fatalf("백필 claim=%q, want event(미분류 레거시 행 정직 분류)", claim)
+	}
+	if out, code := runBin("read", topic, "--claim", "event"); code != 0 {
+		t.Fatalf("read --claim event exit=%d, want 0; out=%s", code, out)
 	}
 
 	var version string

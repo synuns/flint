@@ -20,6 +20,11 @@ type Store interface {
 	DiffRows(ctx context.Context, fromHash, toHash string) ([]KnowledgeDiffRow, error)
 	DiffStat(ctx context.Context, hashes []string) ([]TableDiffStat, error)
 	DiffCommits(ctx context.Context, fromHash, toHash string) ([]DiffCommitSummary, error)
+
+	OpenWorkState(ctx context.Context, rec map[string]any) (int, string, error)
+	ResolveWorkState(ctx context.Context, id int, byKnowledgeID int) error
+	ListOpenWorkState(ctx context.Context, projectID int, limit int) []map[string]any
+	StaleOpenWorkStates(ctx context.Context, days int) []map[string]any
 }
 
 func QueryOnce(ctx context.Context, st Store, sql string, args []any) ([][]any, error) {

@@ -118,18 +118,45 @@ func TestCloneTargetRegistersWithoutCreate(t *testing.T) {
 	}
 }
 
-func TestScratchNoPerTestCleanupDrop(t *testing.T) {
+func TestScratchDropsOnTestCleanup(t *testing.T) {
 	resetLifecycle(t)
 	unset(t, "FLINT_TEST_DSN")
-	var drops int32
+	var drops []string
 	fakeSeams(t, func() error { return nil },
 		func(ctx context.Context, name string) error {
-			drops++
+			drops = append(drops, name)
 			return nil
 		}, nil)
 	fakeCreate(t, func(ctx context.Context, name string) error { return nil })
-	Scratch(t)
-	if drops != 0 {
-		t.Fatalf("테스트 종료 시 DROP %d회, want 0(RunCleanup 일괄 정리)", drops)
+	var droppedName string
+	t.Cleanup(func() {
+		if len(drops) != 1 || drops[0] != droppedName {
+			t.Fatalf("테스트 종료 시 DROP %v, want [%s] — 런 내 누적 상한 위해 개별 drop 필요", drops, droppedName)
+		}
+	})
+	dsn := Scratch(t)
+	u, err := url.Parse(dsn)
+	if err != nil {
+		t.Fatalf("반환 DSN 파싱: %v", err)
 	}
+	droppedName = strings.TrimPrefix(u.Path, "/")
+}
+
+func TestCloneTargetDropsOnTestCleanup(t *testing.T) {
+	resetLifecycle(t)
+	fakeSeams(t, func() error { return nil },
+		func(ctx context.Context, name string) error { return nil }, nil)
+	var targetName string
+	t.Cleanup(func() {
+		scratchMu.Lock()
+		defer scratchMu.Unlock()
+		registered := append([]string(nil), scratchDBs...)
+		for _, n := range registered {
+			if n == targetName {
+				t.Fatalf("CloneTarget %s가 정리 후에도 등록 잔존 — 개별 drop 누락", targetName)
+			}
+		}
+	})
+	name, _ := CloneTarget(t)
+	targetName = name
 }

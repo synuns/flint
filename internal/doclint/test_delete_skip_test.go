@@ -36,7 +36,7 @@ var testBaseline = []testBaselineRow{
 	{"lib/i18n", 1, 0, 0},
 	{"lib/knowledge", 56, 61, 5},
 	{"lib/mcp", 10, 10, 0},
-	{"lib/ops", 62, 14, 7},
+	{"lib/ops", 62, 14, 9},
 	{"lib/query", 16, 1, 0},
 	{"lib/render", 2, 0, 0},
 	{"lib/sqlfs", 3, 0, 0},

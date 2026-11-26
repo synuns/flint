@@ -68,8 +68,6 @@ func RunCompact(ctx context.Context, st wire.Store, args []string, stdin io.Read
 			fmt.Fprintf(os.Stderr, "[flint] compact marker: %v\n", err)
 		}
 	}
-
-	maybeSessionKnowledge(ctx, st, h.CompactSummary, "claude", h.SessionID, 0)
 	return 0
 }
 

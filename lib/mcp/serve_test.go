@@ -56,8 +56,8 @@ func TestRunMCPServerRoundtrip(t *testing.T) {
 	}
 	list := lines[1]["result"].(map[string]any)
 	tools, ok := list["tools"].([]any)
-	if !ok || len(tools) != 5 {
-		t.Errorf("tools/list result.tools = %v, want 5건", list["tools"])
+	if !ok || len(tools) != 6 {
+		t.Errorf("tools/list result.tools = %v, want 6건", list["tools"])
 	}
 }
 

@@ -76,3 +76,19 @@ func (HistoryStubs) DiffStat(ctx context.Context, hashes []string) ([]TableDiffS
 func (HistoryStubs) DiffCommits(ctx context.Context, fromHash, toHash string) ([]DiffCommitSummary, error) {
 	return nil, ErrHistoryUnsupported
 }
+
+func (HistoryStubs) OpenWorkState(ctx context.Context, rec map[string]any) (int, string, error) {
+	return 0, "", ErrHistoryUnsupported
+}
+
+func (HistoryStubs) ResolveWorkState(ctx context.Context, id int, byKnowledgeID int) error {
+	return ErrHistoryUnsupported
+}
+
+func (HistoryStubs) ListOpenWorkState(ctx context.Context, projectID int, limit int) []map[string]any {
+	return nil
+}
+
+func (HistoryStubs) StaleOpenWorkStates(ctx context.Context, days int) []map[string]any {
+	return nil
+}

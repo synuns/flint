@@ -218,6 +218,8 @@ flint setup --mcp
 | **기록** | `flint write`가 해시 dedup으로 JSONL 추가 |
 | **검증** | `flint audit`로 이력 확인 · `flint restore --drill`로 복구 훈련 |
 
+기억이 썩지 않고 복리로 쌓이게 하는 세 가지 규율이 있다. **수집은 유한하다** — 검증 전 후보는 만료가 있는 pending으로 들어오고, 해시 dedup을 거치며, 세션 요약 원문은 절대 그대로 쌓이지 않는다. **승격은 판단이다** — `flint approve`는 세션이 "이것이 무엇을 바꾸는가"를 보일 수 있을 때만 후보를 지식으로 올린다. **가치는 사후에 증명된다** — 아무도 회상하지 않는 지식은 감쇠 점수·dead 점유 감사로 순위에서 빠진다. 손으로 청소하는 게 아니라 대사로 가벼워진다.
+
 한 장으로 보면:
 
 ```
@@ -270,6 +272,8 @@ flint는 여러분의 코딩 세션 안에서 동작하므로, 제약 조건은 
 
 ## 커맨드
 
+두 기록 유형이 나란히 산다: **지식**(세상에 대한 주장 — 게이트 있음: claim 없는 write는 pending으로 강제되고 `flint approve --claim`이 단일 승격 게이트)과 **진행 상태**(의도 — `flint state`로 무조건 기록, 끝나면 resolve, open 동안 hot 스냅샷에 합성). `flint read`의 회상 대상은 지식뿐이다 — event 행은 명시 조회(`--claim event`)로만.
+
 | 커맨드 | 설명 |
 | :--- | :--- |
 | `flint setup` | Doltgres 기동(내장 compose·다이제스트 핀) · 마이그레이션 · 시드/플러그인 안내 — `--port N` · `--engine managed-container\|native\|external`(모드 선택 — 네이티브는 핀 버전 다운로드·플랫폼 서비스 등록·자격증명 초기화) · `--engine-url`(외부 엔진, 루프백 한정) |
@@ -281,11 +285,12 @@ flint는 여러분의 코딩 세션 안에서 동작하므로, 제약 조건은 
 | `flint import [path]` | 규칙 파일(CLAUDE.md 등)을 pending 지식으로 변환(`--commit`); `--format jsonl\|pam` 지식 재이식·수입(jsonl 왕복·PAM v1.0) |
 | `flint export [--format f]` | 지식 export jsonl·md·txt·csv·pam(PAM v1.0 표준 memory-store; `--status`·`--tag`·`--since` 필터, `--out` 파일 + `.sha256` 사이드카, PAM `--sign` Ed25519 서명 — 스펙 §18) |
 | `flint index [--vault p]` | 마크다운 볼트를 `vault_files`에 색인(스냅숏-디프, 디프마다 배치 1커밋; `--vault` 경로 저장, `--limit` 스캔 상한) |
-| `flint read <query>` | 활성 지식 검색 (색인된 볼트 행은 지식 블록 뒤에 추가); TTY 무인수 호출은 대화형 브라우저 진입(쿼리 입력·결과 목록·상세 전환); 옵트인 `--related N`은 무방향 지식 링크 이웃을 뒤에 추가(상한 5)·`--why`는 행별 근거 부록(토큰 tier·RRF 신호·제로히트 사유) — 플래그 모드 출력은 불변 |
+| `flint read <query>` | 회상 뷰로 활성 지식 검색 (claim `event` 행 제외 — 명시 조회는 `--claim <decision\|procedure\|lesson\|event>`; 색인된 볼트 행은 지식 블록 뒤에 추가); TTY 무인수 호출은 대화형 브라우저 진입(쿼리 입력·결과 목록·상세 전환); 옵트인 `--related N`은 무방향 지식 링크 이웃을 뒤에 추가(상한 5)·`--why`는 행별 근거 부록(토큰 tier·RRF 신호·제로히트 사유) — 플래그 모드 출력은 불변 |
 | `flint hot --session <id>` | 세션 시작 맥락 주입 |
 | `flint brief [query]` | 외부 AI에 붙여넣는 마스킹 브리프(읽기 전용) |
 | `flint done --session <id>` | 세션 마무리 기록 |
-| `flint approve --id n` | 대기 중 지식을 활성으로 승격 |
+| `flint approve --id n` | 대기 중 지식을 활성으로 승격 — 단일 claim 게이트: claim 없는 행(backfill `event` 포함)은 `--claim <decision\|procedure\|lesson\|event>` 필수(부재 시 exit 3); claim 없는 write는 confidence와 무관하게 pending |
+| `flint state` | 진행 상태(의도) 접점 — `open --task T [--detail D] [--next A] [--project N]`(서버측 정규화 해시가 같은 open 과업의 재보고 흡수 → 한 줄 JSON `{id, status: open\|updated\|noop}`) · `list [--all]` · `resolve --id N [--by K]`; open 행은 hot 스냅샷에 노출(상한 `state_snapshot_max`)·오래된 행은 `maintain --stale-state`가 승인제 resolve 제안 — 무조건 기록, claim 게이트 없음 |
 | `flint maintain` | 관리: 임계값 확인 · 무효화 · 병합 · `--merge-audit` 중복 쌍 보고(multiset Dice·비용 추정 동반·리스팅만) · `--recall-audit` 나쁜 회상 환류 보고(리스팅만 — 처분은 항상 승인제 서브커맨드로) · `--age-audit` 낡음 보고(suggested_vol 제안 동반) · `--reaffirm` 유효기간 갱신 · `--recheck` 조건 재검토 · `--gc [--shallow] --yes` dolt 가비지 컬렉션(운영자 명령 — 전 세션 접속 단절, 같은 실행 안에서 재연결+스키마 재검증) (`--tui` 대화형 검수, 옵트인) |
 | `flint distill --out DIR` | 회상 점수가 임계 이상인 미출력 활성 지식을 마크다운 파일 1개로 출력(`--min-score`는 distill_min_score 대체; 출력 행은 distilled_at 스탬프 — 재실행은 잔여분만 — ADR-0018) |
 | `flint audit --limit n` | 최근 n개 커밋 조회 |
@@ -294,7 +299,7 @@ flint는 여러분의 코딩 세션 안에서 동작하므로, 제약 조건은 
 | `flint sync` | Doltgres 원격과 지식 동기화 — `remote add/list/remove` (url 마스킹), `push`/`pull [--dry]`; 병합 충돌 시 exit 1과 수동 해결 안내; 원격 url은 어떤 출력·로그에도 남지 않는다 (사람 운영자 명령) |
 | `flint profile` | 프로파일 판정: 근거 지표+추천, `--apply normal\|minimal` |
 | `flint status` | 스키마 버전 · 대기 건수 · hot p95 |
-| `flint mcp` | MCP 서버 (read·write·hot·pending·approve 도구) |
+| `flint mcp` | MCP 서버 (read·write·hot·pending·approve·work 도구) |
 | `flint pending` | 대기 지식 검수 뷰 (승격·병합·만료·보류 판정, `--json`) |
 | `flint compact` | compact 요약을 pending 지식으로 적립 (PostCompact 훅 진입점) |
 | `flint nudge` | compact가 남긴 마커의 세션 종료 증류 리마인더 (`--clear` 종결) |

@@ -1,7 +1,6 @@
 package knowledge
 
 import (
-	"context"
 	"strings"
 	"testing"
 	"time"
@@ -34,35 +33,3 @@ func TestVerdictForPromoteOverflow(t *testing.T) {
 	}
 }
 
-func gateOverflowFake(last string) *fakeStore {
-	return &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
-		for _, a := range args {
-			if s, ok := a.(string); ok && s == "session_knowledge_last" && last != "" {
-				return [][]any{{last}}, nil
-			}
-		}
-		if strings.Contains(sql, "FROM meta WHERE key IN") {
-			return [][]any{{"session_knowledge_days", "200000"}}, nil
-		}
-		return nil, nil
-	}}
-}
-
-func TestSessionKnowledgeGateOverflow(t *testing.T) {
-	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
-
-	t.Run("100일 경과 — 게이트 유지", func(t *testing.T) {
-		st := gateOverflowFake(time.Now().UTC().Add(-100 * 24 * time.Hour).Format(time.RFC3339))
-		maybeSessionKnowledge(context.Background(), st, "검색 품질 개선 작업을 완료했다", "a", "s1", 0)
-		if len(st.inserted) != 0 {
-			t.Fatalf("적립 = %d건, want 0(빈도 상한 게이트 — 랩 시 매 세션 적립)", len(st.inserted))
-		}
-	})
-	t.Run("200000일 경과 — 게이트 해제", func(t *testing.T) {
-		st := gateOverflowFake(time.Now().UTC().AddDate(0, 0, -200000).Format(time.RFC3339))
-		maybeSessionKnowledge(context.Background(), st, "검색 품질 개선 작업을 완료했다", "a", "s1", 0)
-		if len(st.inserted) != 1 {
-			t.Fatalf("적립 = %d건, want 1(클램프가 무조건 차단 아님 증명)", len(st.inserted))
-		}
-	})
-}

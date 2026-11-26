@@ -48,6 +48,18 @@ func (f *probeFakeStore) DiffStat(ctx context.Context, hashes []string) ([]wire.
 func (f *probeFakeStore) DiffCommits(ctx context.Context, fromHash, toHash string) ([]wire.DiffCommitSummary, error) {
 	return nil, nil
 }
+func (f *probeFakeStore) OpenWorkState(ctx context.Context, rec map[string]any) (int, string, error) {
+	return 0, "", errors.New("not implemented")
+}
+func (f *probeFakeStore) ResolveWorkState(ctx context.Context, id int, byKnowledgeID int) error {
+	return errors.New("not implemented")
+}
+func (f *probeFakeStore) ListOpenWorkState(ctx context.Context, projectID int, limit int) []map[string]any {
+	return nil
+}
+func (f *probeFakeStore) StaleOpenWorkStates(ctx context.Context, days int) []map[string]any {
+	return nil
+}
 
 func TestDoltLogDepthProbeOwnedByDB(t *testing.T) {
 	var got string

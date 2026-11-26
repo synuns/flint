@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -173,6 +174,14 @@ func TestPoisoningQueryOnlyAutoIngest(t *testing.T) {
 		"write", "knowledge")
 	if anchorCode != 0 {
 		t.Fatalf("anchor write exit=%d, want 0; out=%s", anchorCode, anchorOut)
+	}
+	var anchorRes map[string]any
+	if err := json.Unmarshal([]byte(strings.TrimSpace(anchorOut)), &anchorRes); err != nil {
+		t.Fatalf("anchor 출력이 JSON 아님: %q: %v", anchorOut, err)
+	}
+	anchorID, _ := anchorRes["id"].(float64)
+	if out, code := poisonRun("", "approve", "--id", strconv.Itoa(int(anchorID)), "--claim", "lesson"); code != 0 {
+		t.Fatalf("anchor 승격 exit=%d, want 0(claim 게이트 신계약); out=%s", code, out)
 	}
 
 	for i := 0; i < 3; i++ {

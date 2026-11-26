@@ -15,6 +15,7 @@ var maintainModeFlagContract = map[string][]string{
 	"--supersede":         {"--supersede", "--by"},
 	"--expire-pending":    {},
 	"--decay-audit":       {"--limit"},
+	"--stale-state":       {},
 	"--age-audit":         {"--limit"},
 	"--merge-audit":       {"--limit"},
 	"--recall-audit":      {"--limit"},
@@ -30,7 +31,7 @@ var maintainYesModeContract = map[string]bool{
 }
 
 var maintainCommitModeContract = map[string]bool{
-	"--expire-pending": true, "--prune-invalidated": true,
+	"--expire-pending": true, "--prune-invalidated": true, "--stale-state": true,
 }
 
 var maintainValueModeContract = map[string]bool{

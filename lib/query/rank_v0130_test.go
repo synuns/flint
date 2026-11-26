@@ -15,10 +15,10 @@ func TestRankOrderEndsWithReadCount(t *testing.T) {
 func TestFallbackReorderByAdoption(t *testing.T) {
 
 	rows := [][]any{
-		{int32(1), "flint 백업", "복구 절차", ":a:", nil, "main", 0.9, "active", int32(0)},
-		{int32(2), "flint 백업", "복구 절차", ":a:", nil, "main", 0.8, "active", int32(5)},
-		{int32(3), "복구", "요약", ":a:", nil, "main", 0.7, "active", int32(2)},
-		{int32(4), "복구", "요약", ":a:", nil, "main", 0.6, "active", int32(2)},
+		{int32(1), "flint 백업", "복구 절차", ":a:", nil, "main", "decision", 0.9, "", "active", int32(0)},
+		{int32(2), "flint 백업", "복구 절차", ":a:", nil, "main", "decision", 0.8, "", "active", int32(5)},
+		{int32(3), "복구", "요약", ":a:", nil, "main", "procedure", 0.7, "", "active", int32(2)},
+		{int32(4), "복구", "요약", ":a:", nil, "main", "lesson", 0.6, "", "active", int32(2)},
 	}
 	ReorderByFallbackCount(rows, []string{"백업", "복구"})
 	if rows[0][0] != int32(2) {

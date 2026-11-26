@@ -134,7 +134,7 @@ func (r *readEventRecorder) RecordReadEvent(ctx context.Context, ev db.ReadEvent
 
 func readRowsStore() *readEventRecorder {
 	base := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
-		if strings.Contains(sql, "FROM active_knowledge") {
+		if strings.Contains(sql, "FROM recall_knowledge") || strings.Contains(sql, "FROM active_knowledge") {
 			return [][]any{
 				{7, "demo topic alpha", "demo summary alpha", ":demo:", "demo-entity", "demo-domain", 0.8, "active", 3},
 			}, nil

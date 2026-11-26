@@ -81,6 +81,18 @@ func (s *abstPgxStore) DiffStat(ctx context.Context, hashes []string) ([]wire.Ta
 func (s *abstPgxStore) DiffCommits(ctx context.Context, fromHash, toHash string) ([]wire.DiffCommitSummary, error) {
 	return nil, nil
 }
+func (s *abstPgxStore) OpenWorkState(ctx context.Context, rec map[string]any) (int, string, error) {
+	return 0, "", nil
+}
+func (s *abstPgxStore) ResolveWorkState(ctx context.Context, id int, byKnowledgeID int) error {
+	return nil
+}
+func (s *abstPgxStore) ListOpenWorkState(ctx context.Context, projectID int, limit int) []map[string]any {
+	return nil
+}
+func (s *abstPgxStore) StaleOpenWorkStates(ctx context.Context, days int) []map[string]any {
+	return nil
+}
 
 var _ wire.Store = (*abstPgxStore)(nil)
 

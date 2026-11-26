@@ -341,6 +341,110 @@ func hotCounts(rows [][]any) (active, pending, recent int) {
 	return active, pending, recent
 }
 
+const hotSnapshotKind = "state"
+
+func hotSnapshotRuneCap(budget int) int { return budget / 5 }
+
+func hotSnapshotCell(s string) string {
+	return strings.ReplaceAll(render.Text(s), "|", " ")
+}
+
+func hotTruncate(s string, n int) string {
+	r := []rune(s)
+	if n < 0 {
+		return ""
+	}
+	if len(r) <= n {
+		return s
+	}
+	if n == 0 {
+		return ""
+	}
+	return string(r[:n-1]) + "…"
+}
+
+func hotSnapshotRowTime(v any) (time.Time, bool) {
+	switch t := v.(type) {
+	case time.Time:
+		return t, true
+	case string:
+		if tt, err := time.Parse(time.RFC3339, t); err == nil {
+			return tt, true
+		}
+	}
+	return time.Time{}, false
+}
+
+func hotSnapshotLoadLimits(ctx context.Context, st wire.Store) (staleDays, snapMax int) {
+	def := store.DefaultThresholds()
+	staleDays, snapMax = def.StateStaleDays, def.StateSnapshotMax
+	if th, err := wire.LoadThresholds(ctx, st); err == nil {
+		if th.StateStaleDays > 0 {
+			staleDays = th.StateStaleDays
+		}
+		if th.StateSnapshotMax > 0 {
+			snapMax = th.StateSnapshotMax
+		}
+	}
+	return staleDays, snapMax
+}
+
+func hotSnapshotLines(ctx context.Context, st wire.Store, currentProjectID int, now time.Time) []string {
+	ws, ok := st.(workStateStore)
+	if !ok {
+		return nil
+	}
+	staleDays, snapMax := hotSnapshotLoadLimits(ctx, st)
+	rows := ws.ListOpenWorkState(ctx, currentProjectID, stateListLimit)
+	cutoff := now.AddDate(0, 0, -staleDays)
+	fresh := make([]map[string]any, 0, len(rows))
+	for _, row := range rows {
+		if u, ok := hotSnapshotRowTime(row["updated_at"]); ok && u.Before(cutoff) {
+			continue
+		}
+		fresh = append(fresh, row)
+	}
+	if len(fresh) == 0 {
+		return nil
+	}
+	sort.SliceStable(fresh, func(a, b int) bool {
+		if currentProjectID > 0 {
+			pa, _ := render.CellToInt(fresh[a]["project_id"])
+			pb, _ := render.CellToInt(fresh[b]["project_id"])
+			if (pa == currentProjectID) != (pb == currentProjectID) {
+				return pa == currentProjectID
+			}
+		}
+		ua, _ := hotSnapshotRowTime(fresh[a]["updated_at"])
+		ub, _ := hotSnapshotRowTime(fresh[b]["updated_at"])
+		return ua.After(ub)
+	})
+	if len(fresh) > snapMax {
+		fresh = fresh[:snapMax]
+	}
+	cap := hotSnapshotRuneCap(HotBudget(MetaGetKV(ctx, st)))
+	lines := make([]string, 0, len(fresh))
+	used := 0
+	for _, row := range fresh {
+		task, _ := row["task"].(string)
+		next, _ := row["next_action"].(string)
+		ln := hotSnapshotKind + "|" + hotSnapshotCell(task) + "|" + hotSnapshotCell(next)
+		if n := utf8.RuneCountInString(ln); used+n > cap {
+			ln = hotTruncate(ln, cap-used)
+			n = utf8.RuneCountInString(ln)
+			if n == 0 {
+				break
+			}
+			lines = append(lines, ln)
+			used += n
+			break
+		}
+		used += utf8.RuneCountInString(ln)
+		lines = append(lines, ln)
+	}
+	return lines
+}
+
 func RunHot(ctx context.Context, st wire.Store, args []string, stdin io.Reader, stdout io.Writer) int {
 
 	session := SessionLabelFn(args)
@@ -398,19 +502,32 @@ func RunHot(ctx context.Context, st wire.Store, args []string, stdin io.Reader, 
 	if full {
 		lines = hotSuffixedLines(rows, time.Now().UTC())
 		clamped := query.ClampHot(hotFullOutput(lines), budget)
-		fmt.Fprint(stdout, clamped)
+		snap := hotSnapshotLines(ctx, st, 0, time.Now().UTC())
+		out := clamped
+		for _, ln := range snap {
+			out += ln + "\n"
+		}
+		fmt.Fprint(stdout, out)
 		RecordHotLenFn(len([]rune(clamped)))
 
-		recordBytes(ctx, st, "hot", len(clamped))
+		recordBytes(ctx, st, "hot", len(out))
 	} else {
 		kv := MetaGetKV(ctx, st)
 		profile := ExposureProfileFn(func(key string) (string, error) { return kv(key, "") })
 		active, pending, recent := hotCounts(rows)
 		line := HotHeadline(profile, active, pending, recent, HotTopics(rows, hotHeadlineTopicCount))
+		snap := hotSnapshotLines(ctx, st, 0, time.Now().UTC())
 		fmt.Fprintln(stdout, line)
+		for _, ln := range snap {
+			fmt.Fprintln(stdout, ln)
+		}
 		RecordHotLenFn(len([]rune(line)))
 
-		recordBytes(ctx, st, "hot", len(line)+1)
+		n := len(line) + 1
+		for _, ln := range snap {
+			n += len(ln) + 1
+		}
+		recordBytes(ctx, st, "hot", n)
 	}
 	PersistHotStatsToMetaFn(ctx, st)
 

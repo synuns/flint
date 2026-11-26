@@ -163,6 +163,18 @@ func (f *fakeApprove) UpdatePendingSummary(ctx context.Context, id int, summary 
 	return 1, nil
 }
 
+func (f *fakeApprove) OpenWorkState(ctx context.Context, rec map[string]any) (int, string, error) {
+	return 0, "open", f.capErr
+}
+
+func (f *fakeApprove) ResolveWorkState(ctx context.Context, id int, byKnowledgeID int) error {
+	return f.capErr
+}
+
+func (f *fakeApprove) ListOpenWorkState(ctx context.Context, projectID int, limit int) []map[string]any {
+	return nil
+}
+
 func withApproveFake(t *testing.T, f *fakeApprove) {
 	t.Helper()
 	prev := ApproveFn

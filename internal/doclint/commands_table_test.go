@@ -74,8 +74,8 @@ func TestSkillToolListMatchesMCP(t *testing.T) {
 	for _, td := range mcp.ToolsManifest() {
 		want[td.Name] = true
 	}
-	if len(want) != 5 {
-		t.Fatalf("mcp 도구 %d종 — 5종 계약 위반(도구맵 확장 시 가드 갱신)", len(want))
+	if len(want) != 6 {
+		t.Fatalf("mcp 도구 %d종 — 6종 계약 위반(도구맵 확장 시 가드 갱신)", len(want))
 	}
 	got := map[string]bool{}
 	for _, name := range skillToolRe.FindAllString(docStr(t, "../flint-plugin/skills/flint/SKILL.md"), -1) {

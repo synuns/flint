@@ -7,66 +7,6 @@ import (
 	"time"
 )
 
-func knFake(last string) *fakeStore {
-	return &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
-		for _, a := range args {
-			if s, ok := a.(string); ok && s == "session_knowledge_last" && last != "" {
-				return [][]any{{last}}, nil
-			}
-		}
-		return nil, nil
-	}}
-}
-
-func TestSummaryKeyword(t *testing.T) {
-	cases := []struct{ in, want string }{
-		{"v0.27.2 패치: 세션 지식화를 PostCompact 표준 경로로 활성화했다", "v0.27.2 패치: 세션 지식화를"},
-		{"짧", "짧"},
-		{"아주 긴 문장인데 구분자가 없어서 20룬 상한에 걸린다 여기까지가 딱 맞음", "아주 긴 문장인데 구분자가 없어서 2"},
-	}
-	for _, c := range cases {
-		if got := summaryKeyword(c.in); got != c.want {
-			t.Errorf("summaryKeyword(%q) = %q, want %q", c.in, got, c.want)
-		}
-	}
-}
-
-func TestMaybeSessionKnowledgeTopicQuality(t *testing.T) {
-	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
-	st := knFake("")
-	maybeSessionKnowledge(context.Background(), st, "검색 품질 개선 작업을 RRF 융합으로 완료했다", "claude", "s1", 0)
-	if len(st.inserted) != 1 {
-		t.Fatalf("적립 = %d, want 1", len(st.inserted))
-	}
-	topic := st.inserted[0]["topic"].(string)
-	if !strings.Contains(topic, "session[claude]") || !strings.Contains(topic, "검색 품질") {
-		t.Errorf("topic 품질 미반영: %q", topic)
-	}
-}
-
-func TestMaybeSessionKnowledgeSessionID(t *testing.T) {
-	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
-	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
-		for _, a := range args {
-			if s, ok := a.(string); ok && s == "session_knowledge_last" {
-				return nil, nil
-			}
-		}
-		if strings.Contains(sql, "FROM sessions") {
-			return [][]any{{int32(7)}}, nil
-		}
-		return nil, nil
-	}}
-	maybeSessionKnowledge(context.Background(), st, "세션 지식의 추적성을 위한 session_id 연결 검증", "claude", "s1", 0)
-	if len(st.inserted) != 1 {
-		t.Fatalf("적립 = %d, want 1", len(st.inserted))
-	}
-	sid, ok := st.inserted[0]["session_id"].(int)
-	if !ok || sid != 7 {
-		t.Errorf("session_id = %#v, want 7", st.inserted[0]["session_id"])
-	}
-}
-
 func TestRunPendingVerdicts(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	old, recent := time.Now().UTC().Add(-20*24*time.Hour), time.Now().UTC().Add(-24*time.Hour)

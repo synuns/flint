@@ -23,7 +23,7 @@ import (
 var kindColumns = map[string]map[string]bool{
 	"knowledge": {"topic": true, "summary": true, "tags": true, "entity": true,
 		"domain": true, "confidence": true, "origin": true, "status": true,
-		"content_hash": true, "session_id": true, "valid_at": true,
+		"content_hash": true, "session_id": true, "valid_at": true, "claim": true,
 
 		"conditions": true,
 
@@ -725,6 +725,9 @@ func (r *writeState) finalizeRec(n map[string]any, specs []linkSpec, kval string
 		r.correctionQuota--
 	}
 	n["kind"] = r.kind
+	if EnforceClaimPending(n)["status"] == "pending" && r.state != "pending" {
+		r.state = "pending"
+	}
 	for k := range n {
 		if !kindColumns[r.kind][k] && k != "kind" {
 			delete(n, k)
@@ -795,6 +798,11 @@ func (r *writeState) validateAndDedupe() int {
 		}
 		n := store.Normalize(r.kind, p)
 		if r.kind == "knowledge" {
+
+			if cse := rejectSessionSummaryCopyForWrite(r.ctx, r.st, claimString(n["summary"]), r.session); cse != nil {
+				fmt.Fprintln(r.stdout, wire.ErrLine(cse))
+				return 3
+			}
 
 			if raw, ok := p["tags"].([]any); ok {
 				tags := make([]string, 0, len(raw))

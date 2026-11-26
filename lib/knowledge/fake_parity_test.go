@@ -34,6 +34,7 @@ var (
 	_ TelemetryCommitter     = (*fakeApprove)(nil)
 	_ recallReplayStore      = (*fakeApprove)(nil)
 	_ pendingSummaryStore    = (*fakeApprove)(nil)
+	_ workStateStore         = (*fakeApprove)(nil)
 
 	_ approveStore        = (*approveStoreFake)(nil)
 	_ staleSessionStore   = (*doneFake)(nil)

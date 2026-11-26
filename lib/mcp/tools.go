@@ -29,6 +29,7 @@ const (
 	hotOutputSchema     = `{"type":"object","properties":{}}`
 	pendingOutputSchema = `{"type":"object","properties":{"status":{"type":"string"},"items":{"type":"array"},"counts":{"type":"object"},"next":{"type":"string"}}}`
 	approveOutputSchema = `{"type":"object","properties":{"status":{"type":"string"},"id":{"type":"integer"}}}`
+	workOutputSchema    = `{"type":"object","properties":{"status":{"type":"string"},"id":{"type":"integer"},"results":{"type":"array"}}}`
 )
 
 var runFn = func(cliArgs []string, stdin io.Reader, stdout io.Writer) int {
@@ -112,11 +113,31 @@ func ToolsManifest() []ToolDef {
 				"type": "object",
 				"properties": map[string]any{
 					"id":        map[string]any{"type": "integer", "description": "pending id to promote"},
+					"claim":     map[string]any{"type": "string", "enum": []string{"decision", "procedure", "lesson", "event"}, "description": "required to promote a row whose claim is unset (backfill=event)"},
 					"supersede": map[string]any{"type": "integer", "description": "old active id to replace (optional)"},
 				},
 				"required": []string{"id"},
 			},
 			OutputSchema: json.RawMessage(approveOutputSchema),
+		},
+		{
+			Name:        "flint_work",
+			Description: "Track in-progress work state. action=open records task progress (server-side hash absorbs re-reports into the same open row), action=update is an alias, action=resolve closes by id (optional by=knowledge id), action=list returns open states (all=true includes resolved).",
+			InputSchema: map[string]any{
+				"type":     "object",
+				"required": []string{"action"},
+				"properties": map[string]any{
+					"action":  map[string]any{"type": "string", "enum": []string{"open", "update", "resolve", "list"}},
+					"task":    map[string]any{"type": "string", "description": "required for open/update"},
+					"detail":  map[string]any{"type": "string", "description": "attempt/failure context"},
+					"next":    map[string]any{"type": "string", "description": "next action"},
+					"project": map[string]any{"type": "integer", "description": "project id"},
+					"id":      map[string]any{"type": "integer", "description": "work state id, required for resolve"},
+					"by":      map[string]any{"type": "integer", "description": "knowledge id linking the resolution"},
+					"all":     map[string]any{"type": "boolean", "description": "list resolved rows too"},
+				},
+			},
+			OutputSchema: json.RawMessage(workOutputSchema),
 		},
 	}
 }
@@ -133,6 +154,8 @@ func DispatchTool(name string, args map[string]any) (string, int) {
 		return runCall([]string{"pending", "--json"}, strings.NewReader(""))
 	case "flint_approve":
 		return dispatchApprove(args)
+	case "flint_work":
+		return dispatchWork(args)
 	default:
 
 		if b, err := json.Marshal(map[string]string{"error": "unknown tool: " + name}); err == nil {
@@ -220,6 +243,10 @@ func dispatchApprove(args map[string]any) (string, int) {
 	}
 	cliArgs := []string{"approve", "--id", strconv.Itoa(id)}
 
+	if claim := strArg(args, "claim"); claim != "" {
+		cliArgs = append(cliArgs, "--claim", claim)
+	}
+
 	if _, has := args["supersede"]; has {
 		sup, ok := intArgStrict(args, "supersede")
 		if !ok {
@@ -274,6 +301,45 @@ func dispatchWrite(args map[string]any) (string, int) {
 
 func dispatchHot(args map[string]any) (string, int) {
 	return runCall([]string{"hot"}, strings.NewReader(""))
+}
+
+func dispatchWork(args map[string]any) (string, int) {
+	switch action := strArg(args, "action"); action {
+	case "open", "update":
+		task := strArg(args, "task")
+		if task == "" {
+			return `{"error":"schema","field":"task","expect":"required for action ` + action + `"}`, 3
+		}
+		cliArgs := []string{"state", "open", "--task", task}
+		if d := strArg(args, "detail"); d != "" {
+			cliArgs = append(cliArgs, "--detail", d)
+		}
+		if n := strArg(args, "next"); n != "" {
+			cliArgs = append(cliArgs, "--next", n)
+		}
+		if id, ok := intArgStrict(args, "project"); ok && id > 0 {
+			cliArgs = append(cliArgs, "--project", strconv.Itoa(id))
+		}
+		return runCall(cliArgs, strings.NewReader(""))
+	case "resolve":
+		id, ok := intArgStrict(args, "id")
+		if !ok || id < 1 {
+			return `{"error":"schema","field":"id","expect":"positive integer"}`, 3
+		}
+		cliArgs := []string{"state", "resolve", "--id", strconv.Itoa(id)}
+		if by, ok := intArgStrict(args, "by"); ok && by > 0 {
+			cliArgs = append(cliArgs, "--by", strconv.Itoa(by))
+		}
+		return runCall(cliArgs, strings.NewReader(""))
+	case "list":
+		cliArgs := []string{"state", "list"}
+		if b, ok := args["all"].(bool); ok && b {
+			cliArgs = append(cliArgs, "--all")
+		}
+		return runCall(cliArgs, strings.NewReader(""))
+	default:
+		return `{"error":"schema","field":"action","expect":"open|update|resolve|list"}`, 3
+	}
 }
 
 func runCall(cliArgs []string, stdin io.Reader) (string, int) {

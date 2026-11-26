@@ -42,8 +42,8 @@ func manifestTools(t *testing.T) map[string]struct {
 		}
 		out[td.Name] = e
 	}
-	if len(out) != 5 {
-		t.Fatalf("mcp 도구 %d종 — 5종 계약 위반(도구맵 확장 시 가드 갱신)", len(out))
+	if len(out) != 6 {
+		t.Fatalf("mcp 도구 %d종 — 6종 계약 위반(도구맵 확장 시 가드 갱신)", len(out))
 	}
 	return out
 }

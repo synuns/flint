@@ -46,8 +46,17 @@ func approveUsageErr(format string, a ...any) error {
 func RunApprove(ctx context.Context, st wire.Store, args []string, stdin io.Reader, stdout io.Writer) int {
 	id := -1
 	supersede := -1
+	claimFlag := ""
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
+		case "--claim":
+			flag := args[i]
+			i++
+			if i >= len(args) {
+				fmt.Fprintln(stdout, wire.ErrLine(approveUsageErr("%s requires a value", flag)))
+				return 3
+			}
+			claimFlag = args[i]
 		case "--id", "--supersede":
 			flag := args[i]
 			i++
@@ -79,12 +88,7 @@ func RunApprove(ctx context.Context, st wire.Store, args []string, stdin io.Read
 		return 3
 	}
 
-	var err error
-	if as, ok := st.(approveStore); ok {
-		err = as.Approve(ctx, id)
-	} else {
-		err = ApproveFn(ctx, id)
-	}
+	_, err := ApproveWithClaim(ctx, st, id, claimFlag)
 	if err != nil {
 		if errors.Is(err, db.ErrNotFound) {
 			BumpCurationCounter(ctx, st, "approve_not_found", 1)
@@ -92,6 +96,10 @@ func RunApprove(ctx context.Context, st wire.Store, args []string, stdin io.Read
 			return 1
 		}
 		fmt.Fprintln(stdout, wire.ErrLine(err))
+		var ue *wire.UsageError
+		if errors.As(err, &ue) {
+			return 3
+		}
 		return store.MapExit(err)
 	}
 	BumpCurationCounter(ctx, st, "approve_done", 1)
