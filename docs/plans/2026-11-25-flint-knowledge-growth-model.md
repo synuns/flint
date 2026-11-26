@@ -136,7 +136,7 @@ ALTER TABLE knowledge ADD COLUMN IF NOT EXISTS claim text NOT NULL DEFAULT '';
 CREATE INDEX IF NOT EXISTS flint_knowledge_claim_idx ON knowledge (claim);
 
 CREATE OR REPLACE VIEW recall_knowledge AS
-SELECT id, topic, summary, tags, entity, domain, claim, confidence, conditions
+SELECT id, topic, summary, tags, entity, domain, claim, confidence, conditions, status
 FROM knowledge
 WHERE invalid_at IS NULL AND claim <> 'event';
 
@@ -144,6 +144,11 @@ CREATE OR REPLACE VIEW open_work_state AS
 SELECT id, project_id, task, detail, next_action, updated_at
 FROM work_state WHERE status = 'open';
 ```
+
+구현 노트(2026-11-26 v1.38.0 감사 반영): 두 뷰는 lib/sqlfs/views.sql이 아니라
+lib/db/admin.go 스키마 게이트 내 인라인 정의다(views_sig 감시망 밖 — 문서·코드
+동일 게이트는 doclint와 감사 루프가 담당). recall_knowledge는 status 열을
+포함한 10열(§5 초안 9열에서 status 추가 — read --fields id,status 계약).
 
 - **scope 신설 없음** — 유효 범위 앵커는 기존 `conditions`(조건 태그,
   K5 실현)를 재사용한다. 회상 시점 조건 평가·자동 탈락은 P1 위반이므로
