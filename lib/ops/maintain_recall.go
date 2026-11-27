@@ -29,7 +29,14 @@ func maintainRunRecallAudit(ctx context.Context, r *maintainRequest, stdout io.W
 	return maintainRecallAudit(ctx, r.ms, stdout, r.limit)
 }
 
+type ApplyVolStore interface {
+	MergeVolTag(ctx context.Context, id int, volTag string) (int64, error)
+}
+
 func maintainRunAgeAudit(ctx context.Context, r *maintainRequest, stdout io.Writer) int {
+	if r.applyVol {
+		return maintainApplyVol(ctx, r.ms, stdout, r.limit, r.yes)
+	}
 	return maintainAgeAudit(ctx, r.ms, stdout, r.limit)
 }
 
@@ -203,6 +210,9 @@ type staleScoredItem struct {
 	Supersede int    `json:"supersede_count"`
 
 	Tags string `json:"-"`
+
+	Claim  string `json:"-"`
+	Origin string `json:"-"`
 }
 
 func listStaleScored(ctx context.Context, ms wire.Store, limit int) ([]staleScoredItem, error) {
@@ -225,7 +235,7 @@ func listStaleScored(ctx context.Context, ms wire.Store, limit int) ([]staleScor
 		           AND EXISTS (SELECT 1 FROM recall_events rb WHERE rb.knowledge_id = b.id)),
 		       (SELECT count(*) FROM knowledge s
 		         WHERE s.topic = k.topic AND s.id <> k.id AND s.superseded_by IS NOT NULL),
-		       COALESCE(k.tags, '')
+		       COALESCE(k.tags, ''), COALESCE(k.claim, ''), COALESCE(k.origin, '')
 		FROM knowledge k
 		LEFT JOIN (`+knowledge.RecallAggregateSQL+`) re ON re.knowledge_id = k.id
 		WHERE k.status = 'active' AND k.invalid_at IS NULL
@@ -254,6 +264,13 @@ func listStaleScored(ctx context.Context, ms wire.Store, limit int) ([]staleScor
 		bad, _ := render.CellToInt(r[4])
 		sup, _ := render.CellToInt(r[5])
 		tags, _ := r[6].(string)
+		claim, origin := "", ""
+		if len(r) > 7 {
+			claim, _ = r[7].(string)
+		}
+		if len(r) > 8 {
+			origin, _ = r[8].(string)
+		}
 		items = append(items, staleScoredItem{
 			ID:        id,
 			Topic:     render.Text(topic),
@@ -262,6 +279,8 @@ func listStaleScored(ctx context.Context, ms wire.Store, limit int) ([]staleScor
 			BadRecall: bad,
 			Supersede: sup,
 			Tags:      tags,
+			Claim:     strings.TrimSpace(claim),
+			Origin:    strings.TrimSpace(origin),
 		})
 	}
 	for i := range items {
@@ -295,6 +314,17 @@ func clampAgeTopic(s string) string {
 	return string(r[:ageAuditTopicMax]) + "…"
 }
 
+func volSuggestion(it staleScoredItem) (sug, existing string) {
+	existing = ExistingVolTag(it.Tags)
+	if existing != "" {
+		return "", existing
+	}
+	if it.Claim != "" {
+		return ClaimDefaultVol(it.Claim), existing
+	}
+	return SuggestVolClassForSource(it.Topic, it.Tags, it.Origin), existing
+}
+
 func maintainAgeAudit(ctx context.Context, ms wire.Store, stdout io.Writer, limit int) int {
 
 	threshold := store.DefaultThresholds().StaleScoreThreshold
@@ -316,10 +346,7 @@ func maintainAgeAudit(ctx context.Context, ms wire.Store, stdout io.Writer, limi
 			over++
 		}
 
-		sug, existing := "", ExistingVolTag(it.Tags)
-		if existing == "" {
-			sug = SuggestVolClass(it.Topic, it.Tags)
-		}
+		sug, existing := volSuggestion(it)
 		out = append(out, ageAuditItem{
 			ID:            it.ID,
 			Topic:         clampAgeTopic(it.Topic),
@@ -352,6 +379,103 @@ func maintainAgeAudit(ctx context.Context, ms wire.Store, stdout io.Writer, limi
 		return 1
 	}
 	fmt.Fprintln(stdout, string(b))
+	return 0
+}
+
+type applyVolItem struct {
+	ID           int    `json:"id"`
+	Topic        string `json:"topic"`
+	SuggestedVol string `json:"suggested_vol"`
+	MergedTag    string `json:"merged_tag,omitempty"`
+}
+
+func maintainApplyVol(ctx context.Context, ms MaintStore, stdout io.Writer, limit int, yes bool) int {
+	items, err := listStaleScored(ctx, ms, limit)
+	if err != nil {
+		fmt.Fprintln(stdout, wire.ErrLine(err))
+		return store.MapExit(err)
+	}
+
+	type volProposal struct {
+		it  staleScoredItem
+		sug string
+	}
+	proposals := []volProposal{}
+	for _, it := range items {
+		sug, existing := volSuggestion(it)
+		if existing != "" || sug == "" {
+			continue
+		}
+		proposals = append(proposals, volProposal{it: it, sug: sug})
+	}
+
+	outItems := make([]applyVolItem, 0, len(proposals))
+	for _, p := range proposals {
+		outItems = append(outItems, applyVolItem{
+			ID:           p.it.ID,
+			Topic:        clampAgeTopic(p.it.Topic),
+			SuggestedVol: p.sug,
+		})
+	}
+
+	if !yes {
+		out, mErr := json.Marshal(struct {
+			Status  string         `json:"status"`
+			Applied bool           `json:"applied"`
+			Count   int            `json:"count"`
+			Items   []applyVolItem `json:"items"`
+			Summary string         `json:"summary"`
+		}{Status: "apply-vol", Applied: false, Count: len(outItems), Items: outItems,
+			Summary: fmt.Sprintf("dry-run: %d vol suggestion(s) — pass --yes to apply", len(outItems))})
+		if mErr != nil {
+			fmt.Fprintln(stdout, wire.ErrLine(mErr))
+			return 1
+		}
+		fmt.Fprintln(stdout, string(out))
+		return 0
+	}
+
+	as, ok := ms.(ApplyVolStore)
+	if !ok {
+		fmt.Fprintln(stdout, `{"error":"maintain: unsupported store"}`)
+		return 1
+	}
+	if err := retryWrite(ctx, func() error {
+		for _, p := range proposals {
+			n, err := as.MergeVolTag(ctx, p.it.ID, ":"+p.sug+":")
+			if err != nil {
+				return err
+			}
+			if n != 1 {
+				return fmt.Errorf("apply-vol: updated %d rows for id=%d (race — retry)", n, p.it.ID)
+			}
+		}
+		if len(proposals) == 0 {
+			return nil
+		}
+		_, err := ms.Commit(ctx, fmt.Sprintf(
+			"apply-vol: %d rows vol tags merged (apply-vol path) [session:0]", len(proposals)))
+		return err
+	}); err != nil {
+		fmt.Fprintln(stdout, wire.ErrLine(err))
+		return store.MapExit(err)
+	}
+	for i := range outItems {
+		outItems[i].MergedTag = ":" + outItems[i].SuggestedVol + ":"
+	}
+	out, mErr := json.Marshal(struct {
+		Status  string         `json:"status"`
+		Applied bool           `json:"applied"`
+		Count   int            `json:"count"`
+		Items   []applyVolItem `json:"items"`
+		Summary string         `json:"summary"`
+	}{Status: "apply-vol", Applied: true, Count: len(outItems), Items: outItems,
+		Summary: fmt.Sprintf("%d vol tag(s) merged — decay exemption now follows approved tags", len(outItems))})
+	if mErr != nil {
+		fmt.Fprintln(stdout, wire.ErrLine(mErr))
+		return 1
+	}
+	fmt.Fprintln(stdout, string(out))
 	return 0
 }
 

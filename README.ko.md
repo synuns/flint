@@ -26,7 +26,7 @@
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 하네스">
   <a href="https://github.com/synuns/flint/actions/workflows/ci.yml"><img src="https://github.com/synuns/flint/actions/workflows/ci.yml/badge.svg" alt="CI 상태"></a>
-  <img src="https://img.shields.io/badge/release-v1.39.1-blue" alt="v1.39.1">
+  <img src="https://img.shields.io/badge/release-v1.40.0-blue" alt="v1.40.0">
 </p>
 <p align="center">
   <sub>8종은 자동 등록(A급) 하니스 기준 — 전체 지원 목록은 아래 <a href="#에이전트--어댑터">어댑터 표</a>에 있습니다.</sub>
@@ -48,6 +48,7 @@ flint는 이걸 바꿉니다. 에이전트가 무언가 배우면 — 결정, �
 
 사람은 Obsidian에 노트를 남깁니다. 에이전트는 flint에 기억을 남깁니다 — 불과 도구를 얻기 위해 두드리는 부싯돌처럼.
 
+> v1.40.0 · 낡음 매핑 — claim→vol 기본값 제안(decision/event→immutable·procedure/lesson→conditional·기존 태그 우선·자동 면제 없음)·출처 축(SuggestVolClassForSource)·승인 적용 경로: maintain --age-audit --apply-vol [--yes](dry-run 기본·repo 경유 태그 병합) · [전체 변경 이력](docs/HISTORY.md)
 > v1.39.1 · r143-angle2-sessionlabel 패치 — 보안: secrets 스캔이 session_label 커버·work_state 원문 저장 시 session_label 살균·재보고 시 라벨 백필·라벨 파일 폴백 검증(제어문자·200자 상한) · [전체 변경 이력](docs/HISTORY.md)
 > v1.39.0 · 지식 성장 모델 2단계 — recall 이력이 read 순위에 합류(5번째 RRF 신호)·recall-audit 권장 처분(supersede/expire/hold·decay-audit 패리티)·세션 사슬: state open이 세션 라벨 기록·hot이 프로젝트 우선 스냅샷 부활·release-gate가 CI 검증 로컬 선실행 · [전체 변경 이력](docs/HISTORY.md)
 > v1.38.4 · r143-angle4 패치 — 문서: read projection 서술 교정(10열·status 포함)·work_state 보존 계약(90일 정리·TUNING 행 추가)·QUICKSTART recall 뷰+flint state·README doctor 수 30 · [전체 변경 이력](docs/HISTORY.md)
@@ -298,7 +299,7 @@ flint는 여러분의 코딩 세션 안에서 동작하므로, 제약 조건은 
 | `flint done --session <id>` | 세션 마무리 기록 |
 | `flint approve --id n` | 대기 중 지식을 활성으로 승격 — 단일 claim 게이트: claim 없는 행(backfill `event` 포함)은 `--claim <decision\|procedure\|lesson\|event>` 필수(부재 시 exit 3); claim 없는 write는 confidence와 무관하게 pending |
 | `flint state` | 진행 상태(의도) 접점 — `open --task T [--detail D] [--next A] [--project N] [--session LABEL]`(서버측 정규화 해시가 같은 open 과업의 재보고 흡수 → 한 줄 JSON `{id, status: open\|updated\|noop}`; 세션 라벨 — 플래그 우선·라벨 파일 폴백 — 로 `flint hot`이 현재 프로젝트의 스냅샷 행을 우선 정렬, 미해석 시 출력 불변) · `list [--all]` · `resolve --id N [--by K]`; open 행은 hot 스냅샷에 노출(상한 `state_snapshot_max`)·오래된 행은 `maintain --stale-state`가 승인제 resolve 제안 — 무조건 기록, claim 게이트 없음 |
-| `flint maintain` | 관리: 임계값 확인 · 무효화 · 병합 · `--merge-audit` 중복 쌍 보고(multiset Dice·비용 추정 동반·리스팅만) · `--recall-audit` 나쁜 회상 환류 보고(리스팅만 — 각 행이 리포트 전용 `recommend` 필드(`supersede`·`expire`·`hold`)를 가짐 — 처분은 항상 승인제 서브커맨드로) · `--age-audit` 낡음 보고(suggested_vol 제안 동반) · `--reaffirm` 유효기간 갱신 · `--recheck` 조건 재검토 · `--gc [--shallow] --yes` dolt 가비지 컬렉션(운영자 명령 — 전 세션 접속 단절, 같은 실행 안에서 재연결+스키마 재검증) (`--tui` 대화형 검수, 옵트인) |
+| `flint maintain` | 관리: 임계값 확인 · 무효화 · 병합 · `--merge-audit` 중복 쌍 보고(multiset Dice·비용 추정 동반·리스팅만) · `--recall-audit` 나쁜 회상 환류 보고(리스팅만 — 각 행이 리포트 전용 `recommend` 필드(`supersede`·`expire`·`hold`)를 가짐 — 처분은 항상 승인제 서브커맨드로) · `--age-audit` 낡음 보고(suggested_vol 제안 동반 — claim·출처 기본값, 제안만) · `--age-audit --apply-vol [--yes]` 제안 vol 태그 병합 적용(무 `--yes` dry-run — 승인제) · `--reaffirm` 유효기간 갱신 · `--recheck` 조건 재검토 · `--gc [--shallow] --yes` dolt 가비지 컬렉션(운영자 명령 — 전 세션 접속 단절, 같은 실행 안에서 재연결+스키마 재검증) (`--tui` 대화형 검수, 옵트인) |
 | `flint distill --out DIR` | 회상 점수가 임계 이상인 미출력 활성 지식을 마크다운 파일 1개로 출력(`--min-score`는 distill_min_score 대체; 출력 행은 distilled_at 스탬프 — 재실행은 잔여분만 — ADR-0018) |
 | `flint audit --limit n` | 최근 n개 커밋 조회 |
 | `flint backup` | SQL 덤프 + sha256 체크섬 (`--encrypt` age 저장 암호화·`--mask` 치환 진단 덤프) |

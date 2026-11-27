@@ -16,7 +16,7 @@ var maintainModeFlagContract = map[string][]string{
 	"--expire-pending":    {},
 	"--decay-audit":       {"--limit"},
 	"--stale-state":       {},
-	"--age-audit":         {"--limit"},
+	"--age-audit":         {"--limit", "--apply-vol"},
 	"--merge-audit":       {"--limit"},
 	"--recall-audit":      {"--limit"},
 	"--reaffirm":          {"--id", "--ids"},

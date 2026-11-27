@@ -138,6 +138,8 @@ Claude Code 표준 경로는 PostCompact이며 Stop 훅 stdin에
   (기본 normal · minimal은 주입 요약화·nudge 자동 종결)
 - `flint maintain --supersede OLD --by NEW` — 구 항목 무효화+선행 관계 기록
   (NEW 미존재·OLD==NEW·OLD 비active → exit 1·3·1)
+- `flint maintain --age-audit --apply-vol [--yes]` — age-audit의 vol 제안을
+  태그 병합으로 적용(무 `--yes` dry-run — 감쇠 면제는 승인 적용된 태그로만)
 - `flint state open --task T [--detail D] [--next A] [--session LABEL]` — 진행 과업 기록
   (무조건 기록 — claim 게이트 없음 · 서버측 정규화 해시로 재보고 흡수 ·
   --session 라벨은 hot 프로젝트 우선 정렬의 연결 축)

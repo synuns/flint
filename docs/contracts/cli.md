@@ -292,6 +292,41 @@ Sources: `lib/wire/registry.go` · `lib/wire/run.go` · `lib/store/pipeline.go` 
   the latest work_state row and prioritize that project's rows in the
   snapshot; an unresolved project (no label, or a row with no project)
   keeps the existing output byte-identical.
+- Vol suggestion defaults (v1.40.0): an `age-audit` row without an
+  existing `:vol:x:` tag carries a `suggested_vol` proposal assembled
+  from two default tables. The proposal is report-only — decay exemption
+  is **never automatic** (the `EffectiveScoreFor` decay circuit is
+  unchanged; exemption follows only approved tags). Override precedence:
+  existing vol tag > claim default > source default > current keyword
+  rules. Claim defaults (`ClaimDefaultVol`, untagged rows with a claim):
+
+  | claim | default vol |
+  |---|---|
+  | `decision` | `vol:immutable` |
+  | `procedure` | `vol:conditional` |
+  | `lesson` | `vol:conditional` |
+  | `event` | `vol:immutable` |
+
+  Source defaults (`SuggestVolClassForSource`, untagged rows without a
+  claim — the new function keeps `SuggestVolClass` byte-equivalent for
+  other callers):
+
+  | source | default vol |
+  |---|---|
+  | `human` | `vol:immutable` |
+  | `correction` | `vol:immutable` |
+  | `import` | `vol:conditional` |
+  | `vault` | `vol:conditional` |
+
+  `agent` and an empty source keep the current keyword rules (the
+  `SuggestVolClass` behavior).
+- Apply-vol path (v1.40.0): `maintain --age-audit --apply-vol [--yes]` —
+  without `--yes` it is a dry-run listing of the pending vol proposals
+  (`"applied":false`, exit 0); with `--yes` the proposals are applied as
+  `:vol:x:` tag merges — the tag is appended to `tags`, existing tags are
+  preserved (a merge, not a supersede) — through the repo write path with
+  one dolt commit per run. Rows that already carry a vol tag are skipped,
+  so a repeated run converges to a no-op.
 
 ## Boundaries
 

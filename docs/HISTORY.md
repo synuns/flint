@@ -6,6 +6,26 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.40.0 minor (2026-11-28) — staleness-mapping
+
+Staleness leftovers (pipelines §5 residue, narrowed by research): the
+claim axis now feeds volatility suggestions, and suggestions finally have
+an approved apply path — the decay circuit itself is untouched.
+
+- **claim→vol default mapping (suggestion-only)**: rows without a vol
+  tag suggest from the claim table (decision/event→immutable,
+  procedure/lesson→conditional) before source defaults and keyword
+  rules — existing tags always win, and nothing is exempted
+  automatically (EffectiveScoreFor unchanged by design).
+- **source axis**: SuggestVolClassForSource(topic, tags, source) —
+  human/correction→immutable-leaning, import/vault→conditional,
+  agent keeps the keyword rules; the original signature is unchanged
+  and delegates.
+- **approved apply path**: `maintain --age-audit --apply-vol [--yes]`
+  — dry-run list by default, tag merge via the repo route on --yes
+  (`:vol:x:` convention, existing tags preserved, one commit).
+Design: docs/plans/2026-11-28-flint-v1400-staleness.md
+
 ### v1.39.1 patch (2026-11-27) — r143-angle2-sessionlabel
 
 3 findings from the R143 angle-2 follow-up audit (session_label surface,

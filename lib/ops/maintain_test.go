@@ -403,6 +403,11 @@ func TestStaleScoreRealSlow(t *testing.T) {
 	if err := st.Migrate(ctx); err != nil {
 		t.Fatalf("Migrate: %v", err)
 	}
+	for _, g := range db.SchemaGates() {
+		if err := g.Ensure(ctx, repo); err != nil {
+			t.Fatalf("schema gate v%d: %v", g.Version, err)
+		}
+	}
 
 	const prefix = "t3-stale-"
 
@@ -1021,6 +1026,11 @@ func TestMaintainRecheckAgeAuditRealSlow(t *testing.T) {
 	defer ms.Close()
 	if err := ms.Migrate(ctx); err != nil {
 		t.Fatalf("Migrate: %v", err)
+	}
+	for _, g := range db.SchemaGates() {
+		if err := g.Ensure(ctx, repo); err != nil {
+			t.Fatalf("schema gate v%d: %v", g.Version, err)
+		}
 	}
 	const prefix = "t3-rck-"
 	ids, err := ms.InsertBatch(ctx, []map[string]any{
