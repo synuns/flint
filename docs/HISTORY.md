@@ -6,6 +6,15 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.41.1 patch (2026-11-28) — quality-consolidation-patch
+
+2 documentation/pointer fixes from the v1.41.0 audit (no code changes).
+
+- **[fix] TUNING.md FLINT_SLOW_LOOPS pointer**: referenced the deleted
+  admin_v1201_test.go — now points to admin_versions_test.go.
+- **[fix] slowlock error message**: stale filename in the failure path
+  message aligned with the consolidated file.
+
 ### v1.41.0 minor (2026-11-28) — quality-consolidation
 
 Test consolidation and parallel residuals, narrowed by research: the

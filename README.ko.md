@@ -48,6 +48,7 @@ flint는 이걸 바꿉니다. 에이전트가 무언가 배우면 — 결정, �
 
 사람은 Obsidian에 노트를 남깁니다. 에이전트는 flint에 기억을 남깁니다 — 불과 도구를 얻기 위해 두드리는 부싯돌처럼.
 
+> v1.41.1 · 품질 청산 패치 — 감사 수리: TUNING·slowlock 낡은 파일 참조 통합 파일명으로 갱신 · [전체 변경 이력](docs/HISTORY.md)
 > v1.41.0 · 품질 청산 — 버전 접미 테스트 4도메인 단일 파일 통합(36개 제거·함수명·수 불변)·report 병렬 잔여: collectDaily errgroup 합류(5-way)·profile 메타 병렬(골든 출력 무변화)·read LIKE 이월(pg_trgm 미지원) · [전체 변경 이력](docs/HISTORY.md)
 > v1.40.0 · 낡음 매핑 — claim→vol 기본값 제안(decision/event→immutable·procedure/lesson→conditional·기존 태그 우선·자동 면제 없음)·출처 축(SuggestVolClassForSource)·승인 적용 경로: maintain --age-audit --apply-vol [--yes](dry-run 기본·repo 경유 태그 병합) · [전체 변경 이력](docs/HISTORY.md)
 > v1.39.1 · r143-angle2-sessionlabel 패치 — 보안: secrets 스캔이 session_label 커버·work_state 원문 저장 시 session_label 살균·재보고 시 라벨 백필·라벨 파일 폴백 검증(제어문자·200자 상한) · [전체 변경 이력](docs/HISTORY.md)
