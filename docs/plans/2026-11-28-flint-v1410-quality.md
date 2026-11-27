@@ -28,7 +28,11 @@ v1.28 4조(함수명·수 불변 컴파일 강제)·전 수 green·성능 개선
 ## 3. 수용 기준
 
 1. 통합 대상 도메인 파일 수 감소·테스트 총 수 불변(전후 카운트 동일).
-2. collectDaily 순차 제거 후 report 출력 무변화(골든 출력 회귀).
+   **대상 집합은 `_v숫자_` 접미 정확 매칭**(read_v*·admin_v*·usage_v*·
+   suggest_v* — reads_*·readhot_*·hot_kreads_* 등 비접미 파일 제외·감사 1호).
+   **도메인별 순차 커밋**(36개 파일 이동의 충돌·블렌딩 방지·감사 2호).
+2. collectDaily 순차 제거 후 report 출력 무변화(골든 출력 회귀)·
+   소유권 분할 설계 시 daily:% 이중 쿼리 통합 고려(감사 3호·정보성).
 3. 전수 GREEN·release-gate(로컬 make ci 포함) green.
 
 ## 4. 비목표
