@@ -33,7 +33,7 @@ zero-hit 감소·주입 프로필 확장)·어댑터 확장·마케팅 계열·b
 | v1.38.x | done | **패치 루프 완결 — v1.38.1(r143-claim-integrity·00:18)·v1.38.2(r143-angle2-security·03:33)·v1.38.3(r143-angle3-performance·04:41)·v1.38.4(r143-angle4-docs·04:59) 연속 발행·전부 Latest.** R143 독립 감사 4각도 완결: 각도1(계약·스키마) 5건·각도2(보안·개인데이터) 4건·각도3(성능·자원) 5건+참고 2·각도4(문서·계약) 6건 — 전부 수리+회귀 테스트. **확정 과제 승계: release_gate.sh↔make ci 커버리지 불일치(게이트 동등성 수리 — CI 3회 실패 근본)** |
 | v1.39.0 | done | **발행 완료(2026-11-27 07:26 UTC·Latest·첫 시도 CI 통과)** — 성장 모델 2단계: recall 신호 read 랭킹 합류(5번째 RRF)·recall-audit recommend(3종·recall_audit_recommend_min 68번째 키)·세션 사슬(스키마 v21 session_label·state open 라벨 수신·hot 프로젝트 우선 부활)·release-gate CI 동등성 첫 적용 — 리서치(12사실)→기획(감사 6건 반영)→superlite 6태스크·전수 GREEN 20/0 |
 | v1.39.x | done | **패치 루프 완결 — v1.39.1(r143-angle2-sessionlabel·08:40 UTC·Latest) 발행.** 감사 3건 수리(session_label secrets 스캔 5열·살균 루프 편입·재보고 백필·라벨 폴백 검증 200자 상한)·14회차 전수 GREEN 20/0·엔진 위생 절차 확립(scratch purge→재기동→베이스라인 확인) |
-| v1.40.0 | building | 기획 진행 — 리서치 완료(10사실·배분 축소 확정)·기획 문서 docs/plans/2026-11-28-flint-v1400-staleness.md·독립 감사 대기 |
+| v1.40.0 | done | **발행 완료(2026-11-27 16:24 UTC·Latest·첫 시도 CI 통과) — 패치 루프 4각도 통합 감사 APPROVED(발견 0·LOW 정보성 1건 기록).** claim→vol 기본값 제안(감쇠 회로 무변경·자동 면제 없음·감사 HIGH 반영)·출처 축(ForSource)·--age-audit --apply-vol [--yes] 승인 경로·기획 감사 3건 반영 — 리서치(10사실·재확신 v1.22.0 실증 배분 축소)→superlite 5태스크·실DB 왕복 검증 |
 | v1.41.0 | todo | |
 | v1.42.0 | todo | 마케팅·brew는 사용자 트리거 확인 후 |
 | v1.27.0 | gating | 조건 미충족 — 충족 시 별도 착수 |
