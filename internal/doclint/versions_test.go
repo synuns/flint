@@ -564,6 +564,9 @@ var versionDocContracts = []struct {
 	{name: "TestVersion01382Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.38.2", "r143-angle2-security",
 	}},
+	{name: "TestVersion01383Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.38.3", "r143-angle3-performance",
+	}},
 	{name: "TestVersion0170Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.7.0", "sync",
 	}},
