@@ -90,7 +90,7 @@ func TestSlowLockIssuesAdvisorySQL(t *testing.T) {
 func TestIdempotencyContractKept(t *testing.T) {
 	b, err := os.ReadFile(filepath.Join("..", "..", "lib", "db", "admin_versions_test.go"))
 	if err != nil {
-		t.Fatalf("admin_v1201_test.go 소스 조회: %v", err)
+		t.Fatalf("admin_versions_test.go 소스 조회: %v", err)
 	}
 	src := string(b)
 	for _, want := range []string{

@@ -325,7 +325,7 @@ Registered here so the override has a single documented contract:
 
 | key | default | cap | meaning |
 |---|---|---|---|
-| `FLINT_SLOW_LOOPS` | 100 | 1000 | loop count of the slow serial race-distribution suite (`lib/db/admin_v1201_test.go`) — values above 1000 clamp to 1000 (a runaway override must not extend the suite wall time unboundedly); non-integers and values below 1 fail the test up front |
+| `FLINT_SLOW_LOOPS` | 100 | 1000 | loop count of the slow serial race-distribution suite (`lib/db/admin_versions_test.go`) — values above 1000 clamp to 1000 (a runaway override must not extend the suite wall time unboundedly); non-integers and values below 1 fail the test up front |
 
 ### DSN config file (config.json) — v0.7
 
