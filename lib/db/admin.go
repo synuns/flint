@@ -959,6 +959,47 @@ func (r *Repo) ensureSchemaV20(ctx context.Context) error {
 	return nil
 }
 
+func (r *Repo) EnsureSchemaV21(ctx context.Context) error {
+	return Retry(ctx, func() error { return r.ensureSchemaV21(ctx) }, gateRetryBackoff)
+}
+
+func (r *Repo) ensureSchemaV21(ctx context.Context) error {
+	var version string
+	err := r.pool.QueryRow(ctx,
+		`SELECT value FROM meta WHERE key = 'schema_version'`).Scan(&version)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) && !isPgCode(err, "42P01") {
+		return fmt.Errorf("schema v21: check version: %w", err)
+	}
+	if isPgCode(err, "42P01") {
+		return nil
+	}
+	if n, perr := strconv.Atoi(version); perr == nil && n >= 21 {
+		return nil
+	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("schema v21: begin: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	for _, stmt := range []string{
+		`ALTER TABLE work_state ADD COLUMN IF NOT EXISTS session_label text NOT NULL DEFAULT ''`,
+		`CREATE INDEX IF NOT EXISTS flint_work_state_session_label_idx ON work_state (session_label)`,
+	} {
+		if _, err := tx.Exec(ctx, stmt); err != nil {
+			return fmt.Errorf("schema v21: create: %w", err)
+		}
+	}
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO meta (key, value) VALUES ('schema_version', '21')
+		 ON CONFLICT (key) DO UPDATE SET value = excluded.value`); err != nil {
+		return fmt.Errorf("schema v21: meta: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("schema v21: commit: %w", err)
+	}
+	return nil
+}
+
 func (r *Repo) Approve(ctx context.Context, id int, claim string) error {
 	ct, err := r.pool.Exec(ctx,
 		`UPDATE knowledge SET status = 'active', invalid_at = NULL,

@@ -6,6 +6,29 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.39.0 minor (2026-11-27) — knowledge-growth-phase2
+
+Growth model phase 2: recall history feeds the read ranking, recall-audit
+grows a recommend field (decay-audit parity), and work_state gains a
+session chain — state open records the session label, hot resolves the
+current project from it and revives the project-first snapshot ordering.
+
+- **read ranking**: recall_events count joins the RRF fusion as a fifth
+  signal (additive — no-signal rows keep the existing order; fallback
+  path only, p95 unaffected).
+- **recall-audit recommend**: rows get recommend supersede|expire|hold
+  (decay-audit parity) gated by recall_audit_recommend_min (default 2);
+  disposition still runs through the approved maintain paths.
+- **session chain (schema v21)**: work_state.session_label (text, no FK)
+  records the session label at state open (flag first, label-file
+  fallback); hot resolves LatestProjectForSession and activates the
+  project-first snapshot ordering — unresolved sessions keep
+  byte-identical output. sessions.project_id deliberately not added.
+- **release gate parity**: release_gate.sh now runs the gofmt sweep,
+  check_comments and e2e (engine-down skips e2e with a warning) — the
+  CI failures that surfaced only at tag push are caught locally first.
+Design: docs/plans/2026-11-27-flint-v1390-growth-phase2.md
+
 ### v1.38.4 patch (2026-11-27) — r143-angle4-docs
 
 6 documentation corrections from the R143 audit angle 4 (docs · contract

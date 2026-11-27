@@ -46,7 +46,7 @@ var frozenThresholdKeys = []string{
 
 	"distill_min_score", "distill_max_runes",
 
-	"recall_audit_min_bad",
+	"recall_audit_min_bad", "recall_audit_recommend_min",
 
 	"dolt_" + "log_depth_warn", "db_size_warn_mb",
 

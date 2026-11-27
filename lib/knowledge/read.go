@@ -49,6 +49,36 @@ type RecallBumper interface {
 	BumpRecallScores(ctx context.Context, ids []int) error
 }
 
+func recallCountsFrom(ctx context.Context, st wire.Store) map[int]int {
+	rrows, err := wire.QueryOnce(ctx, st, RecallAggregateSQL, nil)
+	if err != nil || len(rrows) == 0 {
+		return nil
+	}
+	m := make(map[int]int, len(rrows))
+	for _, r := range rrows {
+		id := recallAnyInt(r[0])
+		if id == 0 {
+			continue
+		}
+		m[id] = recallAnyInt(r[1])
+	}
+	return m
+}
+
+func recallAnyInt(v any) int {
+	switch n := v.(type) {
+	case int:
+		return n
+	case int32:
+		return int(n)
+	case int64:
+		return int(n)
+	case float64:
+		return int(n)
+	}
+	return 0
+}
+
 func recordKnowledgeReads(ctx context.Context, st wire.Store, ids []int, session, kind string) {
 	if kr, ok := st.(KnowledgeReadsRecorder); ok {
 		_ = kr.RecordKnowledgeReads(ctx, ids, session, kind)
@@ -451,6 +481,7 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 			fallbackTried = true
 			if frows, ferr := wire.QueryOnce(ctx, st, fsql, fargs); ferr == nil && len(frows) > 0 {
 				rows = frows
+				query.SetRecallCounts(recallCountsFrom(ctx, st))
 				query.ReorderByFallbackCount(rows, query.TokenizeQuery(q))
 			}
 		}

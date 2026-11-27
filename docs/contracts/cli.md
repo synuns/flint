@@ -270,6 +270,28 @@ Sources: `lib/wire/registry.go` · `lib/wire/run.go` · `lib/store/pipeline.go` 
   summary is identical to (or a prefix match of) the session summary is
   rejected with exit 3 — the mechanical refusal of raw session-dump
   deposits.
+- Recall-audit recommend (v1.39.0): each `maintain --recall-audit` item
+  carries `recommend` ∈ `supersede|expire|hold` — `hold` below the
+  `recall_audit_recommend_min` floor (default 2, bad-recall count);
+  at or above the floor, `supersede` when the row itself has recall
+  history (`recall_events`) and `expire` when it does not. The field is
+  report-only — disposition stays with the approval-required maintain
+  subcommands (the decay-audit pattern; re-confirm is excluded and
+  planned for v1.40.0).
+- Read recall signal (v1.39.0): the `read` fallback re-ranking fuses
+  each row's recall count as one additive RRF signal (the fifth, after
+  match · read_count · jamo · topic — recall-proven rows rank higher on
+  tied scores). The signal is read only when the fallback fires; rows
+  without it keep the existing order, and the `--why` signal list gains
+  `recall` only then. The RRF formula structure and the
+  `:vol:immutable:` decay-exempt contract are unchanged.
+- State session link (v1.39.0): `flint state open` accepts
+  `--session LABEL` — the flag wins; without it the session-label file
+  fallback (the same receive path `flint hot` uses) supplies the label.
+  The recorded label lets `flint hot` resolve the current project from
+  the latest work_state row and prioritize that project's rows in the
+  snapshot; an unresolved project (no label, or a row with no project)
+  keeps the existing output byte-identical.
 
 ## Boundaries
 

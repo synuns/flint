@@ -238,6 +238,10 @@ func (d *delegatingFake) DiffCommits(ctx context.Context, fromHash, toHash strin
 func (d *delegatingFake) OpenWorkState(ctx context.Context, rec map[string]any) (int, string, error) {
 	return d.real.OpenWorkState(ctx, rec)
 }
+
+func (d *delegatingFake) LatestProjectForSession(ctx context.Context, session string) (int, error) {
+	return d.real.LatestProjectForSession(ctx, session)
+}
 func (d *delegatingFake) ResolveWorkState(ctx context.Context, id int, byKnowledgeID int) error {
 	return d.real.ResolveWorkState(ctx, id, byKnowledgeID)
 }

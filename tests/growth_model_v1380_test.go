@@ -121,8 +121,9 @@ func TestRealDBV1380RoundTrip(t *testing.T) {
 		`SELECT value FROM meta WHERE key = 'schema_version'`).Scan(&version); err != nil {
 		t.Fatalf("schema_version 조회: %v", err)
 	}
-	if version != "20" {
-		t.Fatalf("schema_version=%q, want 20", version)
+	wantV := strconv.Itoa(db.LatestSchemaVersion)
+	if version != wantV {
+		t.Fatalf("schema_version=%q, want %s", version, wantV)
 	}
 	if err := repo.EnsureSchemaV20(ctx); err != nil {
 		t.Fatalf("EnsureSchemaV20 재호출(멱등): %v", err)
@@ -131,8 +132,8 @@ func TestRealDBV1380RoundTrip(t *testing.T) {
 		`SELECT value FROM meta WHERE key = 'schema_version'`).Scan(&version); err != nil {
 		t.Fatalf("schema_version 재조회: %v", err)
 	}
-	if version != "20" {
-		t.Fatalf("재호출 후 schema_version=%q, want 20", version)
+	if version != wantV {
+		t.Fatalf("재호출 후 schema_version=%q, want %s", version, wantV)
 	}
 
 	dec := gm1380Write(t,

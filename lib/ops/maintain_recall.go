@@ -58,18 +58,36 @@ type recallAuditItem struct {
 	ID        int    `json:"id"`
 	Topic     string `json:"topic"`
 	BadRecall int    `json:"bad_recall"`
+	Recommend string `json:"recommend"`
+}
+
+func recallAuditRecommend(bad, selfRecalls, floor int) string {
+	if bad < floor {
+		return "hold"
+	}
+	if selfRecalls > 0 {
+		return "supersede"
+	}
+	return "expire"
 }
 
 func maintainRecallAudit(ctx context.Context, ms wire.Store, stdout io.Writer, limit int) int {
 	minBad := store.DefaultThresholds().RecallAuditMinBad
-	if th, err := wire.LoadThresholds(ctx, ms); err == nil && th.RecallAuditMinBad > 0 {
-		minBad = th.RecallAuditMinBad
+	minRec := store.DefaultThresholds().RecallAuditRecommendMin
+	if th, err := wire.LoadThresholds(ctx, ms); err == nil {
+		if th.RecallAuditMinBad > 0 {
+			minBad = th.RecallAuditMinBad
+		}
+		if th.RecallAuditRecommendMin > 0 {
+			minRec = th.RecallAuditRecommendMin
+		}
 	}
 	if limit <= 0 {
 		limit = 20
 	}
 	rows, err := wire.QueryOnce(ctx, ms, `
-		SELECT k.id, k.topic, `+recallAuditBadSQL+` AS bad_recall
+		SELECT k.id, k.topic, `+recallAuditBadSQL+` AS bad_recall,
+		       (SELECT count(*) FROM recall_events rk WHERE rk.knowledge_id = k.id) AS self_recalls
 		FROM knowledge k
 		WHERE k.status = 'active' AND k.invalid_at IS NULL
 		  AND `+recallAuditBadSQL+` >= $1
@@ -90,10 +108,15 @@ func maintainRecallAudit(ctx context.Context, ms wire.Store, stdout io.Writer, l
 		}
 		topic, _ := r[1].(string)
 		bad, _ := render.CellToInt(r[2])
+		selfRecalls := 0
+		if len(r) > 3 {
+			selfRecalls, _ = render.CellToInt(r[3])
+		}
 		items = append(items, recallAuditItem{
 			ID:        id,
 			Topic:     clampAgeTopic(render.Text(topic)),
 			BadRecall: bad,
+			Recommend: recallAuditRecommend(bad, selfRecalls, minRec),
 		})
 	}
 	if len(items) > limit {

@@ -77,6 +77,9 @@ func (d *delegatingDone) DiffCommits(ctx context.Context, fromHash, toHash strin
 func (d *delegatingDone) OpenWorkState(ctx context.Context, rec map[string]any) (int, string, error) {
 	return d.real.OpenWorkState(ctx, rec)
 }
+func (d *delegatingDone) LatestProjectForSession(ctx context.Context, session string) (int, error) {
+	return d.real.LatestProjectForSession(ctx, session)
+}
 func (d *delegatingDone) ResolveWorkState(ctx context.Context, id int, byKnowledgeID int) error {
 	return d.real.ResolveWorkState(ctx, id, byKnowledgeID)
 }

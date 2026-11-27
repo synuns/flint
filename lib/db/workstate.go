@@ -38,7 +38,7 @@ func WorkStateHash(normalized string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func workStateRecFields(rec map[string]any) (*int, string, string, string) {
+func workStateRecFields(rec map[string]any) (*int, string, string, string, string) {
 	var projectID *int
 	setProject := func(v int64) {
 		if v > 0 {
@@ -55,7 +55,8 @@ func workStateRecFields(rec map[string]any) (*int, string, string, string) {
 	task, _ := rec["task"].(string)
 	detail, _ := rec["detail"].(string)
 	nextAction, _ := rec["next_action"].(string)
-	return projectID, task, detail, nextAction
+	sessionLabel, _ := rec["session_label"].(string)
+	return projectID, task, detail, nextAction, sessionLabel
 }
 
 func SanitizeWorkStatePayload(rec map[string]any) []string {
@@ -92,7 +93,7 @@ func OpenWorkStateQuery(projectID *int, hash string) (string, []any) {
 
 func (r *Repo) OpenWorkState(ctx context.Context, rec map[string]any) (int, string, error) {
 	WarnWorkStateSecrets(SanitizeWorkStatePayload(rec))
-	projectID, task, detail, nextAction := workStateRecFields(rec)
+	projectID, task, detail, nextAction, sessionLabel := workStateRecFields(rec)
 	normalized := NormalizeWorkTask(task)
 	if normalized == "" {
 		return 0, "", fmt.Errorf("open work state: empty task")
@@ -105,9 +106,9 @@ func (r *Repo) OpenWorkState(ctx context.Context, rec map[string]any) (int, stri
 	if errors.Is(err, pgx.ErrNoRows) {
 		var newID int
 		if err := r.pool.QueryRow(ctx,
-			`INSERT INTO work_state (project_id, task, state_hash, detail, next_action, status)
-			 VALUES ($1, $2, $3, $4, $5, 'open') RETURNING id`,
-			projectID, normalized, hash, detail, nextAction).Scan(&newID); err != nil {
+			`INSERT INTO work_state (project_id, task, state_hash, detail, next_action, status, session_label)
+			 VALUES ($1, $2, $3, $4, $5, 'open', $6) RETURNING id`,
+			projectID, normalized, hash, detail, nextAction, sessionLabel).Scan(&newID); err != nil {
 			return 0, "", fmt.Errorf("open work state: %w", err)
 		}
 		return newID, "open", nil
@@ -124,6 +125,26 @@ func (r *Repo) OpenWorkState(ctx context.Context, rec map[string]any) (int, stri
 		return id, "updated", nil
 	}
 	return id, "noop", nil
+}
+
+func (r *Repo) LatestProjectForSession(ctx context.Context, session string) (int, error) {
+	if session == "" {
+		return 0, nil
+	}
+	var projectID *int
+	err := r.pool.QueryRow(ctx,
+		`SELECT project_id FROM work_state WHERE session_label = $1
+		 ORDER BY updated_at DESC, id DESC LIMIT 1`, session).Scan(&projectID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("latest project for session: %w", err)
+	}
+	if projectID == nil {
+		return 0, nil
+	}
+	return *projectID, nil
 }
 
 func (r *Repo) ResolveWorkState(ctx context.Context, id int, byKnowledgeID int) error {
