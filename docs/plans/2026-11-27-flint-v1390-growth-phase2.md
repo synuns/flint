@@ -10,18 +10,20 @@
 
 ## 1. 판정 — 핵심 결정 3건
 
-1. **프로젝트 연결 축 = work_state.session_id 백필+세션 사슬 해석(스키마 불변 우선)**.
-   근거: work_state.session_id·project_id 열이 이미 존재(v20)·hot은 --session 라벨
-   수신(리서치 8)·**세션→프로젝트 연결 열은 어디에도 없다 — work_state.project_id가
-   유일한 연결 축**(감사 1호 교정: sessions.project_id 열은 존재하지 않음).
-   v21 신규 열은 "세션 사슬로 불충분함이 실증될 때" 보류 — additive 판정은
-   구현 중 G2에서 확정(스키마 버전당 1회 원칙 유지). **v21 미소진 — 완료 시
-   scope3 §1·§3 스키마 칸 갱신**(감사 2호). 세부: `flint state open`이 세션
-   라벨을 수신해 session_id 채움(라벨 수신 경로: wire.ReadSessionLabel 라벨
-   파일 폴백 우선 — ops.SessionLabel --session 플래그 전용 파서와 구분, 감사
-   5호-b)·hot은 현재 세션 라벨→최근 work_state 행의 project_id 해석
-   (project_id NULL 행은 재시도 없음 — 해석 실패·감사 5호-a)→project 우선
-   정렬 분기(hot.go:420-425) 활성화. 미해석 시 기존 동작(0=무필터·바이트 동일).
+1. **프로젝트 연결 축 = work_state.session_label 백필+세션 사슬 해석(스키마 v21)**.
+   근거: work_state.session_id는 `integer REFERENCES sessions(id)`라 프로덕션
+   라벨(UUID·임의 문자열) 저장 불가 — 구현 중 실증(2026-11-27 probe·INVALID
+   input syntax for type int4)으로 기획 §1이 예고한 "v21 필요성 실증" 확정
+   (감사 1호의 근거 교정 반영: 세션→프로젝트 연결 열은 본래 어디에도 없었음).
+   v21: `ALTER TABLE work_state ADD COLUMN IF NOT EXISTS session_label text
+   NOT NULL DEFAULT ''`(FK 없음)+인덱스·게이트 체인 21·LatestSchemaVersion
+   20→21(스키마 버전당 1회 원칙 충족). session_id 정수 FK는 별개 의미로
+   NULL 유지(이번 스코프 미건드). 세부: `flint state open`이 라벨을
+   rec["session_label"]로 전달(wire.ReadSessionLabel 라벨 파일 폴백 우선 —
+   ops.SessionLabel --session 플래그 전용 파서와 구분, 감사 5호-b)·hot은
+   현재 세션 라벨→최근 work_state 행의 project_id 해석(project_id NULL 행은
+   재시도 없음 — 감사 5호-a)→project 우선 정렬 분기(hot.go:420-425) 활성화.
+   미해석 시 기존 동작(0=무필터·바이트 동일).
 2. **recall-audit 권장 처분 필드 신설(decay-audit 패리티)** — recommend:
    supersede|expire|hold(재확신은 실행 경로가 v1.40.0 배분 — enum 제외·
    필요 시 v1.40.0에서 확장, 감사 4호). 근거: decay-audit만 recommend 보유

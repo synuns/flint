@@ -161,13 +161,13 @@ func TestSecretsScansWorkState(t *testing.T) {
 			return [][]any{{int64(1), "토픽", "무해한 요약", "", "", "", ""}}, nil
 		}
 		if strings.Contains(sql, "FROM work_state") {
-			return [][]any{{int64(11), "demo task with ghp_abcdefghijklmnopqrst", "clean detail", "clean next"}}, nil
+			return [][]any{{int64(11), "demo task", "clean detail", "clean next", "label with ghp_abcdefghijklmnopqrst"}}, nil
 		}
 		return nil, nil
 	}}
 	c := checkSecrets(context.Background(), hit)
 	if c.Status != "warn" || !strings.Contains(c.Detail, "github-token#work_state:11") {
-		t.Errorf("work_state 발견 케이스 = %+v", c)
+		t.Errorf("work_state session_label 발견 케이스 = %+v", c)
 	}
 
 	clean := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
@@ -178,7 +178,7 @@ func TestSecretsScansWorkState(t *testing.T) {
 			return [][]any{{int64(1), "토픽", "무해한 요약", "", "", "", ""}}, nil
 		}
 		if strings.Contains(sql, "FROM work_state") {
-			return [][]any{{int64(2), "demo task", "demo detail", "demo next"}}, nil
+			return [][]any{{int64(2), "demo task", "demo detail", "demo next", "demo label"}}, nil
 		}
 		return nil, nil
 	}}
@@ -243,7 +243,7 @@ func TestSecretsScansResolvedWorkState(t *testing.T) {
 		}
 		if strings.Contains(sql, "FROM work_state") {
 			workStateSQL = sql
-			return [][]any{{int64(21), "resolved task with ghp_abcdefghijklmnopqrst", "clean", "clean"}}, nil
+			return [][]any{{int64(21), "resolved task with ghp_abcdefghijklmnopqrst", "clean", "clean", "clean"}}, nil
 		}
 		return nil, nil
 	}}

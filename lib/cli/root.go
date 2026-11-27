@@ -351,6 +351,10 @@ func (s *realStore) OpenWorkState(ctx context.Context, rec map[string]any) (int,
 	return s.repo.OpenWorkState(ctx, rec)
 }
 
+func (s *realStore) LatestProjectForSession(ctx context.Context, session string) (int, error) {
+	return s.repo.LatestProjectForSession(ctx, session)
+}
+
 func (s *realStore) ResolveWorkState(ctx context.Context, id int, byKnowledgeID int) error {
 	return s.repo.ResolveWorkState(ctx, id, byKnowledgeID)
 }

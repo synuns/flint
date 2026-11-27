@@ -107,6 +107,10 @@ Claude Code 표준 경로는 PostCompact이며 Stop 훅 stdin에
   자동 resolve는 없다.
 - **주입** — `flint hot`이 open 스냅샷을 지식 브리프와 합성해 주입한다
   (최대 `state_snapshot_max`건, 기본 3 — 현재 프로젝트 우선·최신순).
+- **세션 연결** — `flint state open`에 `--session LABEL`을 붙이면 다음
+  `flint hot`이 최근 work_state 행에서 현재 프로젝트를 해석해 스냅샷을
+  프로젝트 우선으로 정렬한다(플래그 우선 — 무플래그는 라벨 파일 폴백,
+  미해석 시 기존 출력과 동일).
 
 ## 동기화·원격 관리는 미기재 (v1.7.0 판정)
 
@@ -134,8 +138,9 @@ Claude Code 표준 경로는 PostCompact이며 Stop 훅 stdin에
   (기본 normal · minimal은 주입 요약화·nudge 자동 종결)
 - `flint maintain --supersede OLD --by NEW` — 구 항목 무효화+선행 관계 기록
   (NEW 미존재·OLD==NEW·OLD 비active → exit 1·3·1)
-- `flint state open --task T [--detail D] [--next A]` — 진행 과업 기록
-  (무조건 기록 — claim 게이트 없음 · 서버측 정규화 해시로 재보고 흡수)
+- `flint state open --task T [--detail D] [--next A] [--session LABEL]` — 진행 과업 기록
+  (무조건 기록 — claim 게이트 없음 · 서버측 정규화 해시로 재보고 흡수 ·
+  --session 라벨은 hot 프로젝트 우선 정렬의 연결 축)
   · `flint state list [--all]` · `flint state resolve --id N [--by K]`
 - `flint doctor --check secrets` — 보유 지식·세션 비밀 사후 스캔
   (오탐은 ~/.config/flint/secrets-allowlist.txt로 완화)

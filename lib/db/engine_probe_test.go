@@ -51,6 +51,9 @@ func (f *probeFakeStore) DiffCommits(ctx context.Context, fromHash, toHash strin
 func (f *probeFakeStore) OpenWorkState(ctx context.Context, rec map[string]any) (int, string, error) {
 	return 0, "", errors.New("not implemented")
 }
+func (f *probeFakeStore) LatestProjectForSession(ctx context.Context, session string) (int, error) {
+	return 0, errors.New("not implemented")
+}
 func (f *probeFakeStore) ResolveWorkState(ctx context.Context, id int, byKnowledgeID int) error {
 	return errors.New("not implemented")
 }

@@ -397,6 +397,18 @@ func hotSnapshotStateRows(ctx context.Context, st wire.Store) []map[string]any {
 	return nil
 }
 
+func hotRowProjectID(v any) int {
+	switch t := v.(type) {
+	case *int:
+		if t == nil {
+			return 0
+		}
+		return *t
+	}
+	n, _ := render.CellToInt(v)
+	return n
+}
+
 func hotSnapshotLines(th store.Thresholds, budget int, rows []map[string]any, currentProjectID int, now time.Time) []string {
 	staleDays, snapMax := th.StateStaleDays, th.StateSnapshotMax
 	if staleDays <= 0 {
@@ -418,8 +430,8 @@ func hotSnapshotLines(th store.Thresholds, budget int, rows []map[string]any, cu
 	}
 	sort.SliceStable(fresh, func(a, b int) bool {
 		if currentProjectID > 0 {
-			pa, _ := render.CellToInt(fresh[a]["project_id"])
-			pb, _ := render.CellToInt(fresh[b]["project_id"])
+			pa := hotRowProjectID(fresh[a]["project_id"])
+			pb := hotRowProjectID(fresh[b]["project_id"])
 			if (pa == currentProjectID) != (pb == currentProjectID) {
 				return pa == currentProjectID
 			}
@@ -507,7 +519,19 @@ func RunHot(ctx context.Context, st wire.Store, args []string, stdin io.Reader, 
 	LoadHotStatsFromMetaFn(ctx, st)
 
 	budget := HotBudget(MetaGetKV(ctx, st))
-	snap := hotSnapshotLines(th, budget, hotSnapshotStateRows(ctx, st), 0, time.Now().UTC())
+	projSession := session
+	if projSession == "" {
+		if label, ok := wire.ReadSessionLabel(); ok {
+			projSession = label
+		}
+	}
+	projectID := 0
+	if projSession != "" {
+		if id, err := st.LatestProjectForSession(ctx, projSession); err == nil {
+			projectID = id
+		}
+	}
+	snap := hotSnapshotLines(th, budget, hotSnapshotStateRows(ctx, st), projectID, time.Now().UTC())
 
 	var lines []string
 	if full {

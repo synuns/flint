@@ -5,6 +5,21 @@ cd "$(dirname "$0")/.."
 ver="$(cat VERSION)"
 fail() { echo "release-gate FAIL: $1 (version=${ver})" >&2; exit 1; }
 
+fmt_out="$(gofmt -l lib internal tests cmd)"
+[ -z "$fmt_out" ] || { echo "release-gate FAIL: gofmt 미적용 파일 (version=${ver})" >&2; echo "$fmt_out"; exit 1; }
+echo "release-gate: gofmt 스윕 OK (lib internal tests cmd)"
+
+python3 scripts/check_comments.py || fail "scripts/check_comments.py red"
+
+engine_port="$(sed -n 's/.*127\.0\.0\.1:\([0-9]*\)\/.*/\1/p' internal/testengine/dsn.go | head -1)"
+[ -n "$engine_port" ] || engine_port=5499
+if (echo > "/dev/tcp/127.0.0.1/${engine_port}") 2>/dev/null; then
+  FLINT_REALDB_REQUIRED=1 make e2e || fail "make e2e red"
+  echo "release-gate: make e2e OK"
+else
+  echo "e2e skipped (engine down)"
+fi
+
 pj="$(python3 -c 'import json;print(json.load(open("flint-plugin/.claude-plugin/plugin.json"))["version"])')"
 [ "$pj" = "$ver" ] || fail "plugin.json=${pj}"
 
@@ -29,4 +44,4 @@ if len(set(labels)) != len(labels):
 PYEOF
 done
 
-echo "release-gate OK: v${ver} — VERSION·plugin.json·배지(EN/KO)·HISTORY·계약행·docs-sync·하이라이트"
+echo "release-gate OK: v${ver} — VERSION·plugin.json·배지(EN/KO)·HISTORY·계약행·docs-sync·하이라이트·gofmt·commentlint·e2e"

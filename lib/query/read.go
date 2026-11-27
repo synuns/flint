@@ -240,6 +240,23 @@ func SetRRFK(k float64) {
 	}
 }
 
+var recallCounts map[int]int
+
+func SetRecallCounts(m map[int]int) {
+	recallCounts = m
+}
+
+func recallCountOf(row []any) int {
+	if recallCounts == nil {
+		return 0
+	}
+	n, err := strconv.Atoi(whyRowID(row))
+	if err != nil {
+		return 0
+	}
+	return recallCounts[n]
+}
+
 func ReorderByFallbackCount(rows [][]any, tokens []string) {
 	if len(rows) < 2 {
 		return
@@ -282,6 +299,9 @@ func rrfSignalValues(rows [][]any, tokens []string) [][]int {
 			readCountOf(row),
 			jamoOverlap(tokenJamo, t, sm),
 			topicMatchCount(tokens, t),
+		}
+		if recallCounts != nil {
+			values[i] = append(values[i], recallCountOf(row))
 		}
 	}
 	return values
@@ -729,6 +749,15 @@ type WhyEvidence struct {
 
 var rrfSignalNames = []string{"match", "read_count", "jamo", "topic"}
 
+func rrfSignalNameList() []string {
+	if recallCounts == nil {
+		return rrfSignalNames
+	}
+	names := make([]string, len(rrfSignalNames), len(rrfSignalNames)+1)
+	copy(names, rrfSignalNames)
+	return append(names, "recall")
+}
+
 func whyRowID(row []any) string {
 	i := readColumnIndexOf("id")
 	if i < 0 || i >= len(row) || row[i] == nil {
@@ -774,10 +803,11 @@ func RRFWhyEvidence(rows [][]any, tokens []string) []WhyEvidence {
 	values := rrfSignalValues(rows, tokens)
 	ranks := rrfRanks(values)
 	scores := rrfFuse(values)
+	names := rrfSignalNameList()
 	out := make([]WhyEvidence, len(rows))
 	for i, row := range rows {
-		sigs := make([]RRFSignalEvidence, len(rrfSignalNames))
-		for s, name := range rrfSignalNames {
+		sigs := make([]RRFSignalEvidence, len(names))
+		for s, name := range names {
 			contrib := 0.0
 			if ranks[i][s] > 0 {
 				contrib = 1.0 / (rrfK + float64(ranks[i][s]))

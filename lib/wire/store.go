@@ -22,6 +22,7 @@ type Store interface {
 	DiffCommits(ctx context.Context, fromHash, toHash string) ([]DiffCommitSummary, error)
 
 	OpenWorkState(ctx context.Context, rec map[string]any) (int, string, error)
+	LatestProjectForSession(ctx context.Context, session string) (int, error)
 	ResolveWorkState(ctx context.Context, id int, byKnowledgeID int) error
 	ListOpenWorkState(ctx context.Context, projectID int, limit int) []map[string]any
 	StaleOpenWorkStates(ctx context.Context, days int) []map[string]any

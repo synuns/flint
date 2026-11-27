@@ -23,7 +23,7 @@ type workStateStore interface {
 
 const stateListLimit = 50
 
-const stateUsage = "usage: flint state open --task T [--detail D] [--next A] [--project N] | flint state list [--all] | flint state resolve --id N [--by K]"
+const stateUsage = "usage: flint state open --task T [--detail D] [--next A] [--project N] [--session LABEL] | flint state list [--all] | flint state resolve --id N [--by K]"
 
 func stateUsageErr(format string, a ...any) error {
 	return wire.UsageErrorf(format+" — "+stateUsage, a...)
@@ -85,6 +85,13 @@ func stateOpen(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 				return 3
 			}
 			rec["project_id"] = n
+		case "--session":
+			i++
+			if i >= len(args) {
+				fmt.Fprintln(stdout, wire.ErrLine(stateUsageErr("--session requires a value")))
+				return 3
+			}
+			rec["session_label"] = args[i]
 		default:
 			fmt.Fprintln(stdout, wire.ErrLine(stateUsageErr("unknown flag: %s", wire.MaskToken(args[i]))))
 			return 3
@@ -93,6 +100,18 @@ func stateOpen(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 	if task, ok := rec["task"].(string); !ok || strings.TrimSpace(task) == "" {
 		fmt.Fprintln(stdout, wire.ErrLine(stateUsageErr("open requires a non-empty --task")))
 		return 3
+	}
+	if s, ok := rec["session_label"].(string); ok {
+		if err := validateSessionLabel(true, s); err != nil {
+			fmt.Fprintln(stdout, wire.ErrLine(err))
+			return 3
+		}
+	} else if label, ok := wire.ReadSessionLabel(); ok {
+		if err := validateSessionLabel(true, label); err != nil {
+			fmt.Fprintln(stdout, wire.ErrLine(err))
+			return 3
+		}
+		rec["session_label"] = label
 	}
 	ws, err := workStateStoreOf(st)
 	if err != nil {

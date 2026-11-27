@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -831,8 +832,8 @@ func TestV14FreshSchemaDirect(t *testing.T) {
 			t.Fatalf("게이트 체인 v%d: %v", gate.Version, err)
 		}
 	}
-	if v := readVersion(t, r); v != "20" {
-		t.Fatalf("게이트 체인 후 schema_version = %q, want 20 (v1.38.0 상향)", v)
+	if v := readVersion(t, r); v != strconv.Itoa(LatestSchemaVersion) {
+		t.Fatalf("게이트 체인 후 schema_version = %q, want %d", v, LatestSchemaVersion)
 	}
 	v14GateArtifacts(t, r, ctx)
 

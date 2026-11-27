@@ -88,6 +88,8 @@ type Thresholds struct {
 
 	RecallAuditMinBad int
 
+	RecallAuditRecommendMin int
+
 	DoltLogDepthWarn int
 	DbSizeWarnMB     int
 
@@ -189,6 +191,8 @@ var thresholdMetas = []ThresholdMeta{
 	{"DistillMaxRunes", "distill_max_runes", 20000, "int", false, false, "distill output file rune cap", ""},
 
 	{"RecallAuditMinBad", "recall_audit_min_bad", 2, "int", false, false, "maintain --recall-audit listing floor", ""},
+
+	{"RecallAuditRecommendMin", "recall_audit_recommend_min", 2, "int", false, false, "maintain --recall-audit recommend supersede floor (below → hold)", ""},
 
 	{"DoltLogDepthWarn", "dolt_" + "log_depth_warn", 10000, "int", true, false, "doctor depth warning", ""},
 	{"DbSizeWarnMB", "db_size_warn_mb", 2048, "int", true, false, "doctor db_size", ""},

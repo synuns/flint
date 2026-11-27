@@ -2,7 +2,7 @@ package db
 
 import "context"
 
-const LatestSchemaVersion = 20
+const LatestSchemaVersion = 21
 
 type SchemaGate struct {
 	Version int
@@ -30,5 +30,6 @@ func SchemaGates() []SchemaGate {
 		{18, func(ctx context.Context, r *Repo) error { return r.EnsureSchemaV18(ctx) }},
 		{19, func(ctx context.Context, r *Repo) error { return r.EnsureSchemaV19(ctx) }},
 		{20, func(ctx context.Context, r *Repo) error { return r.EnsureSchemaV20(ctx) }},
+		{21, func(ctx context.Context, r *Repo) error { return r.EnsureSchemaV21(ctx) }},
 	}
 }

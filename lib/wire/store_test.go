@@ -27,6 +27,7 @@ type workStateRow struct {
 	detail        string
 	nextAction    string
 	status        string
+	sessionLabel  string
 	byKnowledgeID *int
 	updatedAt     time.Time
 	resolvedAt    time.Time
@@ -100,11 +101,16 @@ func (f *workStateFake) OpenWorkState(ctx context.Context, rec map[string]any) (
 	hash := db.WorkStateHash(normalized)
 	detail := workStateString(rec, "detail")
 	nextAction := workStateString(rec, "next_action")
+	sessionLabel := workStateString(rec, "session_label")
 	for _, s := range f.states {
 		if sameWorkStateProject(s.projectID, projectID) && s.stateHash == hash && s.status == "open" {
-			if s.detail != detail || s.nextAction != nextAction {
+			labelBackfill := sessionLabel != "" && s.sessionLabel != sessionLabel
+			if s.detail != detail || s.nextAction != nextAction || labelBackfill {
 				s.detail = detail
 				s.nextAction = nextAction
+				if sessionLabel != "" {
+					s.sessionLabel = sessionLabel
+				}
 				s.updatedAt = time.Now()
 				return s.id, "updated", nil
 			}
@@ -113,17 +119,37 @@ func (f *workStateFake) OpenWorkState(ctx context.Context, rec map[string]any) (
 	}
 	f.nextID++
 	row := &workStateRow{
-		id:         f.nextID,
-		projectID:  projectID,
-		task:       normalized,
-		stateHash:  hash,
-		detail:     detail,
-		nextAction: nextAction,
-		status:     "open",
-		updatedAt:  time.Now(),
+		id:           f.nextID,
+		projectID:    projectID,
+		task:         normalized,
+		stateHash:    hash,
+		detail:       detail,
+		nextAction:   nextAction,
+		status:       "open",
+		sessionLabel: sessionLabel,
+		updatedAt:    time.Now(),
 	}
 	f.states = append(f.states, row)
 	return row.id, "open", nil
+}
+
+func (f *workStateFake) LatestProjectForSession(ctx context.Context, session string) (int, error) {
+	if session == "" {
+		return 0, nil
+	}
+	var best *workStateRow
+	for _, s := range f.states {
+		if s.sessionLabel != session {
+			continue
+		}
+		if best == nil || s.updatedAt.After(best.updatedAt) || (s.updatedAt.Equal(best.updatedAt) && s.id > best.id) {
+			best = s
+		}
+	}
+	if best == nil || best.projectID == nil {
+		return 0, nil
+	}
+	return *best.projectID, nil
 }
 
 func (f *workStateFake) ResolveWorkState(ctx context.Context, id int, byKnowledgeID int) error {
@@ -342,6 +368,7 @@ func TestQueryOnceWrappedDeadlineNotRetriedV1321(t *testing.T) {
 
 type workStateStore interface {
 	OpenWorkState(ctx context.Context, rec map[string]any) (int, string, error)
+	LatestProjectForSession(ctx context.Context, session string) (int, error)
 	ResolveWorkState(ctx context.Context, id int, byKnowledgeID int) error
 	ListOpenWorkState(ctx context.Context, projectID int, limit int) []map[string]any
 	StaleOpenWorkStates(ctx context.Context, days int) []map[string]any
@@ -412,6 +439,42 @@ func assertWorkStateScenario(t *testing.T, st workStateStore) {
 	open := st.ListOpenWorkState(ctx, 2, 10)
 	if len(open) != 0 {
 		t.Fatalf("len = %d, want 0(resolve 후 목록 제외)", len(open))
+	}
+	idL, _, err := st.OpenWorkState(ctx, map[string]any{
+		"project_id": 2, "task": "session chain task", "session_label": "s-scen",
+	})
+	if err != nil || idL <= 0 {
+		t.Fatalf("id = %d, err = %v, want open/nil", idL, err)
+	}
+	if got, err := st.LatestProjectForSession(ctx, "s-scen"); err != nil || got != 2 {
+		t.Fatalf("got = %d, err = %v, want 2/nil(세션 사슬 해석)", got, err)
+	}
+	if got, err := st.LatestProjectForSession(ctx, ""); err != nil || got != 0 {
+		t.Fatalf("got = %d, err = %v, want 0/nil(빈 라벨)", got, err)
+	}
+	if got, err := st.LatestProjectForSession(ctx, "s-unknown"); err != nil || got != 0 {
+		t.Fatalf("got = %d, err = %v, want 0/nil(미매칭 라벨)", got, err)
+	}
+	idB, _, err := st.OpenWorkState(ctx, map[string]any{
+		"project_id": 2, "task": "backfill probe task",
+	})
+	if err != nil || idB <= 0 {
+		t.Fatalf("id = %d, err = %v, want open/nil", idB, err)
+	}
+	_, res, err = st.OpenWorkState(ctx, map[string]any{
+		"project_id": 2, "task": "backfill probe task", "detail": "bd", "session_label": "s-back",
+	})
+	if err != nil || res != "updated" {
+		t.Fatalf("res = %q, err = %v, want updated/nil(재보고 백필)", res, err)
+	}
+	if got, err := st.LatestProjectForSession(ctx, "s-back"); err != nil || got != 2 {
+		t.Fatalf("got = %d, err = %v, want 2/nil(백필 후 사슬 해석)", got, err)
+	}
+	_, res, err = st.OpenWorkState(ctx, map[string]any{
+		"project_id": 2, "task": "backfill probe task", "detail": "bd", "session_label": "s-back",
+	})
+	if err != nil || res != "noop" {
+		t.Fatalf("res = %q, err = %v, want noop/nil", res, err)
 	}
 }
 

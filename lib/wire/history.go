@@ -81,6 +81,10 @@ func (HistoryStubs) OpenWorkState(ctx context.Context, rec map[string]any) (int,
 	return 0, "", ErrHistoryUnsupported
 }
 
+func (HistoryStubs) LatestProjectForSession(ctx context.Context, session string) (int, error) {
+	return 0, ErrHistoryUnsupported
+}
+
 func (HistoryStubs) ResolveWorkState(ctx context.Context, id int, byKnowledgeID int) error {
 	return ErrHistoryUnsupported
 }
