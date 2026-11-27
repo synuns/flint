@@ -6,6 +6,27 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.39.1 patch (2026-11-27) — r143-angle2-sessionlabel
+
+3 findings from the R143 angle-2 follow-up audit (session_label surface,
+added by schema v21), all fixed with regression tests.
+
+- **[fix] secrets scan covers session_label**: the work_state scan SELECT
+  carried only task/detail/next_action — a secret stored in
+  session_label was never scanned. COALESCE(session_label,'') added to
+  the 5-column scan.
+- **[fix] session_label sanitized at write**: SanitizeWorkStatePayload
+  now includes session_label in its loop (control chars stripped,
+  UUID labels preserved).
+- **[fix] re-report backfills session_label**: the open re-report UPDATE
+  path (updated/noop) backfills via COALESCE(NULLIF($n,''),session_label)
+  — rows opened before v21 or without a label join the session chain on
+  re-report.
+- **[fix] label-file fallback validated**: the fallback value runs
+  validateSessionLabel (control chars rejected, 200-rune cap) — the
+  --session flag path was hardened the same way.
+Design: docs/plans/2026-11-27-flint-v1390-growth-phase2.md §1
+
 ### v1.39.0 minor (2026-11-27) — knowledge-growth-phase2
 
 Growth model phase 2: recall history feeds the read ranking, recall-audit

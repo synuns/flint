@@ -107,6 +107,10 @@ func stateOpen(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 			return 3
 		}
 	} else if label, ok := wire.ReadSessionLabel(); ok {
+		if err := validateSessionLabel(true, label); err != nil {
+			fmt.Fprintln(stdout, wire.ErrLine(err))
+			return 3
+		}
 		rec["session_label"] = label
 	}
 	ws, err := workStateStoreOf(st)

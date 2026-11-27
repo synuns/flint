@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"golang.org/x/text/unicode/norm"
 
@@ -659,6 +660,8 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 	return 0
 }
 
+const sessionLabelMaxRunes = 200
+
 func validateSessionLabel(given bool, val string) error {
 	if !given {
 		return nil
@@ -669,8 +672,11 @@ func validateSessionLabel(given bool, val string) error {
 	if strings.HasPrefix(val, "-") {
 		return &store.SchemaError{Field: "session", Expect: "label, not a flag"}
 	}
-	if strings.ContainsAny(val, "\n\r") {
-		return &store.SchemaError{Field: "session", Expect: "single-line label without newlines"}
+	if strings.ContainsFunc(val, func(r rune) bool { return r < 0x20 || r == 0x7f }) {
+		return &store.SchemaError{Field: "session", Expect: "single-line label without control characters"}
+	}
+	if utf8.RuneCountInString(val) > sessionLabelMaxRunes {
+		return &store.SchemaError{Field: "session", Expect: fmt.Sprintf("label up to %d runes", sessionLabelMaxRunes)}
 	}
 	return nil
 }

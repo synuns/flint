@@ -110,7 +110,7 @@ func checkSecretsTh(ctx context.Context, st wire.Store, th store.Thresholds) Doc
 		}
 	}
 	wrows, werr := wire.QueryOnce(ctx, st, `
-		SELECT id, task, COALESCE(detail, ''), COALESCE(next_action, '')
+		SELECT id, task, COALESCE(detail, ''), COALESCE(next_action, ''), COALESCE(session_label, '')
 		FROM work_state
 		LIMIT $1`, []any{th.SecretsScanRows})
 	switch {
@@ -122,10 +122,10 @@ func checkSecretsTh(ctx context.Context, st wire.Store, th store.Thresholds) Doc
 	workStateFound := false
 	if werr == nil {
 		for _, r := range wrows {
-			if len(r) < 4 {
+			if len(r) < 5 {
 				continue
 			}
-			text := strings.Join([]string{fmt.Sprint(r[1]), fmt.Sprint(r[2]), fmt.Sprint(r[3])}, " ")
+			text := strings.Join([]string{fmt.Sprint(r[1]), fmt.Sprint(r[2]), fmt.Sprint(r[3]), fmt.Sprint(r[4])}, " ")
 			for _, name := range store.ScanSecrets(text) {
 				key := name + "#work_state:" + fmt.Sprint(r[0])
 				if !seen[key] {

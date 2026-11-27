@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"testing"
+
+	"github.com/synuns/flint/lib/store"
 )
 
 func seedV1390Projects(t *testing.T, r *Repo, n int) {
@@ -130,5 +132,83 @@ func TestOpenWorkStateRecordsSessionId(t *testing.T) {
 	}
 	if label != "" {
 		t.Fatalf("session_label = %q, want 빈 값(미제공 — NULL 채움 계약)", label)
+	}
+}
+
+func TestOpenWorkStateSanitizesSessionLabel(t *testing.T) {
+	r := newTestRepo(t)
+	seedV1390Projects(t, r, 1)
+	ctx := context.Background()
+	raw := "s-[flint]abc\x07def"
+	id, res, err := r.OpenWorkState(ctx, map[string]any{
+		"project_id": 1, "task": "v1390 label sanitize", "session_label": raw,
+	})
+	if err != nil || res != "open" {
+		t.Fatalf("res = %q, err = %v, want open/nil", res, err)
+	}
+	var label string
+	if err := r.pool.QueryRow(ctx,
+		`SELECT session_label FROM work_state WHERE id = $1`, id).Scan(&label); err != nil {
+		t.Fatalf("session_label 조회: %v", err)
+	}
+	if want := store.SanitizeText(raw); label != want {
+		t.Fatalf("session_label = %q, want 살균 저장 %q", label, want)
+	}
+}
+
+func TestOpenWorkStateBackfillsSessionLabel(t *testing.T) {
+	r := newTestRepo(t)
+	seedV1390Projects(t, r, 1)
+	ctx := context.Background()
+	id, res, err := r.OpenWorkState(ctx, map[string]any{
+		"project_id": 1, "task": "v1390 backfill task",
+	})
+	if err != nil || res != "open" {
+		t.Fatalf("res = %q, err = %v, want open/nil", res, err)
+	}
+	readLabel := func() string {
+		t.Helper()
+		var label string
+		if err := r.pool.QueryRow(ctx,
+			`SELECT session_label FROM work_state WHERE id = $1`, id).Scan(&label); err != nil {
+			t.Fatalf("session_label 조회: %v", err)
+		}
+		return label
+	}
+	if readLabel() != "" {
+		t.Fatalf("session_label = %q, want 빈 값(v21 이전 행 모사)", readLabel())
+	}
+	_, res, err = r.OpenWorkState(ctx, map[string]any{
+		"project_id": 1, "task": "v1390 backfill task", "detail": "d2", "session_label": "s-back",
+	})
+	if err != nil || res != "updated" {
+		t.Fatalf("res = %q, err = %v, want updated/nil(재보고 백필)", res, err)
+	}
+	if got := readLabel(); got != "s-back" {
+		t.Fatalf("session_label = %q, want s-back(updated 경로 백필)", got)
+	}
+	_, res, err = r.OpenWorkState(ctx, map[string]any{
+		"project_id": 1, "task": "v1390 backfill task", "detail": "d2", "session_label": "s-back",
+	})
+	if err != nil || res != "noop" {
+		t.Fatalf("res = %q, err = %v, want noop/nil", res, err)
+	}
+	_, res, err = r.OpenWorkState(ctx, map[string]any{
+		"project_id": 1, "task": "v1390 backfill task",
+	})
+	if err != nil || res != "updated" {
+		t.Fatalf("res = %q, err = %v, want updated/nil(detail 누락은 빈 문자열 비교 — 기존 계약)", res, err)
+	}
+	if got := readLabel(); got != "s-back" {
+		t.Fatalf("session_label = %q, want s-back(빈 라벨이 기존 라벨 미서명)", got)
+	}
+	_, res, err = r.OpenWorkState(ctx, map[string]any{
+		"project_id": 1, "task": "v1390 backfill task", "detail": "d3",
+	})
+	if err != nil || res != "updated" {
+		t.Fatalf("res = %q, err = %v, want updated/nil", res, err)
+	}
+	if got := readLabel(); got != "s-back" {
+		t.Fatalf("session_label = %q, want s-back(라벨 없는 UPDATE 경로 보존)", got)
 	}
 }

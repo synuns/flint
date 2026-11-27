@@ -61,7 +61,7 @@ func workStateRecFields(rec map[string]any) (*int, string, string, string, strin
 
 func SanitizeWorkStatePayload(rec map[string]any) []string {
 	var warns []string
-	for _, f := range []string{"detail", "next_action"} {
+	for _, f := range []string{"detail", "next_action", "session_label"} {
 		s, ok := rec[f].(string)
 		if !ok {
 			continue
@@ -84,7 +84,7 @@ func WarnWorkStateSecrets(warns []string) {
 }
 
 func OpenWorkStateQuery(projectID *int, hash string) (string, []any) {
-	const base = `SELECT id, COALESCE(detail, ''), COALESCE(next_action, '') FROM work_state WHERE `
+	const base = `SELECT id, COALESCE(detail, ''), COALESCE(next_action, ''), COALESCE(session_label, '') FROM work_state WHERE `
 	if projectID == nil {
 		return base + `project_id IS NULL AND state_hash = $1 AND status = 'open'`, []any{hash}
 	}
@@ -100,9 +100,9 @@ func (r *Repo) OpenWorkState(ctx context.Context, rec map[string]any) (int, stri
 	}
 	hash := WorkStateHash(normalized)
 	var id int
-	var curDetail, curNext string
+	var curDetail, curNext, curLabel string
 	sql, args := OpenWorkStateQuery(projectID, hash)
-	err := r.pool.QueryRow(ctx, sql, args...).Scan(&id, &curDetail, &curNext)
+	err := r.pool.QueryRow(ctx, sql, args...).Scan(&id, &curDetail, &curNext, &curLabel)
 	if errors.Is(err, pgx.ErrNoRows) {
 		var newID int
 		if err := r.pool.QueryRow(ctx,
@@ -116,10 +116,12 @@ func (r *Repo) OpenWorkState(ctx context.Context, rec map[string]any) (int, stri
 	if err != nil {
 		return 0, "", fmt.Errorf("open work state: %w", err)
 	}
-	if curDetail != detail || curNext != nextAction {
+	labelBackfill := sessionLabel != "" && curLabel != sessionLabel
+	if curDetail != detail || curNext != nextAction || labelBackfill {
 		if _, err := r.pool.Exec(ctx,
-			`UPDATE work_state SET detail = $2, next_action = $3, updated_at = now() WHERE id = $1`,
-			id, detail, nextAction); err != nil {
+			`UPDATE work_state SET detail = $2, next_action = $3,
+				session_label = COALESCE(NULLIF($4, ''), session_label), updated_at = now() WHERE id = $1`,
+			id, detail, nextAction, sessionLabel); err != nil {
 			return 0, "", fmt.Errorf("open work state: %w", err)
 		}
 		return id, "updated", nil

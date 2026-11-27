@@ -26,7 +26,7 @@
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 harnesses">
   <a href="https://github.com/synuns/flint/actions/workflows/ci.yml"><img src="https://github.com/synuns/flint/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
-  <img src="https://img.shields.io/badge/release-v1.39.0-blue" alt="v1.39.0">
+  <img src="https://img.shields.io/badge/release-v1.39.1-blue" alt="v1.39.1">
 </p>
 <p align="center">
   <sub>8 counts the auto-registration (tier A) harnesses — the full support list is in the <a href="#agents--adapters">adapter table</a> below.</sub>
@@ -48,6 +48,7 @@ It adds up. Week one, it learns the stack. By week four, it remembers why you ch
 
 Humans take notes in Obsidian. Agents take notes in flint — the stone you strike to make fire and tools.
 
+> v1.39.1 · r143-angle2-sessionlabel patch — security: secrets scan covers session_label · work_state payloads sanitize session_label · re-report backfills the label · label-file fallback validated (control chars, 200-rune cap) · [full changelog](docs/HISTORY.md)
 > v1.39.0 · knowledge growth model phase 2 — recall history feeds read ranking (fifth RRF signal) · recall-audit recommend (supersede/expire/hold, decay-audit parity) · session chain: state open records the session label, hot revives project-first snapshots · release gate runs CI checks locally first · [full changelog](docs/HISTORY.md)
 > v1.38.4 · r143-angle4 patch — docs: read projection wording (10 columns, status included) · work_state retention contract (90-day purge, TUNING row added) · QUICKSTART recall view + flint state · README doctor count 30 · [full changelog](docs/HISTORY.md)
 > v1.38.3 · r143-angle3 patch — performance: resolved work_state retention (default 90d) · batch resolve (one UPDATE, resolved_at recorded) · dedup query uses the partial unique index · hot meta queries halved (5→2) · testengine scratch DROP fast-fails on engine-down · [full changelog](docs/HISTORY.md)
