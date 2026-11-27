@@ -14,6 +14,7 @@ var (
 	_ ops.ReaffirmStore           = (*realStore)(nil)
 	_ ops.RecheckConditionsStore  = (*realStore)(nil)
 	_ ops.RecheckSourceClearStore = (*realStore)(nil)
+	_ ops.ApplyVolStore           = (*realStore)(nil)
 )
 
 var maintainTuiFn = tui.RunMaintainTUI
@@ -90,6 +91,17 @@ func (s *realStore) ClearVaultSourceChanged(ctx context.Context, path string) (i
 		 WHERE path = $1 AND content_changed_at IS NOT NULL`, path)
 	if err != nil {
 		return 0, fmt.Errorf("recheck source clear: %w", err)
+	}
+	return ct.RowsAffected(), nil
+}
+
+func (s *realStore) MergeVolTag(ctx context.Context, id int, volTag string) (int64, error) {
+	ct, err := s.pool.Exec(ctx,
+		`UPDATE knowledge SET tags = COALESCE(tags, '') || $2
+		 WHERE id = $1 AND status = 'active' AND invalid_at IS NULL
+		   AND strpos(COALESCE(tags, ''), $2) = 0`, id, volTag)
+	if err != nil {
+		return 0, fmt.Errorf("apply-vol: %w", err)
 	}
 	return ct.RowsAffected(), nil
 }

@@ -49,6 +49,7 @@ type maintainRequest struct {
 	yes             bool
 	commit          bool
 	idList          []int
+	applyVol        bool
 }
 
 type maintainMode struct {
@@ -80,7 +81,7 @@ func maintainModes() []maintainMode {
 
 		{name: "--stale-state", commit: true, run: maintainRunStaleState},
 
-		{name: "--age-audit", flags: []string{"--limit"}, run: maintainRunAgeAudit},
+		{name: "--age-audit", flags: []string{"--limit", "--apply-vol"}, run: maintainRunAgeAudit},
 
 		{name: "--merge-audit", flags: []string{"--limit"}, run: maintainRunMergeAudit},
 
@@ -174,7 +175,8 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 		specFlags = append(specFlags, wire.FlagSpec{Name: f, Value: true})
 	}
 	specFlags = append(specFlags,
-		wire.FlagSpec{Name: "--shallow"}, wire.FlagSpec{Name: "--commit"}, wire.FlagSpec{Name: "--yes"})
+		wire.FlagSpec{Name: "--shallow"}, wire.FlagSpec{Name: "--commit"}, wire.FlagSpec{Name: "--yes"},
+		wire.FlagSpec{Name: "--apply-vol"})
 	res, perr := wire.ParseArgs(args, wire.ArgSpec{
 		Flags: specFlags,
 		Usage: maintainUsageLine,
@@ -194,7 +196,7 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 	conditionsVal := ""
 	conditionsGiven := false
 	reason := ""
-	yes, commit := res.Given("--yes"), res.Given("--commit")
+	yes, commit, applyVol := res.Given("--yes"), res.Given("--commit"), res.Given("--apply-vol")
 	var idList []int
 
 	for _, name := range res.FlagOrder() {
@@ -366,8 +368,18 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 		}
 	}
 
-	if yes && !maintainYesModes[mode] && !(mode == "--recheck" && conditionsGiven) {
+	if yes && !maintainYesModes[mode] && !(mode == "--recheck" && conditionsGiven) && !(mode == "--age-audit" && applyVol) {
 		fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("maintain: --yes is not valid with %s", mode)))
+		return 1
+	}
+
+	if applyVol && mode != "--age-audit" {
+		if mode == "" {
+			fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf(
+				"maintain: --apply-vol is not valid without a mode (it is --age-audit-scoped)")))
+			return 1
+		}
+		fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("maintain: --apply-vol is not valid with %s", mode)))
 		return 1
 	}
 
@@ -392,7 +404,7 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 			id: id, from: from, to: to, old: old, by: by,
 			days: days, limit: limit, dupLimit: dupLimit, expireDays: expireDays,
 			recheckID: recheckID, conditionsVal: conditionsVal, conditionsGiven: conditionsGiven,
-			reason: reason, yes: yes, commit: commit, idList: idList,
+			reason: reason, yes: yes, commit: commit, idList: idList, applyVol: applyVol,
 		}, stdout)
 	}
 

@@ -26,7 +26,7 @@
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 harnesses">
   <a href="https://github.com/synuns/flint/actions/workflows/ci.yml"><img src="https://github.com/synuns/flint/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
-  <img src="https://img.shields.io/badge/release-v1.39.1-blue" alt="v1.39.1">
+  <img src="https://img.shields.io/badge/release-v1.40.0-blue" alt="v1.40.0">
 </p>
 <p align="center">
   <sub>8 counts the auto-registration (tier A) harnesses — the full support list is in the <a href="#agents--adapters">adapter table</a> below.</sub>
@@ -48,6 +48,7 @@ It adds up. Week one, it learns the stack. By week four, it remembers why you ch
 
 Humans take notes in Obsidian. Agents take notes in flint — the stone you strike to make fire and tools.
 
+> v1.40.0 · staleness-mapping — claim→vol default suggestions (decision/event→immutable·procedure/lesson→conditional·existing tags always win·no automatic exemption) · source axis (SuggestVolClassForSource) · approved apply path: maintain --age-audit --apply-vol [--yes] (dry-run default·repo-route tag merge) · [full changelog](docs/HISTORY.md)
 > v1.39.1 · r143-angle2-sessionlabel patch — security: secrets scan covers session_label · work_state payloads sanitize session_label · re-report backfills the label · label-file fallback validated (control chars, 200-rune cap) · [full changelog](docs/HISTORY.md)
 > v1.39.0 · knowledge growth model phase 2 — recall history feeds read ranking (fifth RRF signal) · recall-audit recommend (supersede/expire/hold, decay-audit parity) · session chain: state open records the session label, hot revives project-first snapshots · release gate runs CI checks locally first · [full changelog](docs/HISTORY.md)
 > v1.38.4 · r143-angle4 patch — docs: read projection wording (10 columns, status included) · work_state retention contract (90-day purge, TUNING row added) · QUICKSTART recall view + flint state · README doctor count 30 · [full changelog](docs/HISTORY.md)
@@ -289,7 +290,7 @@ Two record types live side by side: **knowledge** (claims about the world — ga
 | `flint done --session <id>` | Wrap up a session |
 | `flint approve --id n` | Promote pending to active — the single claim gate: a row without a claim (or backfill `event`) requires `--claim <decision\|procedure\|lesson\|event>` (missing → exit 3); a write without a claim lands pending regardless of confidence |
 | `flint state` | Work state (intent) surface — `open --task T [--detail D] [--next A] [--project N] [--session LABEL]` (server-side normalized hash absorbs re-reports of the same open task → one-line JSON `{id, status: open\|updated\|noop}`; the session label — flag first, label-file fallback — lets `flint hot` prioritize the current project's snapshot rows, unresolved keeps the output unchanged), `list [--all]`, `resolve --id N [--by K]`; open rows surface in the hot snapshot (cap `state_snapshot_max`) and stale ones are proposed for resolution by `maintain --stale-state` (approval-gated) — recorded unconditionally, no claim gate |
-| `flint maintain` | Curate: check thresholds, invalidate, merge, `--merge-audit` duplicate pair report (multiset Dice, cost-estimated, listing only), `--recall-audit` bad-recall feedback report (listing only — each item carries a report-only `recommend` field, `supersede`·`expire`·`hold`; disposition always via the approval-required subcommands), `--age-audit` staleness report with `suggested_vol`, `--reaffirm` validity refresh, `--recheck` conditions review, `--gc [--shallow] --yes` dolt garbage collection (operator command — disconnects all sessions; reconnect + schema recheck in the same run), (`--tui` interactive review, opt-in) |
+| `flint maintain` | Curate: check thresholds, invalidate, merge, `--merge-audit` duplicate pair report (multiset Dice, cost-estimated, listing only), `--recall-audit` bad-recall feedback report (listing only — each item carries a report-only `recommend` field, `supersede`·`expire`·`hold`; disposition always via the approval-required subcommands), `--age-audit` staleness report with `suggested_vol` (claim · source defaults, proposal-only), `--age-audit --apply-vol [--yes]` apply the vol suggestions as tag merges (dry-run without `--yes` — approval-gated), `--reaffirm` validity refresh, `--recheck` conditions review, `--gc [--shallow] --yes` dolt garbage collection (operator command — disconnects all sessions; reconnect + schema recheck in the same run), (`--tui` interactive review, opt-in) |
 | `flint distill --out DIR` | Emit recall-scored unstamped insights as one aggregate markdown file (`--min-score` overrides `distill_min_score`; emitted rows stamp `distilled_at`, reruns yield the remainder — ADR-0018) |
 | `flint audit --limit n` | Show last n commits |
 | `flint backup` | Dump to SQL with sha256 checksum (`--encrypt` age at-rest, `--mask` redacted diagnostics) |

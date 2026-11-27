@@ -17,6 +17,7 @@ var _ metaDeleteStore = (*fakeStore)(nil)
 var _ ReaffirmStore = (*reaffirmFakeStore)(nil)
 var _ RecheckConditionsStore = (*recheckCondStore)(nil)
 var _ RecheckSourceClearStore = (*recheckClearStore)(nil)
+var _ ApplyVolStore = (*applyVolFake)(nil)
 
 var fakeParityExcluded = map[string]bool{"SessionStartRecorder": true}
 

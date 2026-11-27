@@ -39,6 +39,31 @@ func SuggestVolClass(topic, tags string) string {
 	}
 }
 
+var claimDefaultVol = map[string]string{
+	"decision":  VolClassImmutable,
+	"procedure": VolClassConditional,
+	"lesson":    VolClassConditional,
+	"event":     VolClassImmutable,
+}
+
+func ClaimDefaultVol(claim string) string {
+	if v, ok := claimDefaultVol[claim]; ok {
+		return v
+	}
+	return VolClassConditional
+}
+
+func SuggestVolClassForSource(topic, tags, source string) string {
+	switch strings.ToLower(strings.TrimSpace(source)) {
+	case "human", "correction":
+		return VolClassImmutable
+	case "import", "vault":
+		return VolClassConditional
+	default:
+		return SuggestVolClass(topic, tags)
+	}
+}
+
 func ExistingVolTag(tags string) string {
 	for _, v := range recheckVolDict {
 		if strings.Contains(tags, ":"+v+":") {

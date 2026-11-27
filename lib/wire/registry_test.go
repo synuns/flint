@@ -4,7 +4,10 @@ import (
 	"context"
 	"io"
 	"sort"
+	"strings"
 	"testing"
+
+	"github.com/synuns/flint/lib/i18n"
 )
 
 func TestRegisteredEnumerates(t *testing.T) {
@@ -27,6 +30,13 @@ func TestRegisteredEnumerates(t *testing.T) {
 		if n == "probe-accessor" {
 			t.Fatal("Unregister 후에도 Registered에 잔존")
 		}
+	}
+}
+
+func TestMaintainUsageRegistersApplyVol(t *testing.T) {
+	line := i18n.T("usage.maintain")
+	if !strings.Contains(line, "--age-audit [--limit M] [--apply-vol [--yes]]") {
+		t.Errorf("사용법 라인에 --apply-vol 등록 누락: %s", line)
 	}
 }
 
