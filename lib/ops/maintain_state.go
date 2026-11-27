@@ -51,6 +51,7 @@ func maintainStaleState(ctx context.Context, ms MaintStore, ws workStateStore, s
 		}
 		proj, _ := render.CellToInt(m["project_id"])
 		task, _ := m["task"].(string)
+		task = render.Text(task)
 		updated := ""
 		if t, ok := AnyToTime(m["updated_at"]); ok {
 			updated = t.Format(time.RFC3339)

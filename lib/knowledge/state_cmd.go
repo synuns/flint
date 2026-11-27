@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"strconv"
+	"strings"
 
 	"github.com/synuns/flint/lib/db"
 	"github.com/synuns/flint/lib/render"
@@ -89,8 +90,8 @@ func stateOpen(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 			return 3
 		}
 	}
-	if _, ok := rec["task"]; !ok {
-		fmt.Fprintln(stdout, wire.ErrLine(stateUsageErr("open requires --task")))
+	if task, ok := rec["task"].(string); !ok || strings.TrimSpace(task) == "" {
+		fmt.Fprintln(stdout, wire.ErrLine(stateUsageErr("open requires a non-empty --task")))
 		return 3
 	}
 	ws, err := workStateStoreOf(st)

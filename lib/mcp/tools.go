@@ -306,9 +306,9 @@ func dispatchHot(args map[string]any) (string, int) {
 func dispatchWork(args map[string]any) (string, int) {
 	switch action := strArg(args, "action"); action {
 	case "open", "update":
-		task := strArg(args, "task")
+		task := strings.TrimSpace(strArg(args, "task"))
 		if task == "" {
-			return `{"error":"schema","field":"task","expect":"required for action ` + action + `"}`, 3
+			return `{"error":"schema","field":"task","expect":"non-empty task required for action ` + action + `"}`, 3
 		}
 		cliArgs := []string{"state", "open", "--task", task}
 		if d := strArg(args, "detail"); d != "" {

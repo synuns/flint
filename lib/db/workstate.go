@@ -6,12 +6,15 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 	"unicode"
 
 	"github.com/jackc/pgx/v5"
 	"golang.org/x/text/unicode/norm"
+
+	"github.com/synuns/flint/lib/store"
 )
 
 func NormalizeWorkTask(s string) string {
@@ -55,7 +58,32 @@ func workStateRecFields(rec map[string]any) (*int, string, string, string) {
 	return projectID, task, detail, nextAction
 }
 
+func SanitizeWorkStatePayload(rec map[string]any) []string {
+	var warns []string
+	for _, f := range []string{"detail", "next_action"} {
+		s, ok := rec[f].(string)
+		if !ok {
+			continue
+		}
+		clean := store.SanitizeText(s)
+		if clean != s {
+			rec[f] = clean
+		}
+		for _, name := range store.ScanSecrets(clean) {
+			warns = append(warns, "possible secret: "+name)
+		}
+	}
+	return warns
+}
+
+func WarnWorkStateSecrets(warns []string) {
+	for _, w := range warns {
+		fmt.Fprintf(os.Stderr, "[flint] work_state open: %s\n", w)
+	}
+}
+
 func (r *Repo) OpenWorkState(ctx context.Context, rec map[string]any) (int, string, error) {
+	WarnWorkStateSecrets(SanitizeWorkStatePayload(rec))
 	projectID, task, detail, nextAction := workStateRecFields(rec)
 	normalized := NormalizeWorkTask(task)
 	if normalized == "" {

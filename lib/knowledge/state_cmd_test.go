@@ -143,6 +143,17 @@ func TestStateUsageAndNotFoundExits(t *testing.T) {
 	if code := RunState(ctx, f, []string{"open"}, strings.NewReader(""), &out); code != 3 {
 		t.Errorf("--task 부재 exit=%d, want 3; out=%s", code, out.String())
 	}
+	out.Reset()
+	if code := RunState(ctx, f, []string{"open", "--task", ""}, strings.NewReader(""), &out); code != 3 {
+		t.Errorf("빈 task exit=%d, want 3; out=%s", code, out.String())
+	}
+	if !strings.Contains(out.String(), `"error":"usage"`) {
+		t.Errorf("빈 task usage 에러 JSON 부재: %s", out.String())
+	}
+	out.Reset()
+	if code := RunState(ctx, f, []string{"open", "--task", "   "}, strings.NewReader(""), &out); code != 3 {
+		t.Errorf("공백 task exit=%d, want 3; out=%s", code, out.String())
+	}
 	if code := RunState(ctx, f, nil, strings.NewReader(""), &out); code != 3 {
 		t.Errorf("빈 인자 exit=%d, want 3", code)
 	}

@@ -31,6 +31,9 @@ func TestMcpFlintWorkManifestAndDispatch(t *testing.T) {
 	if _, code := DispatchTool("flint_work", map[string]any{"action": "open"}); code != 3 {
 		t.Errorf("task 부재 open exit=%d, want 3", code)
 	}
+	if _, code := DispatchTool("flint_work", map[string]any{"action": "open", "task": "   "}); code != 3 {
+		t.Errorf("공백 task open exit=%d, want 3", code)
+	}
 	if _, code := DispatchTool("flint_work", map[string]any{"action": "resolve"}); code != 3 {
 		t.Errorf("id 부재 resolve exit=%d, want 3", code)
 	}

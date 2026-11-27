@@ -6,6 +6,23 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.38.2 patch (2026-11-27) — r143-angle2-security
+
+4 findings from the R143 audit angle 2 (security · personal-data), all
+fixed with regression tests.
+
+- **[fix] doctor secrets scans resolved work_state rows**: the scan was
+  WHERE status='open' only — secrets left in resolved task/detail/
+  next_action were never scanned. Full-table scan now.
+- **[fix] work_state payloads sanitized at write**: OpenWorkState runs
+  SanitizeText + secret warnings on detail/next_action (SanitizePayload
+  parity; sanitize-entry-file registered in the chokepoint allowlist).
+- **[fix] stale-state output through the render chokepoint**: task fields
+  no longer bypass render.Text in maintain --stale-state JSON output.
+- **[fix] empty --task exits 3**: CLI and MCP unified (usage error instead
+  of a bare exit 1).
+Design: docs/plans/2026-11-25-flint-knowledge-growth-model.md §4
+
 ### v1.38.1 patch (2026-11-27) — r143-claim-integrity
 
 5 findings from the R143 independent audit (angle 1: contract·schema

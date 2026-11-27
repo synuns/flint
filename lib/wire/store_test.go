@@ -4,13 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/synuns/flint/internal/testengine"
 	"github.com/synuns/flint/lib/db"
+	"github.com/synuns/flint/lib/store"
 	"github.com/synuns/flint/lib/wire"
 )
 
@@ -87,6 +90,7 @@ func sameWorkStateProject(a, b *int) bool {
 }
 
 func (f *workStateFake) OpenWorkState(ctx context.Context, rec map[string]any) (int, string, error) {
+	db.WarnWorkStateSecrets(db.SanitizeWorkStatePayload(rec))
 	projectID := workStateProjectID(rec)
 	normalized := db.NormalizeWorkTask(workStateString(rec, "task"))
 	if normalized == "" {
@@ -611,6 +615,59 @@ func TestOpenWorkStateWithoutProjectNullMembership(t *testing.T) {
 	}
 	if p, ok := rows[0]["project_id"].(*int); !ok || p != nil {
 		t.Fatalf("project_id = %v, want NULL", rows[0]["project_id"])
+	}
+}
+
+func captureStderrWorkState(t *testing.T, fn func()) string {
+	t.Helper()
+	orig := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stderr = w
+	fn()
+	w.Close()
+	os.Stderr = orig
+	data, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
+}
+
+func TestOpenWorkStateSanitizesAndWarnsSecrets(t *testing.T) {
+	f := newWorkStateFake()
+	ctx := context.Background()
+	detail := "메모 ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ1234\x07 꼬리"
+	var id int
+	var res string
+	var err error
+	var stderr string
+	stderr = captureStderrWorkState(t, func() {
+		id, res, err = f.OpenWorkState(ctx, map[string]any{
+			"project_id": 1, "task": "secret check", "detail": detail,
+		})
+	})
+	if err != nil {
+		t.Fatalf("err = %v, want nil", err)
+	}
+	if id <= 0 || res != "open" {
+		t.Fatalf("id = %d, res = %q, want open", id, res)
+	}
+	if !strings.Contains(stderr, "possible secret: github-token") {
+		t.Fatalf("stderr = %q, want possible secret: github-token 경고", stderr)
+	}
+	want := store.SanitizeText(detail)
+	rows := f.ListOpenWorkState(ctx, 1, 10)
+	if len(rows) != 1 {
+		t.Fatalf("len = %d, want 1", len(rows))
+	}
+	if got, _ := rows[0]["detail"].(string); got != want {
+		t.Fatalf("detail = %q, want 살균 저장 %q", got, want)
+	}
+	if got, _ := rows[0]["task"].(string); got != "secret check" {
+		t.Fatalf("task = %q, want 정규화 task", got)
 	}
 }
 

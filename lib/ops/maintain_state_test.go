@@ -158,6 +158,59 @@ func TestSecretsScansWorkState(t *testing.T) {
 	}
 }
 
+func TestStaleStateTaskRendered(t *testing.T) {
+	f := &staleStateFakeStore{fakeMaintStore: &fakeMaintStore{fakeStore: &fakeStore{}}}
+	f.staleRows = []map[string]any{{
+		"id": int64(3), "project_id": nil,
+		"task":       "demo [flint] marker task",
+		"updated_at": time.Date(2026, 11, 1, 9, 0, 0, 0, time.UTC),
+	}}
+	var out strings.Builder
+	code := maintainRunStaleState(context.Background(), &maintainRequest{ms: f, commit: false}, &out)
+	if code != 0 {
+		t.Fatalf("exit=%d out=%s", code, out.String())
+	}
+	var resp struct {
+		Items []staleStateItem `json:"items"`
+	}
+	if err := json.Unmarshal([]byte(out.String()), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(resp.Items) != 1 {
+		t.Fatalf("items = %d, want 1", len(resp.Items))
+	}
+	if strings.Contains(resp.Items[0].Task, "[flint]") {
+		t.Errorf("task bypassed render chokepoint: %q", resp.Items[0].Task)
+	}
+	if !strings.Contains(resp.Items[0].Task, "marker task") {
+		t.Errorf("task = %q, want folded marker task", resp.Items[0].Task)
+	}
+}
+
+func TestSecretsScansResolvedWorkState(t *testing.T) {
+	var workStateSQL string
+	f := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		if strings.Contains(sql, "key IN ('pending_max'") {
+			return nil, nil
+		}
+		if strings.Contains(sql, "FROM knowledge") && strings.Contains(sql, "origin") {
+			return [][]any{{int64(1), "토픽", "무해한 요약", "", "", "", ""}}, nil
+		}
+		if strings.Contains(sql, "FROM work_state") {
+			workStateSQL = sql
+			return [][]any{{int64(21), "resolved task with ghp_abcdefghijklmnopqrst", "clean", "clean"}}, nil
+		}
+		return nil, nil
+	}}
+	c := checkSecrets(context.Background(), f)
+	if c.Status != "warn" || !strings.Contains(c.Detail, "github-token#work_state:21") {
+		t.Errorf("resolved 행 발견 = %+v", c)
+	}
+	if strings.Contains(workStateSQL, "status = 'open'") {
+		t.Errorf("work_state 스캔이 open 한정 — resolved 누락: %s", workStateSQL)
+	}
+}
+
 func TestThresholdsRegistered(t *testing.T) {
 	m, ok := store.ThresholdMetaByKey("state_stale_days")
 	if !ok {

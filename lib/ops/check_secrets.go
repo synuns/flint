@@ -111,7 +111,7 @@ func checkSecretsTh(ctx context.Context, st wire.Store, th store.Thresholds) Doc
 	}
 	wrows, werr := wire.QueryOnce(ctx, st, `
 		SELECT id, task, COALESCE(detail, ''), COALESCE(next_action, '')
-		FROM work_state WHERE status = 'open'
+		FROM work_state
 		LIMIT $1`, []any{th.SecretsScanRows})
 	switch {
 	case werr != nil:
