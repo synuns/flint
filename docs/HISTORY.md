@@ -6,6 +6,28 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.38.3 patch (2026-11-27) — r143-angle3-performance
+
+5 findings from the R143 audit angle 3 (performance · resources), all
+fixed with regression tests.
+
+- **[fix] resolved work_state retention**: resolved rows accumulated
+  forever — maintain --stale-state --commit now purges them past
+  work_state_resolved_retention_days (default 90, thresholds registry).
+- **[fix] batch resolve**: stale-state --commit resolves N rows in one
+  UPDATE (WHERE id = ANY($1)) through db.Repo methods instead of N+1
+  raw writes; resolved_at recorded (per-row and batch paths).
+- **[fix] work_state dedup query uses the partial unique index**:
+  project_id predicates branch on NULL vs value (IS NOT DISTINCT FROM
+  can't match a btree index).
+- **[fix] hot meta queries halved**: RunHot loads thresholds/budget once
+  and passes them down (5 → 2 queries per run; output byte-identical).
+- **[fix] testengine scratch DROP fast-fails on engine-down**: connection
+  refused returns immediately instead of 3 retries (transient-error
+  retry contract unchanged); the DROP-denied premise was disproved on
+  the pinned engine.
+Design: docs/plans/2026-11-25-flint-knowledge-growth-model.md §4·§7
+
 ### v1.38.2 patch (2026-11-27) — r143-angle2-security
 
 4 findings from the R143 audit angle 2 (security · personal-data), all

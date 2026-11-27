@@ -82,6 +82,14 @@ func WarnWorkStateSecrets(warns []string) {
 	}
 }
 
+func OpenWorkStateQuery(projectID *int, hash string) (string, []any) {
+	const base = `SELECT id, COALESCE(detail, ''), COALESCE(next_action, '') FROM work_state WHERE `
+	if projectID == nil {
+		return base + `project_id IS NULL AND state_hash = $1 AND status = 'open'`, []any{hash}
+	}
+	return base + `project_id = $1 AND state_hash = $2 AND status = 'open'`, []any{*projectID, hash}
+}
+
 func (r *Repo) OpenWorkState(ctx context.Context, rec map[string]any) (int, string, error) {
 	WarnWorkStateSecrets(SanitizeWorkStatePayload(rec))
 	projectID, task, detail, nextAction := workStateRecFields(rec)
@@ -92,10 +100,8 @@ func (r *Repo) OpenWorkState(ctx context.Context, rec map[string]any) (int, stri
 	hash := WorkStateHash(normalized)
 	var id int
 	var curDetail, curNext string
-	err := r.pool.QueryRow(ctx,
-		`SELECT id, COALESCE(detail, ''), COALESCE(next_action, '') FROM work_state
-		 WHERE project_id IS NOT DISTINCT FROM $1 AND state_hash = $2 AND status = 'open'`,
-		projectID, hash).Scan(&id, &curDetail, &curNext)
+	sql, args := OpenWorkStateQuery(projectID, hash)
+	err := r.pool.QueryRow(ctx, sql, args...).Scan(&id, &curDetail, &curNext)
 	if errors.Is(err, pgx.ErrNoRows) {
 		var newID int
 		if err := r.pool.QueryRow(ctx,
@@ -126,7 +132,7 @@ func (r *Repo) ResolveWorkState(ctx context.Context, id int, byKnowledgeID int) 
 		by = byKnowledgeID
 	}
 	ct, err := r.pool.Exec(ctx,
-		`UPDATE work_state SET status = 'resolved', resolved_by = $2 WHERE id = $1`,
+		`UPDATE work_state SET status = 'resolved', resolved_by = $2, resolved_at = now() WHERE id = $1`,
 		id, by)
 	if err != nil {
 		return fmt.Errorf("resolve work state: %w", err)
@@ -135,6 +141,26 @@ func (r *Repo) ResolveWorkState(ctx context.Context, id int, byKnowledgeID int) 
 		return fmt.Errorf("resolve work state: id %d not found", id)
 	}
 	return nil
+}
+
+func (r *Repo) BatchResolveWorkState(ctx context.Context, ids []int) (int, error) {
+	ct, err := r.pool.Exec(ctx,
+		`UPDATE work_state SET status = 'resolved', resolved_by = NULL, resolved_at = now()
+		 WHERE id = ANY($1)`, ids)
+	if err != nil {
+		return 0, fmt.Errorf("batch resolve work state: %w", err)
+	}
+	return int(ct.RowsAffected()), nil
+}
+
+func (r *Repo) PurgeResolvedWorkState(ctx context.Context, cutoff time.Time) (int, error) {
+	ct, err := r.pool.Exec(ctx,
+		`DELETE FROM work_state
+		 WHERE status = 'resolved' AND COALESCE(resolved_at, updated_at) < $1`, cutoff)
+	if err != nil {
+		return 0, fmt.Errorf("purge resolved work state: %w", err)
+	}
+	return int(ct.RowsAffected()), nil
 }
 
 func (r *Repo) ListOpenWorkState(ctx context.Context, projectID int, limit int) []map[string]any {

@@ -8,6 +8,7 @@ import (
 	"io"
 	"time"
 
+	"github.com/synuns/flint/lib/db"
 	"github.com/synuns/flint/lib/render"
 	"github.com/synuns/flint/lib/store"
 	"github.com/synuns/flint/lib/wire"
@@ -15,7 +16,8 @@ import (
 
 type workStateStore interface {
 	StaleOpenWorkStates(ctx context.Context, days int) []map[string]any
-	ResolveWorkState(ctx context.Context, id int, byKnowledgeID int) error
+	BatchResolveWorkState(ctx context.Context, ids []int) (int, error)
+	PurgeResolvedWorkState(ctx context.Context, cutoff time.Time) (int, error)
 }
 
 func maintainRunStaleState(ctx context.Context, r *maintainRequest, stdout io.Writer) int {
@@ -58,7 +60,7 @@ func maintainStaleState(ctx context.Context, ms MaintStore, ws workStateStore, s
 		}
 		items = append(items, staleStateItem{ID: id, ProjectID: proj, Task: task, UpdatedAt: updated})
 	}
-	if !commit || len(items) == 0 {
+	if !commit {
 		out, mErr := json.Marshal(struct {
 			Status  string           `json:"status"`
 			Days    int              `json:"days"`
@@ -74,14 +76,52 @@ func maintainStaleState(ctx context.Context, ms MaintStore, ws workStateStore, s
 		fmt.Fprintln(stdout, string(out))
 		return 0
 	}
-	if err := retryWrite(ctx, func() error {
-		for _, it := range items {
-			if err := ws.ResolveWorkState(ctx, it.ID, 0); err != nil {
-				return err
-			}
+	if th.WorkStateResolvedRetentionD <= 0 {
+		th.WorkStateResolvedRetentionD = store.DefaultThresholds().WorkStateResolvedRetentionD
+	}
+	ids := make([]int, 0, len(items))
+	for _, it := range items {
+		ids = append(ids, it.ID)
+	}
+	resolved := 0
+	if len(ids) > 0 {
+		n, err := ws.BatchResolveWorkState(ctx, ids)
+		if err != nil {
+			fmt.Fprintln(stdout, wire.ErrLine(err))
+			return store.MapExit(err)
 		}
+		resolved = n
+	}
+	purged := 0
+	if th.WorkStateResolvedRetentionD > 0 {
+		cutoff := db.DaysCutoff(th.WorkStateResolvedRetentionD, time.Now())
+		n, err := ws.PurgeResolvedWorkState(ctx, cutoff)
+		if err != nil {
+			fmt.Fprintln(stdout, wire.ErrLine(err))
+			return store.MapExit(err)
+		}
+		purged = n
+	}
+	if resolved+purged == 0 {
+		out, mErr := json.Marshal(struct {
+			Status   string `json:"status"`
+			Count    int    `json:"count"`
+			Resolved int    `json:"resolved"`
+			Purged   int    `json:"purged"`
+			Summary  string `json:"summary"`
+		}{Status: "stale-state", Count: len(items), Resolved: 0, Purged: 0,
+			Summary: "nothing to resolve or purge"})
+		if mErr != nil {
+			fmt.Fprintln(stdout, wire.ErrLine(mErr))
+			return 1
+		}
+		fmt.Fprintln(stdout, string(out))
+		return 0
+	}
+	if err := retryWrite(ctx, func() error {
 		_, err := ms.Commit(ctx, fmt.Sprintf(
-			"stale-state: resolved %d rows (stale work state path) [session:0]", len(items)))
+			"stale-state: resolved %d rows, purged %d expired resolved rows (stale work state path) [session:0]",
+			resolved, purged))
 		return err
 	}); err != nil {
 		fmt.Fprintln(stdout, wire.ErrLine(err))
@@ -90,9 +130,10 @@ func maintainStaleState(ctx context.Context, ms MaintStore, ws workStateStore, s
 	out, mErr := json.Marshal(struct {
 		Status   string `json:"status"`
 		Resolved int    `json:"resolved"`
+		Purged   int    `json:"purged"`
 		Summary  string `json:"summary"`
-	}{Status: "stale-state", Resolved: len(items),
-		Summary: fmt.Sprintf("%d stale open states resolved", len(items))})
+	}{Status: "stale-state", Resolved: resolved, Purged: purged,
+		Summary: fmt.Sprintf("%d stale open states resolved, %d expired resolved rows purged", resolved, purged)})
 	if mErr != nil {
 		fmt.Fprintln(stdout, wire.ErrLine(mErr))
 		return 1

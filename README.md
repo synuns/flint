@@ -26,7 +26,7 @@
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 harnesses">
   <a href="https://github.com/synuns/flint/actions/workflows/ci.yml"><img src="https://github.com/synuns/flint/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
-  <img src="https://img.shields.io/badge/release-v1.38.2-blue" alt="v1.38.2">
+  <img src="https://img.shields.io/badge/release-v1.38.3-blue" alt="v1.38.3">
 </p>
 <p align="center">
   <sub>8 counts the auto-registration (tier A) harnesses — the full support list is in the <a href="#agents--adapters">adapter table</a> below.</sub>
@@ -48,6 +48,7 @@ It adds up. Week one, it learns the stack. By week four, it remembers why you ch
 
 Humans take notes in Obsidian. Agents take notes in flint — the stone you strike to make fire and tools.
 
+> v1.38.3 · r143-angle3 patch — performance: resolved work_state retention (default 90d) · batch resolve (one UPDATE, resolved_at recorded) · dedup query uses the partial unique index · hot meta queries halved (5→2) · testengine scratch DROP fast-fails on engine-down · [full changelog](docs/HISTORY.md)
 > v1.38.2 · r143-angle2 patch — security: secrets scan covers resolved work_state rows · work_state payloads sanitized at write (chokepoint allowlist) · stale-state output through render · empty --task exits 3 (CLI=MCP) · [full changelog](docs/HISTORY.md)
 > v1.38.1 · r143 patch — claim integrity: approve --claim persists the claim (promoted rows no longer vanish from recall) · claim normalized at write · invalid vocabulary rejected · hot snapshot budget invariant (total ≤ budget) · fixture schema gates · [full changelog](docs/HISTORY.md)
 > v1.38.0 · knowledge growth model phase 1 — claim axis (decision/procedure/lesson/event, events out of recall) · work_state table (intentions open→resolve, unconditional recording) · 3-stage collection (bounded pending → Δ≠0 promotion → post-hoc proof) · claim gate at approve · flint state CLI + MCP flint_work · hot work-state snapshot · testengine scratch root fix · [full changelog](docs/HISTORY.md)

@@ -111,20 +111,33 @@ func EffectiveScoreFor(eventCount int, lastRecalled time.Time, now time.Time, de
 	return EventEffectiveScore(eventCount, lastRecalled, now, decayPerDay, survived, relief)
 }
 
-func loadDecayRate(ctx context.Context, st wire.Store) float64 {
-	rate := store.DefaultThresholds().DecayRate
-	if th, err := wire.LoadThresholds(ctx, st); err == nil && th.DecayRate > 0 {
-		rate = th.DecayRate
+func loadThresholdsOnce(ctx context.Context, st wire.Store) store.Thresholds {
+	if th, err := wire.LoadThresholds(ctx, st); err == nil {
+		return th
 	}
-	return rate
+	return store.DefaultThresholds()
+}
+
+func decayRateOf(th store.Thresholds) float64 {
+	if th.DecayRate > 0 {
+		return th.DecayRate
+	}
+	return store.DefaultThresholds().DecayRate
+}
+
+func survivedReliefOf(th store.Thresholds) float64 {
+	if th.SurvivedDecayRelief > 0 {
+		return th.SurvivedDecayRelief
+	}
+	return store.DefaultThresholds().SurvivedDecayRelief
+}
+
+func loadDecayRate(ctx context.Context, st wire.Store) float64 {
+	return decayRateOf(loadThresholdsOnce(ctx, st))
 }
 
 func loadSurvivedRelief(ctx context.Context, st wire.Store) float64 {
-	relief := store.DefaultThresholds().SurvivedDecayRelief
-	if th, err := wire.LoadThresholds(ctx, st); err == nil && th.SurvivedDecayRelief > 0 {
-		relief = th.SurvivedDecayRelief
-	}
-	return relief
+	return survivedReliefOf(loadThresholdsOnce(ctx, st))
 }
 
 func rankRowsByEffectiveScore(ctx context.Context, st wire.Store, rows [][]any, idIdx, scoreIdx, lastIdx, tagsIdx int, rate, relief float64, now time.Time) [][]any {
@@ -377,27 +390,21 @@ func hotSnapshotRowTime(v any) (time.Time, bool) {
 	return time.Time{}, false
 }
 
-func hotSnapshotLoadLimits(ctx context.Context, st wire.Store) (staleDays, snapMax int) {
-	def := store.DefaultThresholds()
-	staleDays, snapMax = def.StateStaleDays, def.StateSnapshotMax
-	if th, err := wire.LoadThresholds(ctx, st); err == nil {
-		if th.StateStaleDays > 0 {
-			staleDays = th.StateStaleDays
-		}
-		if th.StateSnapshotMax > 0 {
-			snapMax = th.StateSnapshotMax
-		}
+func hotSnapshotStateRows(ctx context.Context, st wire.Store) []map[string]any {
+	if ws, ok := st.(workStateStore); ok {
+		return ws.ListOpenWorkState(ctx, 0, stateListLimit)
 	}
-	return staleDays, snapMax
+	return nil
 }
 
-func hotSnapshotLines(ctx context.Context, st wire.Store, currentProjectID int, now time.Time) []string {
-	ws, ok := st.(workStateStore)
-	if !ok {
-		return nil
+func hotSnapshotLines(th store.Thresholds, budget int, rows []map[string]any, currentProjectID int, now time.Time) []string {
+	staleDays, snapMax := th.StateStaleDays, th.StateSnapshotMax
+	if staleDays <= 0 {
+		staleDays = store.DefaultThresholds().StateStaleDays
 	}
-	staleDays, snapMax := hotSnapshotLoadLimits(ctx, st)
-	rows := ws.ListOpenWorkState(ctx, currentProjectID, stateListLimit)
+	if snapMax <= 0 {
+		snapMax = store.DefaultThresholds().StateSnapshotMax
+	}
 	cutoff := now.AddDate(0, 0, -staleDays)
 	fresh := make([]map[string]any, 0, len(rows))
 	for _, row := range rows {
@@ -424,7 +431,7 @@ func hotSnapshotLines(ctx context.Context, st wire.Store, currentProjectID int, 
 	if len(fresh) > snapMax {
 		fresh = fresh[:snapMax]
 	}
-	cap := hotSnapshotRuneCap(HotBudget(MetaGetKV(ctx, st)))
+	cap := hotSnapshotRuneCap(budget)
 	lines := make([]string, 0, len(fresh))
 	used := 0
 	for _, row := range fresh {
@@ -493,17 +500,18 @@ func RunHot(ctx context.Context, st wire.Store, args []string, stdin io.Reader, 
 	if !full {
 		scoreIdx, lastIdx, tagsIdx = hotHeadlineRecallScoreIdx, hotHeadlineRecallLastIdx, hotHeadlineTagsIdx
 	}
+	th := loadThresholdsOnce(ctx, st)
 	rows = rankRowsByEffectiveScore(ctx, st, rows, hotViewIDIdx, scoreIdx, lastIdx, tagsIdx,
-		loadDecayRate(ctx, st), loadSurvivedRelief(ctx, st), time.Now().UTC())
+		decayRateOf(th), survivedReliefOf(th), time.Now().UTC())
 
 	LoadHotStatsFromMetaFn(ctx, st)
 
 	budget := HotBudget(MetaGetKV(ctx, st))
+	snap := hotSnapshotLines(th, budget, hotSnapshotStateRows(ctx, st), 0, time.Now().UTC())
 
 	var lines []string
 	if full {
 		lines = hotSuffixedLines(rows, time.Now().UTC())
-		snap := hotSnapshotLines(ctx, st, 0, time.Now().UTC())
 		snapRunes := 0
 		for _, ln := range snap {
 			snapRunes += utf8.RuneCountInString(ln) + 1
@@ -529,7 +537,6 @@ func RunHot(ctx context.Context, st wire.Store, args []string, stdin io.Reader, 
 		profile := ExposureProfileFn(func(key string) (string, error) { return kv(key, "") })
 		active, pending, recent := hotCounts(rows)
 		line := HotHeadline(profile, active, pending, recent, HotTopics(rows, hotHeadlineTopicCount))
-		snap := hotSnapshotLines(ctx, st, 0, time.Now().UTC())
 		fmt.Fprintln(stdout, line)
 		for _, ln := range snap {
 			fmt.Fprintln(stdout, ln)

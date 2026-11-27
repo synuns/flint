@@ -101,6 +101,8 @@ type Thresholds struct {
 
 	StateStaleDays   int
 	StateSnapshotMax int
+
+	WorkStateResolvedRetentionD int
 }
 
 type ThresholdMeta struct {
@@ -201,6 +203,8 @@ var thresholdMetas = []ThresholdMeta{
 
 	{"StateStaleDays", "state_stale_days", 14, "days", false, false, "maintain --stale-state", ""},
 	{"StateSnapshotMax", "state_snapshot_max", 3, "count", false, false, "hot", ""},
+
+	{"WorkStateResolvedRetentionD", "work_state_resolved_retention_days", 90, "days", false, false, "maintain --stale-state resolved cleanup", ""},
 }
 
 var thresholdIntRanges = map[string][2]int{

@@ -78,17 +78,19 @@ func CloneTarget(t *testing.T) (name, dsn string) {
 
 func scratchOnTestCleanup(t *testing.T, name string) {
 	t.Cleanup(func() {
-		if err := dropScratch(context.Background(), name); err != nil {
-			fmt.Fprintf(os.Stderr, "경고: 스크래치 %s 개별 DROP 실패(%v) — RunCleanup 재시도\n", name, err)
-			return
-		}
-		scratchMu.Lock()
-		for i, n := range scratchDBs {
-			if n == name {
-				scratchDBs = append(scratchDBs[:i], scratchDBs[i+1:]...)
-				break
+		t.Cleanup(func() {
+			if err := dropScratch(context.Background(), name); err != nil {
+				fmt.Fprintf(os.Stderr, "경고: 스크래치 %s 개별 DROP 실패(%v) — RunCleanup 재시도\n", name, err)
+				return
 			}
-		}
-		scratchMu.Unlock()
+			scratchMu.Lock()
+			for i, n := range scratchDBs {
+				if n == name {
+					scratchDBs = append(scratchDBs[:i], scratchDBs[i+1:]...)
+					break
+				}
+			}
+			scratchMu.Unlock()
+		})
 	})
 }

@@ -15,19 +15,11 @@ type staleStateFakeStore struct {
 	*fakeMaintStore
 	staleRows []map[string]any
 	gotDays   int
-	resolved  []int
-	resolveBy []int
 }
 
 func (f *staleStateFakeStore) StaleOpenWorkStates(ctx context.Context, days int) []map[string]any {
 	f.gotDays = days
 	return f.staleRows
-}
-
-func (f *staleStateFakeStore) ResolveWorkState(ctx context.Context, id int, byKnowledgeID int) error {
-	f.resolved = append(f.resolved, id)
-	f.resolveBy = append(f.resolveBy, byKnowledgeID)
-	return nil
 }
 
 func TestStaleStateProposesResolve(t *testing.T) {
@@ -50,8 +42,8 @@ func TestStaleStateProposesResolve(t *testing.T) {
 	if f.gotDays != store.DefaultThresholds().StateStaleDays {
 		t.Errorf("StaleOpenWorkStates days = %d, want %d", f.gotDays, store.DefaultThresholds().StateStaleDays)
 	}
-	if len(f.resolved) != 0 {
-		t.Errorf("dry-run resolved %v, want none", f.resolved)
+	if f.batchResolveN != 0 {
+		t.Errorf("dry-run resolved %d, want none", f.batchResolveN)
 	}
 	var resp struct {
 		Status  string           `json:"status"`
@@ -78,11 +70,11 @@ func TestStaleStateProposesResolve(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("commit exit=%d out=%s", code, commitOut.String())
 	}
-	if len(f.resolved) != 1 || f.resolved[0] != 7 {
-		t.Errorf("resolved = %v, want [7]", f.resolved)
+	if len(f.batchResolve) != 1 {
+		t.Errorf("batch resolve calls = %d, want 1", len(f.batchResolve))
 	}
-	if len(f.resolveBy) != 1 || f.resolveBy[0] != 0 {
-		t.Errorf("resolveBy = %v, want [0] (NULL byKnowledgeID)", f.resolveBy)
+	if len(f.batchResolve[0]) != 1 || f.batchResolve[0][0] != 7 {
+		t.Errorf("batch ids = %v, want [7]", f.batchResolve[0])
 	}
 	found := false
 	for _, c := range f.commits {
@@ -95,6 +87,58 @@ func TestStaleStateProposesResolve(t *testing.T) {
 	}
 }
 
+func TestStaleStateBatchResolveSingleRoundtrip(t *testing.T) {
+	f := &staleStateFakeStore{fakeMaintStore: &fakeMaintStore{fakeStore: &fakeStore{}}}
+	for i := 1; i <= 5; i++ {
+		f.staleRows = append(f.staleRows, map[string]any{
+			"id": int64(i), "project_id": nil, "task": "demo batch task",
+			"updated_at": time.Date(2026, 11, 1, 9, 0, 0, 0, time.UTC),
+		})
+	}
+	var out strings.Builder
+	code := maintainRunStaleState(context.Background(), &maintainRequest{ms: f, commit: true}, &out)
+	if code != 0 {
+		t.Fatalf("exit=%d out=%s", code, out.String())
+	}
+	if len(f.batchResolve) != 1 {
+		t.Errorf("batch resolve calls = %d, want 1 (single roundtrip)", len(f.batchResolve))
+	}
+	if f.batchResolveN != 5 {
+		t.Errorf("batch resolve ids = %v, want 5", f.batchResolve)
+	}
+	var resp struct {
+		Resolved int `json:"resolved"`
+	}
+	if err := json.Unmarshal([]byte(out.String()), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.Resolved != 5 {
+		t.Errorf("resolved = %d, want 5", resp.Resolved)
+	}
+}
+
+func TestStaleStateResolvedRetentionCleanup(t *testing.T) {
+	f := &staleStateFakeStore{fakeMaintStore: &fakeMaintStore{fakeStore: &fakeStore{}}}
+	f.purgeResolvedN = 1
+	var out strings.Builder
+	code := maintainRunStaleState(context.Background(), &maintainRequest{ms: f, commit: true}, &out)
+	if code != 0 {
+		t.Fatalf("exit=%d out=%s", code, out.String())
+	}
+	if len(f.purgeCutoffs) != 1 {
+		t.Fatalf("purge calls = %d, want 1", len(f.purgeCutoffs))
+	}
+	want := time.Now().AddDate(0, 0, -store.DefaultThresholds().WorkStateResolvedRetentionD)
+	got := f.purgeCutoffs[0]
+	if got.Sub(want) > time.Hour || want.Sub(got) > time.Hour {
+		t.Errorf("cutoff = %v, want ~%v (retention %d days)", got, want,
+			store.DefaultThresholds().WorkStateResolvedRetentionD)
+	}
+	if len(f.commits) == 0 {
+		t.Errorf("commits = %v, want stale-state commit for purge", f.commits)
+	}
+}
+
 func TestStaleStateEmptyCommitNoop(t *testing.T) {
 	f := &staleStateFakeStore{fakeMaintStore: &fakeMaintStore{fakeStore: &fakeStore{}}}
 	var out strings.Builder
@@ -102,8 +146,9 @@ func TestStaleStateEmptyCommitNoop(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit=%d out=%s", code, out.String())
 	}
-	if len(f.resolved) != 0 || len(f.commits) != 0 {
-		t.Errorf("empty commit resolved=%v commits=%v, want noop", f.resolved, f.commits)
+	if f.batchResolveN != 0 || len(f.purgeCutoffs) == 0 || len(f.commits) != 0 {
+		t.Errorf("empty commit batchN=%d purge=%v commits=%v, want noop commit-free",
+			f.batchResolveN, f.purgeCutoffs, f.commits)
 	}
 }
 
@@ -234,13 +279,26 @@ func TestThresholdsRegistered(t *testing.T) {
 		t.Errorf("StateSnapshotMax default = %d, want 3", got)
 	}
 
+	m, ok = store.ThresholdMetaByKey("work_state_resolved_retention_days")
+	if !ok {
+		t.Fatal("work_state_resolved_retention_days 미등록")
+	}
+	if m.Field != "WorkStateResolvedRetentionD" || m.Desc != "maintain --stale-state resolved cleanup" {
+		t.Errorf("meta = %+v", m)
+	}
+	if got := store.DefaultThresholds().WorkStateResolvedRetentionD; got != 90 {
+		t.Errorf("WorkStateResolvedRetentionD default = %d, want 90", got)
+	}
+
 	th, err := store.ParseThresholds([][2]any{
 		{"state_stale_days", "7"}, {"state_snapshot_max", "5"},
+		{"work_state_resolved_retention_days", "30"},
 	})
 	if err != nil {
 		t.Fatalf("ParseThresholds: %v", err)
 	}
-	if th.StateStaleDays != 7 || th.StateSnapshotMax != 5 {
-		t.Errorf("override = %d/%d, want 7/5", th.StateStaleDays, th.StateSnapshotMax)
+	if th.StateStaleDays != 7 || th.StateSnapshotMax != 5 || th.WorkStateResolvedRetentionD != 30 {
+		t.Errorf("override = %d/%d/%d, want 7/5/30",
+			th.StateStaleDays, th.StateSnapshotMax, th.WorkStateResolvedRetentionD)
 	}
 }

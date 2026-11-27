@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 	"unicode/utf8"
+
+	"github.com/synuns/flint/lib/store"
 )
 
 type hotStateFake struct {
@@ -174,7 +176,6 @@ func TestHotSnapshotCappedAtMax(t *testing.T) {
 
 func TestHotProjectFirstThenRecent(t *testing.T) {
 	injectHotSeams(t)
-	ctx := context.Background()
 	now := time.Now().UTC()
 	open := []map[string]any{
 		synthState(1, 9, "타프로젝트최신", "", now.Add(-time.Minute)),
@@ -182,15 +183,9 @@ func TestHotProjectFirstThenRecent(t *testing.T) {
 		synthState(3, 7, "현재프로젝트최신", "", now.Add(-time.Hour)),
 		synthState(4, 9, "타프로젝트중간", "", now.Add(-2*time.Hour)),
 	}
-	f := hotStateStore(t, nil, open)
-	f.queryFn = func(sql string, args []any) ([][]any, error) {
-		switch {
-		case strings.Contains(sql, "WHERE key IN"):
-			return [][]any{{"state_snapshot_max", "4"}}, nil
-		}
-		return nil, nil
-	}
-	lines := hotSnapshotLines(ctx, f, 7, now)
+	th := store.DefaultThresholds()
+	th.StateSnapshotMax = 4
+	lines := hotSnapshotLines(th, DefaultHotBudget, open, 7, now)
 	want := []string{
 		"state|현재프로젝트최신|",
 		"state|현재프로젝트오래됨|",
@@ -209,16 +204,47 @@ func TestHotProjectFirstThenRecent(t *testing.T) {
 
 func TestHotSnapshotExcludesStale(t *testing.T) {
 	injectHotSeams(t)
-	ctx := context.Background()
 	now := time.Now().UTC()
 	open := []map[string]any{
 		synthState(1, 7, "신선한 과업", "", now.Add(-13*24*time.Hour)),
 		synthState(2, 7, "부패한 과업", "", now.Add(-14*24*time.Hour-time.Minute)),
 	}
-	f := hotStateStore(t, nil, open)
-	lines := hotSnapshotLines(ctx, f, 7, now)
+	lines := hotSnapshotLines(store.DefaultThresholds(), DefaultHotBudget, open, 7, now)
 	if len(lines) != 1 || !strings.Contains(lines[0], "신선한 과업") {
 		t.Errorf("stale 제외 결과 = %v, want 신선한 과업 1행(state_stale_days 14)", lines)
+	}
+}
+
+func TestHotMetaQueriesOncePerRun(t *testing.T) {
+	injectHotSeams(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+	ts := now.Truncate(time.Second)
+	rows := [][]any{{"decision", "합성토픽", "합성요약", ts, int32(3), ts, ts, int32(9), now.Add(-time.Hour), ":adr:"}}
+	open := []map[string]any{synthState(1, 1, "합성 과업", "", now.Add(-time.Hour))}
+	for _, tc := range []struct {
+		name string
+		args []string
+	}{
+		{"--full", []string{"--full"}},
+		{"헤드라인", nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := hotStateStore(t, rows, open)
+			var out bytes.Buffer
+			if code := RunHot(ctx, f, tc.args, strings.NewReader(""), &out); code != 0 {
+				t.Fatalf("RunHot exit = %d: %s", code, out.String())
+			}
+			meta := 0
+			for _, q := range f.queries {
+				if strings.Contains(q, "FROM meta") {
+					meta++
+				}
+			}
+			if meta != 2 {
+				t.Errorf("meta 질의 = %d회, want 2(thresholds 1회+hot_budget 1회): %v", meta, f.queries)
+			}
+		})
 	}
 }
 
@@ -260,22 +286,13 @@ func TestHotBudgetCoversKnowledgePlusSnapshot(t *testing.T) {
 
 func TestHotSnapshotRuneCap(t *testing.T) {
 	injectHotSeams(t)
-	ctx := context.Background()
 	now := time.Now().UTC()
 	long := strings.Repeat("가", 200)
 	open := []map[string]any{
 		synthState(1, 7, long, "", now.Add(-time.Hour)),
 		synthState(2, 7, "후행 과업", "", now.Add(-2*time.Hour)),
 	}
-	f := hotStateStore(t, nil, open)
-	f.queryFn = func(sql string, args []any) ([][]any, error) {
-		switch {
-		case strings.Contains(sql, "FROM meta"):
-			return [][]any{{"200"}}, nil
-		}
-		return nil, nil
-	}
-	lines := hotSnapshotLines(ctx, f, 7, now)
+	lines := hotSnapshotLines(store.DefaultThresholds(), 200, open, 7, now)
 	const cap = 200 / 5
 	total := 0
 	for _, ln := range lines {

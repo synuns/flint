@@ -29,6 +29,7 @@ type workStateRow struct {
 	status        string
 	byKnowledgeID *int
 	updatedAt     time.Time
+	resolvedAt    time.Time
 }
 
 type workStateFake struct {
@@ -129,6 +130,7 @@ func (f *workStateFake) ResolveWorkState(ctx context.Context, id int, byKnowledg
 	for _, s := range f.states {
 		if s.id == id {
 			s.status = "resolved"
+			s.resolvedAt = time.Now()
 			if byKnowledgeID > 0 {
 				by := byKnowledgeID
 				s.byKnowledgeID = &by
@@ -448,6 +450,24 @@ func TestOpenWorkStateNormalizesHash(t *testing.T) {
 	}
 }
 
+func TestOpenWorkStateQueryIndexBranches(t *testing.T) {
+	sqlNil, argsNil := db.OpenWorkStateQuery(nil, "hash1")
+	if !strings.Contains(sqlNil, "project_id IS NULL") || strings.Contains(sqlNil, "IS NOT DISTINCT FROM") {
+		t.Fatalf("sql = %q, want IS NULL 분기(btree 인덱스 매칭)", sqlNil)
+	}
+	if len(argsNil) != 1 || argsNil[0] != "hash1" {
+		t.Fatalf("args = %v, want hash 1개", argsNil)
+	}
+	pid := 3
+	sqlP, argsP := db.OpenWorkStateQuery(&pid, "hash2")
+	if !strings.Contains(sqlP, "project_id = $1") || strings.Contains(sqlP, "IS NOT DISTINCT FROM") {
+		t.Fatalf("sql = %q, want 등가 일치 분기(btree 인덱스 매칭)", sqlP)
+	}
+	if len(argsP) != 2 || argsP[0] != 3 || argsP[1] != "hash2" {
+		t.Fatalf("args = %v, want [3 hash2]", argsP)
+	}
+}
+
 func TestOpenWorkStateNewTaskOpens(t *testing.T) {
 	f := newWorkStateFake()
 	ctx := context.Background()
@@ -497,6 +517,9 @@ func TestResolveWorkStateNullableBy(t *testing.T) {
 	if row.status != "resolved" {
 		t.Fatalf("status = %q, want resolved", row.status)
 	}
+	if row.resolvedAt.IsZero() {
+		t.Fatalf("resolved_at 미기록 — 보존 기반 정리·감사 불가")
+	}
 	if row.byKnowledgeID != nil {
 		t.Fatalf("resolved_by = %v, want NULL", *row.byKnowledgeID)
 	}
@@ -509,6 +532,9 @@ func TestResolveWorkStateNullableBy(t *testing.T) {
 	}
 	if f.states[1].byKnowledgeID == nil || *f.states[1].byKnowledgeID != 42 {
 		t.Fatalf("resolved_by = %v, want 42", f.states[1].byKnowledgeID)
+	}
+	if f.states[1].resolvedAt.IsZero() {
+		t.Fatalf("resolved_at 미기록 — 보존 기반 정리·감사 불가")
 	}
 	if err := f.ResolveWorkState(ctx, 9999, 0); err == nil {
 		t.Fatalf("err = nil, want 미존재 id 오류")

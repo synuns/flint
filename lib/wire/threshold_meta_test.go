@@ -57,6 +57,8 @@ var frozenThresholdKeys = []string{
 	"collection_freshness_hours", "plugin_version_gap_minors",
 
 	"state_stale_days", "state_snapshot_max",
+
+	"work_state_resolved_retention_days",
 }
 
 func TestStaleThresholdDefaultsOverride(t *testing.T) {
