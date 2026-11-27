@@ -127,6 +127,23 @@ cumulative per-kind view (`scan_echo_calls` · `scan_echo_p95_us` ·
 `scan_suggest_calls` · `scan_suggest_p95_us`) — every surface, not a
 single channel.
 
+### v1.41.0 report/profile parallel residuals
+
+`report` previously ran `collectDaily` to completion before its
+four-way parallel group could start; the daily aggregation now owns
+its output through a separate result struct and joins the same
+errgroup as a fifth member (alongside curation, stats, counts, and
+effect), so the daily window query overlaps the other collectors'
+round-trips. The cost surfaces no longer re-read the daily byte
+totals — the aggregate is shared once and the savings lower bound is
+recomputed from it, removing the duplicate pass over the same
+figures. Output is guarded byte-identical by the owning-package
+golden regression test. `profile` likewise reads its two independent
+meta inputs (write thresholds and the exposure-profile key-values)
+through a two-member errgroup instead of sequentially. Both changes
+are structural overlap wins only — no wall-clock figure is claimed
+here; the shipped tests guard output equivalence, not latency.
+
 ## 3. Known limitations
 
 - **Doltgres does not support pg_trgm**, so `read`'s LIKE matching cannot

@@ -6,6 +6,35 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.41.1 patch (2026-11-28) — quality-consolidation-patch
+
+2 documentation/pointer fixes from the v1.41.0 audit (no code changes).
+
+- **[fix] TUNING.md FLINT_SLOW_LOOPS pointer**: referenced the deleted
+  admin_v1201_test.go — now points to admin_versions_test.go.
+- **[fix] slowlock error message**: stale filename in the failure path
+  message aligned with the consolidated file.
+
+### v1.41.0 minor (2026-11-28) — quality-consolidation
+
+Test consolidation and parallel residuals, narrowed by research: the
+version-suffixed test files merge into per-domain single files under the
+v1.28 four-rule contract, and the last sequential report segments go
+parallel — function names and counts unchanged throughout.
+
+- **test consolidation (4 domains)**: read_v* (11 files), admin_v* (11),
+  usage_v* (9) and suggest_v* (5) merge into four *_versions_test.go
+  files — 36 files removed, byte-identical content, count invariants
+  asserted per package (the invariant test itself is the only +1).
+- **report parallel residuals**: collectDaily joins the existing errgroup
+  (5-way, via a result-struct split that isolates out.Effect ownership);
+  the profile path reads its two meta values in parallel. Phase-3 and
+  Diagnose stay sequential by dependency; golden output byte-identical.
+- **read LIKE deferral**: pg_trgm remains unsupported (double-ruled);
+  an extension probe would be new infrastructure — deferred with scope
+  notes.
+Design: docs/plans/2026-11-28-flint-v1410-quality.md
+
 ### v1.40.0 minor (2026-11-28) — staleness-mapping
 
 Staleness leftovers (pipelines §5 residue, narrowed by research): the

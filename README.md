@@ -26,7 +26,7 @@
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 harnesses">
   <a href="https://github.com/synuns/flint/actions/workflows/ci.yml"><img src="https://github.com/synuns/flint/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
-  <img src="https://img.shields.io/badge/release-v1.40.0-blue" alt="v1.40.0">
+  <img src="https://img.shields.io/badge/release-v1.41.1-blue" alt="v1.41.1">
 </p>
 <p align="center">
   <sub>8 counts the auto-registration (tier A) harnesses — the full support list is in the <a href="#agents--adapters">adapter table</a> below.</sub>
@@ -48,6 +48,8 @@ It adds up. Week one, it learns the stack. By week four, it remembers why you ch
 
 Humans take notes in Obsidian. Agents take notes in flint — the stone you strike to make fire and tools.
 
+> v1.41.1 · quality-consolidation-patch — audit fixes: TUNING and slowlock stale file references updated to consolidated filenames · [full changelog](docs/HISTORY.md)
+> v1.41.0 · quality-consolidation — version-suffixed test files merge into 4 per-domain single files (36 removed·function names and counts unchanged) · report parallel residuals: collectDaily joins the errgroup (5-way)·profile meta reads parallel (golden output unchanged) · read LIKE deferred (pg_trgm unsupported) · [full changelog](docs/HISTORY.md)
 > v1.40.0 · staleness-mapping — claim→vol default suggestions (decision/event→immutable·procedure/lesson→conditional·existing tags always win·no automatic exemption) · source axis (SuggestVolClassForSource) · approved apply path: maintain --age-audit --apply-vol [--yes] (dry-run default·repo-route tag merge) · [full changelog](docs/HISTORY.md)
 > v1.39.1 · r143-angle2-sessionlabel patch — security: secrets scan covers session_label · work_state payloads sanitize session_label · re-report backfills the label · label-file fallback validated (control chars, 200-rune cap) · [full changelog](docs/HISTORY.md)
 > v1.39.0 · knowledge growth model phase 2 — recall history feeds read ranking (fifth RRF signal) · recall-audit recommend (supersede/expire/hold, decay-audit parity) · session chain: state open records the session label, hot revives project-first snapshots · release gate runs CI checks locally first · [full changelog](docs/HISTORY.md)

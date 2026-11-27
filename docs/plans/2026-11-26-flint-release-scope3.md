@@ -34,7 +34,8 @@ zero-hit 감소·주입 프로필 확장)·어댑터 확장·마케팅 계열·b
 | v1.39.0 | done | **발행 완료(2026-11-27 07:26 UTC·Latest·첫 시도 CI 통과)** — 성장 모델 2단계: recall 신호 read 랭킹 합류(5번째 RRF)·recall-audit recommend(3종·recall_audit_recommend_min 68번째 키)·세션 사슬(스키마 v21 session_label·state open 라벨 수신·hot 프로젝트 우선 부활)·release-gate CI 동등성 첫 적용 — 리서치(12사실)→기획(감사 6건 반영)→superlite 6태스크·전수 GREEN 20/0 |
 | v1.39.x | done | **패치 루프 완결 — v1.39.1(r143-angle2-sessionlabel·08:40 UTC·Latest) 발행.** 감사 3건 수리(session_label secrets 스캔 5열·살균 루프 편입·재보고 백필·라벨 폴백 검증 200자 상한)·14회차 전수 GREEN 20/0·엔진 위생 절차 확립(scratch purge→재기동→베이스라인 확인) |
 | v1.40.0 | done | **발행 완료(2026-11-27 16:24 UTC·Latest·첫 시도 CI 통과) — 패치 루프 4각도 통합 감사 APPROVED(발견 0·LOW 정보성 1건 기록).** claim→vol 기본값 제안(감쇠 회로 무변경·자동 면제 없음·감사 HIGH 반영)·출처 축(ForSource)·--age-audit --apply-vol [--yes] 승인 경로·기획 감사 3건 반영 — 리서치(10사실·재확신 v1.22.0 실증 배분 축소)→superlite 5태스크·실DB 왕복 검증 |
-| v1.41.0 | building | 기획 진행 — 리서치 완료·기획 문서 docs/plans/2026-11-28-flint-v1410-quality.md·독립 감사 대기 |
+| v1.41.0 | done | **발행 완료(2026-11-27 17:49 UTC·Latest)** — 테스트 4도메인 통합(36파일→4·함수명·수 불변·카운트 단언)·report 병렬 잔여(collectDaily 5-way·profile 메타 2-way·골든 무변화)·read LIKE 이월(확장 프로브 전제) — 리서치(10사실)→기획(감사 APPROVED)→5태스크 |
+| v1.41.x | done | **v1.41.1(quality-consolidation-patch·18:02 UTC·Latest) 발행.** 패치 감사 3건(LOW 2 수리·이력 이탈 기록): TUNING/slowlock 낡은 참조 갱신 |
 | v1.42.0 | todo | 마케팅·brew는 사용자 트리거 확인 후 |
 | v1.27.0 | gating | 조건 미충족 — 충족 시 별도 착수 |
 

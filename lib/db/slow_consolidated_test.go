@@ -182,13 +182,10 @@ func TestSlowConsolidationInheritance(t *testing.T) {
 	}
 	srcs := map[string]string{}
 	for _, f := range []string{
-		"admin_test.go", "admin_v0190_test.go", "admin_v0200_test.go",
-		"admin_v0201_test.go", "admin_v0420_test.go", "admin_v06_test.go",
-		"admin_v08_test.go", "admin_v10_test.go", "admin_v1200_test.go",
-		"usage_test.go", "usage_v092_test.go", "usage_v0102_test.go",
-		"usage_v0341_test.go", "usage_bytes_test.go", "usage_flatkey_test.go",
-		"usage_v06_test.go", "usage_v0190_test.go", "usage_v0200_test.go",
-		"admin_merge_test.go", "admin_v093_test.go", "reads_v1200_test.go",
+		"admin_test.go", "admin_versions_test.go",
+		"usage_test.go", "usage_bytes_test.go", "usage_flatkey_test.go",
+		"usage_versions_test.go",
+		"admin_merge_test.go", "reads_v1200_test.go",
 		"reads_v06_test.go", "reads_v1700_test.go",
 		"reads_v1900_test.go", "prune_recall_v1910_test.go",
 	} {
