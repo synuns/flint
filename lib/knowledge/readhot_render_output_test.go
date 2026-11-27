@@ -34,7 +34,7 @@ func v0370SanitizeFixtureRows() [][]any {
 func TestReadOutputUnchanged(t *testing.T) {
 	ctx := context.Background()
 	f := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
-		if strings.Contains(sql, "FROM active_knowledge") {
+		if strings.Contains(sql, "FROM recall_knowledge") || strings.Contains(sql, "FROM active_knowledge") {
 			return v0370SanitizeFixtureRows(), nil
 		}
 		return nil, nil

@@ -43,6 +43,18 @@ func (f *asofFakeStore) Query(ctx context.Context, sql string, args ...any) ([][
 func (f *asofFakeStore) DiffCommits(ctx context.Context, fromHash, toHash string) ([]DiffCommitSummary, error) {
 	return nil, nil
 }
+func (f *asofFakeStore) OpenWorkState(ctx context.Context, rec map[string]any) (int, string, error) {
+	return 0, "", errors.New("not implemented")
+}
+func (f *asofFakeStore) ResolveWorkState(ctx context.Context, id int, byKnowledgeID int) error {
+	return errors.New("not implemented")
+}
+func (f *asofFakeStore) ListOpenWorkState(ctx context.Context, projectID int, limit int) []map[string]any {
+	return nil
+}
+func (f *asofFakeStore) StaleOpenWorkStates(ctx context.Context, days int) []map[string]any {
+	return nil
+}
 func (f *asofFakeStore) QueryAsOf(ctx context.Context, q AsOfQuery) ([][]any, error) {
 	if f.noSchema[q.Hash] {
 

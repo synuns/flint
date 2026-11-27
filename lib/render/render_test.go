@@ -71,6 +71,7 @@ func chokepointViolations(root string) []string {
 		"lib/knowledge/write.go":  true,
 		"lib/knowledge/import.go": true,
 		"lib/knowledge/done.go":   true,
+		"lib/db/workstate.go":     true,
 		"lib/store/sanitize.go":   true,
 		"lib/store/pipeline.go":   true,
 	}

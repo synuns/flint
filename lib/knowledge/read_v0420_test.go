@@ -49,7 +49,7 @@ func newReadBudgetRecorder(hit bool) *readBudgetRecorder {
 
 			return [][]any{{int32(7), "flint 백업 절차", "덤프"}}, nil
 		}
-		if strings.Contains(sql, "FROM active_knowledge") {
+		if strings.Contains(sql, "FROM recall_knowledge") || strings.Contains(sql, "FROM active_knowledge") {
 			if hit {
 				return hitRowsFixture, nil
 			}

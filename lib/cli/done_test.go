@@ -74,6 +74,18 @@ func (d *delegatingDone) DiffStat(ctx context.Context, hashes []string) ([]wire.
 func (d *delegatingDone) DiffCommits(ctx context.Context, fromHash, toHash string) ([]wire.DiffCommitSummary, error) {
 	return d.real.DiffCommits(ctx, fromHash, toHash)
 }
+func (d *delegatingDone) OpenWorkState(ctx context.Context, rec map[string]any) (int, string, error) {
+	return d.real.OpenWorkState(ctx, rec)
+}
+func (d *delegatingDone) ResolveWorkState(ctx context.Context, id int, byKnowledgeID int) error {
+	return d.real.ResolveWorkState(ctx, id, byKnowledgeID)
+}
+func (d *delegatingDone) ListOpenWorkState(ctx context.Context, projectID int, limit int) []map[string]any {
+	return d.real.ListOpenWorkState(ctx, projectID, limit)
+}
+func (d *delegatingDone) StaleOpenWorkStates(ctx context.Context, days int) []map[string]any {
+	return d.real.StaleOpenWorkStates(ctx, days)
+}
 func (d *delegatingDone) InsertBatch(ctx context.Context, recs []map[string]any) ([]int, error) {
 	return d.real.InsertBatch(ctx, recs)
 }

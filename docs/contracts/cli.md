@@ -228,6 +228,49 @@ Sources: `lib/wire/registry.go` · `lib/wire/run.go` · `lib/store/pipeline.go` 
   score falls below it; archiving itself is **approval-gated** via the
   existing `maintain --invalidate` (`--yes`/`--reason`) — never automatic.
 
+- Work state (v1.38.0 — `flint state`, the intent surface): open work is
+  recorded unconditionally — unlike knowledge, there is no claim gate or
+  confidence review (a different ontology: intent fails by being carried
+  out or abandoned, not by being true or false). `flint state open --task T
+  [--detail D] [--next A] [--project N]` opens or updates a work_state row
+  and prints one-line JSON `{"id":N,"status":"open|updated|noop"}` — the
+  task is normalized and hashed server-side (NFKC · trim · lowercase ·
+  symbol folding), so a re-reported open task with the same hash updates
+  the existing row (detail · next_action · `updated_at`) instead of adding
+  one. `flint state list [--all]` lists open rows project-scoped, latest
+  `updated_at` first (`--all` includes resolved rows — resolved rows stay
+  out of injection and are purged after
+  `work_state_resolved_retention_days`, default 90, by
+  `maintain --stale-state`). `flint state open --task T` requires a
+  non-empty task (empty or whitespace-only is exit 3 — CLI and MCP are
+  the same contract). `flint state resolve --id N
+  [--by K]` closes an open row; `--by K` records the resolving knowledge id
+  (a soft reference — NULL when omitted). An open row untouched for
+  `state_stale_days` leaves the hot snapshot, and `maintain --stale-state`
+  proposes its resolution (approval-gated, the decay-audit pattern).
+- MCP `flint_work` — the same work-state surface as one tool with an
+  `action` field: `open` · `update` · `resolve` · `list`.
+- Read claim filter (v1.38.0): `flint read` defaults to the
+  `recall_knowledge` view — knowledge rows with claim `event` are excluded
+  from recall (event records are justification evidence, not recallable
+  knowledge). `flint read --claim <value>` applies the claim filter, so
+  `--claim event` reaches event rows through the explicit-lookup path;
+  an unrecognized claim value is exit 3. The `--json --fields` allowlist
+  gains `claim`. The default (recall) path projects all 10 view columns
+  (status included); `read_count` is not part of the view — use
+  `--claim event` to read event rows with the base-table shape.
+- Approve claim gate (v1.38.0): `flint approve` is the single claim gate.
+  Promoting a row whose claim is empty (or the migration backfill `event`)
+  requires `--claim <decision|procedure|lesson|event>` — without it the
+  promotion exits 3 with the usage embedded (self-correction convention).
+  Symmetrically, a knowledge write without a claim lands `pending`
+  regardless of confidence (trial period — the write path never rejects).
+  MCP `flint_approve` follows the same rule.
+- Session-summary copy rejection (v1.38.0): a knowledge payload whose
+  summary is identical to (or a prefix match of) the session summary is
+  rejected with exit 3 — the mechanical refusal of raw session-dump
+  deposits.
+
 ## Boundaries
 
 - Non-interference of hook-entry commands: `compact` exits 0 silently when
@@ -250,6 +293,16 @@ flint read "migration decisions" --json
 # → per-row JSONL ({"id":...,"summary":...,"topic":...}), exit 0
 flint read "migration decisions" --json --nosuchflag
 # → {"error":"usage","message":"...allowed flags..."}, exit 3
+flint read "migration decisions" --claim event
+# → event rows included via the explicit claim filter, exit 0
+flint state open --task "fix flaky seed check" --detail "retry loop races the prune" --next "serialize the loop"
+# → {"id":7,"status":"open"}, exit 0
+flint state open --task "Fix: flaky seed check!"
+# → {"id":7,"status":"updated"}, exit 0 — same server-side hash, row updated
+flint state list
+# → open rows, one-line JSON each, exit 0
+flint state resolve --id 7 --by 910
+# → row 7 resolved with knowledge 910 as the soft reference, exit 0
 flint nosuchcmd
 # → {"message":"unknown command: nosuchcmd","usage":"flint <...|...> [args]"}, exit 3
 ```

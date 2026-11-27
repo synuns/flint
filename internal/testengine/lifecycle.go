@@ -145,8 +145,15 @@ func dropScratch(ctx context.Context, name string) error {
 		if err = dropDBFn(ctx, name); err == nil {
 			return nil
 		}
+		if engineUnreachable(err) {
+			return err
+		}
 	}
 	return err
+}
+
+func engineUnreachable(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "connection refused")
 }
 
 func RunCleanup(ctx context.Context) {

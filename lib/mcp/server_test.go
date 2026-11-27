@@ -41,8 +41,8 @@ func TestToolsListExposesOutputSchema(t *testing.T) {
 	}
 	lines := decodeLines(t, out.String())
 	tools, ok := lines[0]["result"].(map[string]any)["tools"].([]any)
-	if !ok || len(tools) != 5 {
-		t.Fatalf("tools = %v, want 5건", lines[0]["result"])
+	if !ok || len(tools) != 6 {
+		t.Fatalf("tools = %v, want 6건", lines[0]["result"])
 	}
 	for _, entry := range tools {
 		m, ok := entry.(map[string]any)

@@ -6,6 +6,119 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.38.4 patch (2026-11-27) — r143-angle4-docs
+
+6 documentation corrections from the R143 audit angle 4 (docs · contract
+sync) — no code changes.
+
+- **[docs] cli.md read projection**: the default path projects all 10 view
+  columns (status included) — the "9 columns, status not projected"
+  wording contradicted the shipped recallColumns.
+- **[docs] work_state retention**: cli.md and TUNING.md said resolved rows
+  are kept indefinitely — v1.38.3 purges them after 90 days
+  (work_state_resolved_retention_days, now in the TUNING §2 table).
+- **[docs] design doc retention flip**: growth-model §4·§7 updated for the
+  90-day purge judgment (R143-3 finding 1).
+- **[docs] QUICKSTART**: the read example names the recall_knowledge view
+  and `flint state open` joins the verification list.
+- **[docs] README doctor count**: 23 → 30 (doclint-gated value).
+- **[docs] minor gaps**: cli.md states the empty --task exit 3 contract;
+  SKILL.md read line lists --claim.
+Design: docs/plans/2026-11-25-flint-knowledge-growth-model.md
+
+### v1.38.3 patch (2026-11-27) — r143-angle3-performance
+
+5 findings from the R143 audit angle 3 (performance · resources), all
+fixed with regression tests.
+
+- **[fix] resolved work_state retention**: resolved rows accumulated
+  forever — maintain --stale-state --commit now purges them past
+  work_state_resolved_retention_days (default 90, thresholds registry).
+- **[fix] batch resolve**: stale-state --commit resolves N rows in one
+  UPDATE (WHERE id = ANY($1)) through db.Repo methods instead of N+1
+  raw writes; resolved_at recorded (per-row and batch paths).
+- **[fix] work_state dedup query uses the partial unique index**:
+  project_id predicates branch on NULL vs value (IS NOT DISTINCT FROM
+  can't match a btree index).
+- **[fix] hot meta queries halved**: RunHot loads thresholds/budget once
+  and passes them down (5 → 2 queries per run; output byte-identical).
+- **[fix] testengine scratch DROP fast-fails on engine-down**: connection
+  refused returns immediately instead of 3 retries (transient-error
+  retry contract unchanged); the DROP-denied premise was disproved on
+  the pinned engine.
+Design: docs/plans/2026-11-25-flint-knowledge-growth-model.md §4·§7
+
+### v1.38.2 patch (2026-11-27) — r143-angle2-security
+
+4 findings from the R143 audit angle 2 (security · personal-data), all
+fixed with regression tests.
+
+- **[fix] doctor secrets scans resolved work_state rows**: the scan was
+  WHERE status='open' only — secrets left in resolved task/detail/
+  next_action were never scanned. Full-table scan now.
+- **[fix] work_state payloads sanitized at write**: OpenWorkState runs
+  SanitizeText + secret warnings on detail/next_action (SanitizePayload
+  parity; sanitize-entry-file registered in the chokepoint allowlist).
+- **[fix] stale-state output through the render chokepoint**: task fields
+  no longer bypass render.Text in maintain --stale-state JSON output.
+- **[fix] empty --task exits 3**: CLI and MCP unified (usage error instead
+  of a bare exit 1).
+Design: docs/plans/2026-11-25-flint-knowledge-growth-model.md §4
+
+### v1.38.1 patch (2026-11-27) — r143-claim-integrity
+
+5 findings from the R143 independent audit (angle 1: contract·schema
+conformance), all fixed with regression tests.
+
+- **[fix] approve --claim persists the claim**: Repo.Approve now takes the
+  claim and writes it (CASE-preserved when absent) — a promoted row no
+  longer stays claim=''/'event' and vanishes from the recall view
+  forever; verified on real DB (promote → read --claim decision).
+- **[fix] claim normalization at write**: the gate validated
+  lower+trimmed values but stored raw text — ' EVENT ' rows leaked into
+  recall. Claims are normalized before hashing now.
+- **[fix] invalid claim vocabulary rejected at write**: claim="foo" could
+  promote without --claim; writes with out-of-vocabulary claims exit 3.
+- **[fix] hot snapshot budget invariant**: knowledge was clamped to the
+  full budget before appending the snapshot (up to 120%); the clamp
+  reserves snapshot usage first (invariant test: total ≤ budget), and
+  the snapshot-absent path keeps byte-identical output.
+- **[fix] newTestRepo runs the schema gates**: the R143-1 claim column
+  read against a pre-v20 fixture schema; the fixture now migrates and
+  applies gates (idempotent, ≥20 circuit-break).
+Design: docs/plans/2026-11-25-flint-knowledge-growth-model.md §6~§7
+
+### v1.38.0 minor (2026-11-26) — knowledge-growth-model
+
+The knowledge growth model, phase 1: knowledge now carries a claim axis
+(decision / procedure / lesson / event — events are evidence records,
+excluded from recall), work gains its own table (work_state — intentions
+live open→resolve, unconditional recording, server-side normalized
+state_hash), and collection runs a three-stage pipeline (bounded pending
+→ Δ≠0 promotion review → post-hoc proof via counters).
+
+- **schema v20**: knowledge.claim (backfill 'event') + work_state
+  (partial-unique open rows, nullable project) + recall_knowledge /
+  open_work_state views.
+- **claim gate at approve**: a claim-less knowledge write is forced
+  pending regardless of confidence; approve is the single gate
+  (exit 3 without --claim) across CLI and MCP.
+- **flint state CLI + MCP flint_work** (6 tools): open / list / resolve
+  with server-side normalization; session-done accepts tasks and fills
+  sessions.tasks (the "[]" hardcode is gone); compact no longer deposits
+  raw session text as knowledge.
+- **hot synthesis**: the injection composes a work-state snapshot
+  (project-first → newest, capped by state_snapshot_max, stale rows
+  excluded) under a 20% sub-budget of the hot budget.
+- **ops**: maintain --stale-state (approve-style resolve proposals),
+  doctor secrets scans work_state task/detail/next_action, thresholds
+  state_stale_days · state_snapshot_max.
+- **testengine root fix**: scratch databases now DROP per test
+  (t.Cleanup) — the accumulated-scratch memory growth that OOM-killed
+  the dedicated engine during full suites is gone.
+Design: docs/plans/2026-11-25-flint-knowledge-growth-model.md ·
+Plan: docs/plans/2026-11-26-flint-v1.38.0.md
+
 ### v1.37.1 patch (2026-11-25) — g5-smoke-guards
 
 5 findings from the G5 independent audit (v1.37.0), all fixed with

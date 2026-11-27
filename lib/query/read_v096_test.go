@@ -55,7 +55,7 @@ func TestBuildReadFallbackEscapesLike(t *testing.T) {
 	if got := args[1].(string); got != `%c\_d%` {
 		t.Errorf("둘째 토큰 이스케이프 = %q", got)
 	}
-	if !strings.Contains(sql, " OR ") || !strings.Contains(sql, "FROM active_knowledge") {
+	if !strings.Contains(sql, " OR ") || !strings.Contains(sql, "FROM recall_knowledge") {
 		t.Errorf("폴백 SQL 형태 오류: %q", sql)
 	}
 

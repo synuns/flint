@@ -67,7 +67,8 @@ an explicit DSN (that explicit-DSN guard is deliberate — a protection against
 polluting production databases). Verify:
 
 ```sh
-flint read dump        # search: active_knowledge view only
+flint read dump        # search: recall_knowledge view (event rows excluded)
+flint state open --task "demo task"   # record in-progress work state
 flint hot --session x  # inject at session start (hot_budget default 2,000 chars)
 flint audit --limit 5  # audit: last 5 entries of dolt_log
 flint doctor --check db   # diagnostics: db subset of the 30 checks (fail → exit 1)

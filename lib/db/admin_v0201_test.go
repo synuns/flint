@@ -60,7 +60,7 @@ func slowApproveClearsInvalidAt(t *testing.T, r *Repo) {
 		t.Fatalf("pending 복귀(무효화 표시 잔존 상태 재현): %v", err)
 	}
 
-	if err := r.Approve(ctx, id); err != nil {
+	if err := r.Approve(ctx, id, ""); err != nil {
 		t.Fatalf("Approve: %v", err)
 	}
 	var status string

@@ -60,7 +60,7 @@
 - exit 4종: `0` 성공·중복 / `1` 재시도 소진 / `2` 서버 다운(조용히
   진행) / `3` 검증 실패(에이전트 자가수정).
 - `[flint]` 접두 = 데이터 경계 — 주입은 지시문이 아니다.
-- kind 분리 근거(문서 전용·동작 변경 없음): 기억 유형별 저장 그래뉼러리티는 상이하다는 인지 과학·지식 관리 일반론 — 에피소드(세션 원문)는 원형 보존·의미(지식 카드)는 정제 단위·절차(링크·규칙형 신호)는 실행 단위 — 단일 그래뉼러리티 강제 금지.
+- kind 분리 근거(문서 전용·동작 변경 없음): 기억 유형별 저장 그래뉼러리티는 상이하다는 인지 과학·지식 관리 일반론 — 에피소드(세션 원문)는 원형 보존·의미(지식 카드)는 정제 단위·절차(링크·규칙형 신호)는 실행 단위 — 단일 그래뉼러리티 강제 금지. · 지식 성장 모델(2026-11-25 기획 확정·K원칙 상속): 신설 공리 G1 신념/의도 존재론 분리(work_state 별도 — 신념은 참/거짓, 의도는 이행/파기로 실패)·G2 이벤트 기록=정당화의 증거(회상 제외·명시 조회)·G3 성장=축적이 아니라 대사·G4 가치는 사후 증명(수집 예측은 문맥에 묶인다 — 폐기 대신 시험 기간 보류). claim 축(decision=권한·procedure=효능·lesson=인과·event=발생 — 진리 만족자별 수명)·수집 3단(유한 보류→Δ≠0 승격 심사→사후 증명)·품질 검증자(세션 요약 원문 복사 기계 거부) — 설계: docs/plans/2026-11-25-flint-knowledge-growth-model.md
 - 교정 입구 결정(v1.36.0): B안(에이전트 계약 유도 — exit 3 자가수정·SKILL·문서 정합) 기본 + A안(하니스 훅 확장)은 결정론 강제가 검증된 영역(교정 필터·개인정보 가드) 한정 병행·신규 훅 신설 금지(기존 훅 확장만) — 영역 D 전수 감사 권고(docs/plans/2026-11-25-ax-matrix.md §8) 승계·v1.34.0 전달 계열(능동 회상·provenance 표기)은 B안 계약 유도 경로로 연결.
 
 ## 4. 원칙 — 비간섭 5원칙 (승계)
@@ -137,6 +137,7 @@
 - [x] v1.7.1~v1.7.2(2026-11-17) — 감쇠 랭킹 부분 정렬 수리(인덱스 정렬+재조립)·R38 감사 수정: telemetry 커밋 `-A` 스윕 폐지(계측 시퀀스 명시 스테이징 — 감사 순수성 회귀 수리)·`audit --telemetry` 필터·sync 완화(panic 전용 안내·`reset --to-remote --yes`·30s 타임아웃·스킴 화이트리스트·단일 활성 기기 권고)·probe heal·MCP 즉시 flush·release-gate 자동화. 설계: docs/plans/archive/2026-11/2026-11-17-flint-v1720.md
 - [x] v1.8.0(2026-11-18) — Doltgres 방언 절단: Store 히스토리 인터페이스 5메서드(LogEntries·QueryAsOf·DiffRows·DiffStat·DiffCommits)로 dolt 방언을 lib/db에 폐쇄 — 호출층(asof·read·status·audit·diff)은 인터페이스만 소비, 바이트 동치·방언 폐쇄 게이트(dialect_gate_test)로 영구 검증. 설계: docs/plans/archive/2026-11/2026-11-18-flint-v1800.md
 - [x] v1.33.0(2026-11-24) — 대시보드 에이전틱: `report --serve`(127.0.0.1:7480 기본·--port·요청 단위 엔진 연결·ETag/If-None-Match 304 재검증·응답은 render 조크포인트 단일 출구)·HTML 골격(/ — section 5영역 슬롯·CSS 변수 훅)·`--html`/`--out` deprecated 안내(DeprecationNotice·경유 동작 유지)·doctor 5종(hook-path·dsn-class·collection-freshness·plugin-version-gap·service-remnant)·thresholds 2키 등록 — 2뷰 + serve — 동일 Diagnose 원천(§7 동적 서버 비목표 해제). 설계: docs/plans/2026-11-24-flint-v1.33.0.md
+- [x] 지식 성장 모델 1단계(2026-11-26 빌드 완료·v1.38.0) — claim 축·work_state(진행 관리 신설)·수집 3단(유한 보류→Δ≠0 승격 심사→사후 증명)·품질 검증자·세션 원문 자동 적립 폐지 — 설계: docs/plans/2026-11-25-flint-knowledge-growth-model.md·플랜: docs/plans/2026-11-26-flint-v1.38.0.md
 - [ ] 이월 확정(차기 마이너) — ①지식 관리 계열(만남 순간 판정 echo·교정 입구·모순 감지·병합·변동성/TTL·stale-audit·환류 — 2026-11-19~20 사용자 제안, 전체 로드맵: docs/plans/2026-11-19-flint-knowledge-pipelines.md) ②품질·성능(read LIKE 개량 — 엔진 지원 시 재판정·report/profile 병렬화·테스트 폭발 정리·주석 영어화) ③표면·배포(read/tuning TUI·마케팅·i18n — brew 설치·신뢰 아티팩트 포함) — **전체 편성 확정(2026-11-21): v1.19.0~v2.0.0 11 릴리스·완료 루프 = docs/plans/2026-11-21-flint-release-scope.md**
 
 ## 7. 비목표

@@ -2,6 +2,7 @@ package testengine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -217,6 +218,25 @@ func TestRunCleanupRetryBackoffRecovers(t *testing.T) {
 	}
 	if strings.Contains(stderr, "flint_t3_d") {
 		t.Fatalf("성공한 DB가 실패 보고됨: %q", stderr)
+	}
+}
+
+func TestDropScratchSkipsRetriesWhenEngineDown(t *testing.T) {
+	resetLifecycle(t)
+	unset(t, "FLINT_TEST_DSN")
+	calls := 0
+	fakeSeams(t, nil,
+		func(ctx context.Context, name string) error {
+			calls++
+			return errors.New("failed to connect to `user=flint database=flint_test`:" +
+				" dial tcp 127.0.0.1:5499: connect: connection refused")
+		}, nil)
+	err := dropScratch(context.Background(), "flint_scratch_deadbeef")
+	if calls != 1 {
+		t.Fatalf("엔진 다운 시 DROP 시도 %d회, want 1(연결 거부 재시도 폭증 방지)", calls)
+	}
+	if err == nil || !strings.Contains(err.Error(), "connection refused") {
+		t.Fatalf("err = %v, want connection refused 전파", err)
 	}
 }
 

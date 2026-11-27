@@ -26,7 +26,7 @@
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 harnesses">
   <a href="https://github.com/synuns/flint/actions/workflows/ci.yml"><img src="https://github.com/synuns/flint/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
-  <img src="https://img.shields.io/badge/release-v1.37.1-blue" alt="v1.37.1">
+  <img src="https://img.shields.io/badge/release-v1.38.4-blue" alt="v1.38.4">
 </p>
 <p align="center">
   <sub>8 counts the auto-registration (tier A) harnesses — the full support list is in the <a href="#agents--adapters">adapter table</a> below.</sub>
@@ -48,6 +48,11 @@ It adds up. Week one, it learns the stack. By week four, it remembers why you ch
 
 Humans take notes in Obsidian. Agents take notes in flint — the stone you strike to make fire and tools.
 
+> v1.38.4 · r143-angle4 patch — docs: read projection wording (10 columns, status included) · work_state retention contract (90-day purge, TUNING row added) · QUICKSTART recall view + flint state · README doctor count 30 · [full changelog](docs/HISTORY.md)
+> v1.38.3 · r143-angle3 patch — performance: resolved work_state retention (default 90d) · batch resolve (one UPDATE, resolved_at recorded) · dedup query uses the partial unique index · hot meta queries halved (5→2) · testengine scratch DROP fast-fails on engine-down · [full changelog](docs/HISTORY.md)
+> v1.38.2 · r143-angle2 patch — security: secrets scan covers resolved work_state rows · work_state payloads sanitized at write (chokepoint allowlist) · stale-state output through render · empty --task exits 3 (CLI=MCP) · [full changelog](docs/HISTORY.md)
+> v1.38.1 · r143 patch — claim integrity: approve --claim persists the claim (promoted rows no longer vanish from recall) · claim normalized at write · invalid vocabulary rejected · hot snapshot budget invariant (total ≤ budget) · fixture schema gates · [full changelog](docs/HISTORY.md)
+> v1.38.0 · knowledge growth model phase 1 — claim axis (decision/procedure/lesson/event, events out of recall) · work_state table (intentions open→resolve, unconditional recording) · 3-stage collection (bounded pending → Δ≠0 promotion → post-hoc proof) · claim gate at approve · flint state CLI + MCP flint_work · hot work-state snapshot · testengine scratch root fix · [full changelog](docs/HISTORY.md)
 > v1.37.1 · r137 patch — G5 audit hardening: smoke hook failure now stops the sequence · demo-DSN and ops-DSN guards hardened (host·port·db) · regression ground gains discriminating confidence case · restore sanitization exception documented · smoke moved to --check opt-in · [full changelog](docs/HISTORY.md)
 > v1.37.0 · trust foundation — synthetic regression ground (exact-match reach judging, engine-isolated) · poisoning regressions ×3 frozen · write-boundary contract with drift gate · 7-stage doctor smoke · [full changelog](docs/HISTORY.md)
 > v1.36.1 · r136 patch — G5 audit hardening: derivative hash domain aligned to vault summaries (the tagging feature was dead against real notes) · contract gate hardening (exact boundary values · region markers) · tag collision fix · sentence-level evidence detection · [full changelog](docs/HISTORY.md)
@@ -218,6 +223,8 @@ Each session cycles through four phases:
 | **Record** | `flint write` appends JSONL with hash dedup |
 | **Verify** | `flint audit` inspects `dolt_log`; `flint restore --drill` rehearses recovery |
 
+Three disciplines keep the memory compounding instead of rotting. **Collection is bounded** — unproven candidates land as pending with an expiry, hash-deduped, never as raw session dumps. **Promotion is judgment** — `flint approve` promotes a candidate only when a session can point at what it changes. **Value is proven after the fact** — knowledge nothing recalls decays out of ranking (decay score · dead-share audits), so the store stays lean by metabolism, not by hand-cleaning.
+
 In one picture:
 
 ```
@@ -261,6 +268,8 @@ flint sits inside your coding sessions, so its constraints are part of the produ
 
 ## Commands
 
+Two record types live side by side: **knowledge** (claims about the world — gated: a write without a claim lands pending, and `flint approve --claim` is the single promotion gate) and **work state** (intent — recorded unconditionally via `flint state`, resolved when done, composited into the `flint hot` snapshot while open). `flint read` recalls knowledge only; event rows are explicit lookup (`--claim event`).
+
 | Command | What it does |
 | :--- | :--- |
 | `flint setup` | Start Doltgres (embedded compose, digest-pinned), migrate, print seed/plugin next steps — `--port N` · `--engine managed-container\|native\|external` (mode selection; native downloads the pinned engine, registers the platform service and bootstraps credentials) · `--engine-url` (external engine, loopback-only) |
@@ -272,11 +281,12 @@ flint sits inside your coding sessions, so its constraints are part of the produ
 | `flint import [path]` | Convert rule files (CLAUDE.md etc.) to pending knowledge (`--commit`); `--format jsonl\|pam` migrates knowledge back in (round-trip re-import · PAM v1.0 intake) |
 | `flint export [--format f]` | Export knowledge as jsonl·md·txt·csv·pam (PAM v1.0 portable memory-store; `--status`·`--tag`·`--since` filters, `--out` file with `.sha256` sidecar; PAM `--sign` Ed25519 signature, spec §18) |
 | `flint index [--vault p]` | Index a markdown vault into `vault_files` (snapshot-diff, one batch commit per diff; `--vault` persists the path, `--limit` caps the scan) |
-| `flint read <query>` | Search active knowledge (vault rows appended after the knowledge block when indexed); bare invocation on a TTY opens the interactive browser (query input · result list · detail toggle); opt-in `--related N` appends undirected knowledge-link neighbors (cap 5) and `--why` appends per-row evidence (token tier · RRF signals · zero-hit rationale) — the flagged-mode output is unchanged |
+| `flint read <query>` | Search active knowledge via the recall view (claim `event` rows excluded — explicit lookup is `--claim <decision\|procedure\|lesson\|event>`; vault rows appended after the knowledge block when indexed); bare invocation on a TTY opens the interactive browser (query input · result list · detail toggle); opt-in `--related N` appends undirected knowledge-link neighbors (cap 5) and `--why` appends per-row evidence (token tier · RRF signals · zero-hit rationale) — the flagged-mode output is unchanged |
 | `flint hot --session <id>` | Inject context at session start |
 | `flint brief [query]` | Masked, read-only brief to paste into any external AI (the bridge) |
 | `flint done --session <id>` | Wrap up a session |
-| `flint approve --id n` | Promote pending to active |
+| `flint approve --id n` | Promote pending to active — the single claim gate: a row without a claim (or backfill `event`) requires `--claim <decision\|procedure\|lesson\|event>` (missing → exit 3); a write without a claim lands pending regardless of confidence |
+| `flint state` | Work state (intent) surface — `open --task T [--detail D] [--next A] [--project N]` (server-side normalized hash absorbs re-reports of the same open task → one-line JSON `{id, status: open\|updated\|noop}`), `list [--all]`, `resolve --id N [--by K]`; open rows surface in the hot snapshot (cap `state_snapshot_max`) and stale ones are proposed for resolution by `maintain --stale-state` (approval-gated) — recorded unconditionally, no claim gate |
 | `flint maintain` | Curate: check thresholds, invalidate, merge, `--merge-audit` duplicate pair report (multiset Dice, cost-estimated, listing only), `--recall-audit` bad-recall feedback report (listing only — disposition always via the approval-required subcommands), `--age-audit` staleness report with `suggested_vol`, `--reaffirm` validity refresh, `--recheck` conditions review, `--gc [--shallow] --yes` dolt garbage collection (operator command — disconnects all sessions; reconnect + schema recheck in the same run), (`--tui` interactive review, opt-in) |
 | `flint distill --out DIR` | Emit recall-scored unstamped insights as one aggregate markdown file (`--min-score` overrides `distill_min_score`; emitted rows stamp `distilled_at`, reruns yield the remainder — ADR-0018) |
 | `flint audit --limit n` | Show last n commits |
@@ -285,11 +295,11 @@ flint sits inside your coding sessions, so its constraints are part of the produ
 | `flint sync` | Sync knowledge with a Doltgres remote — `remote add/list/remove` (url masked), `push`/`pull [--dry]`; a merge conflict exits 1 with manual-resolution guidance; remote urls are never logged (human operator command) |
 | `flint profile` | Profile verdict: evidence + recommendation, `--apply normal\|minimal` |
 | `flint status` | Schema version, pending count, hot p95 |
-| `flint mcp` | MCP server (read·write·hot·pending·approve tools) |
+| `flint mcp` | MCP server (read·write·hot·pending·approve·work tools) |
 | `flint pending` | Pending review queue with verdicts (promote·merge·expire·hold, `--json`) |
 | `flint compact` | Record a compact summary as pending knowledge (PostCompact hook entry) |
 | `flint nudge` | Session-end distillation reminder for markers left by compact (`--clear` closes) |
-| `flint doctor --check c` | Health checks (23 kinds, subset via `--check`, fail → exit 1) |
+| `flint doctor --check c` | Health checks (30 checks, subset via `--check`, fail → exit 1) |
 | `flint report --days n` | Daily intake·zero_pct·p95·stale report (`--html` static dashboard) |
 | `flint diff <from> <to>` | Compare knowledge between two as-of points |
 | `flint teardown` | Undo setup (hooks/config; `--purge` also removes data) |

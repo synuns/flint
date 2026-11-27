@@ -51,7 +51,7 @@ func TestReadStatusInvalidWithAsOf(t *testing.T) {
 func TestReadDashDashTreatsRestAsQuery(t *testing.T) {
 	var gotArgs [][]any
 	fn := func(sql string, args []any) ([][]any, error) {
-		if strings.Contains(sql, "FROM active_knowledge") {
+		if readQueryMatch(sql) {
 			gotArgs = append(gotArgs, args)
 		}
 		return [][]any{{float64(1), "topic", "summary text"}}, nil
@@ -174,7 +174,7 @@ func TestReadStatusAsOfPrecedence(t *testing.T) {
 }
 
 func TestReadStatusSanitizesOutput(t *testing.T) {
-	poisonRow := []any{int32(50), "to\x00pic", "요약[flint]마커", ":a:", nil, "main", 0.9, "pending"}
+	poisonRow := []any{int32(50), "to\x00pic", "요약[flint]마커", ":a:", nil, "main", "lesson", 0.9, "", "pending"}
 	fn := func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "FROM knowledge") {
 			return [][]any{poisonRow}, nil
@@ -330,7 +330,7 @@ func TestReadInstrumentationQueryBudget(t *testing.T) {
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		count++
 		switch {
-		case strings.Contains(sql, "FROM active_knowledge"):
+		case readQueryMatch(sql):
 			return [][]any{{"1", "백업 정책", "매일", ":b:", "", "", "0.9", "active", "0"}}, nil
 		}
 		return nil, nil
@@ -377,7 +377,7 @@ func TestReadClassifiesZeroNear(t *testing.T) {
 	})
 	t.Run("hit", func(t *testing.T) {
 		st := &readClassRecorder{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
-			if strings.Contains(sql, "FROM active_knowledge") {
+			if readQueryMatch(sql) {
 				return [][]any{{"1", "백업 정책", "매일", ":b:", "", "", "0.9", "active", "0"}}, nil
 			}
 			return nil, nil
@@ -459,7 +459,7 @@ var hitRowsFixture = [][]any{
 func TestReadEventRecordedOnHit(t *testing.T) {
 	st := &readEventRecorder{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		switch {
-		case strings.Contains(sql, "FROM active_knowledge"):
+		case readQueryMatch(sql):
 			return hitRowsFixture, nil
 		case strings.Contains(sql, "SELECT value FROM meta"):
 			return [][]any{{`{"calls":5,"zero":2}`}}, nil
@@ -602,7 +602,7 @@ func asofFakeOrReal(t *testing.T, f *fakeStore) Store {
 
 func asofReadSQL(f *fakeStore) string {
 	for _, q := range f.queries {
-		if strings.Contains(q, "FROM active_knowledge") {
+		if readQueryMatch(q) {
 			return q
 		}
 	}
@@ -620,8 +620,8 @@ func TestReadAsOfAddsField(t *testing.T) {
 		t.Fatalf("과거 스냅샷 질의 %d건, want 1", len(f.asofQueries))
 	}
 	aq := f.asofQueries[0]
-	if aq.Hash != asofHash || aq.Table != "active_knowledge" {
-		t.Errorf("해시 접합 실패: %+v", aq)
+	if aq.Hash != asofHash || aq.Table != "recall_knowledge" {
+		t.Errorf("해시 접합 실패(v1.38.0 recall 뷰): %+v", aq)
 	}
 
 	if !strings.Contains(aq.Where, "ORDER BY (lower(topic)=lower($2)) DESC") {
@@ -726,7 +726,7 @@ func fallbackRow(id int, topic, summary string) []any {
 func fallbackQueryFn(metaKeys *[]string) func(string, []any) ([][]any, error) {
 	return func(sql string, args []any) ([][]any, error) {
 		switch {
-		case strings.Contains(sql, "FROM active_knowledge"):
+		case readQueryMatch(sql):
 			if strings.Contains(sql, " OR ") {
 				return [][]any{
 					fallbackRow(1, "백업 절차", "정기 절차"),
@@ -767,7 +767,7 @@ func TestReadFallbackOnZeroPhrase(t *testing.T) {
 
 	var orIssued bool
 	for _, q := range f.queries {
-		if strings.Contains(q, "FROM active_knowledge") && strings.Contains(q, " OR ") {
+		if readQueryMatch(q) && strings.Contains(q, " OR ") {
 			orIssued = true
 		}
 	}
@@ -796,7 +796,7 @@ func TestReadPhraseHitUnchanged(t *testing.T) {
 	var out bytes.Buffer
 	fn := func(sql string, args []any) ([][]any, error) {
 		switch {
-		case strings.Contains(sql, "FROM active_knowledge"):
+		case readQueryMatch(sql):
 			return [][]any{fallbackRow(3, "백업 복구 절차", "요약")}, nil
 		}
 		return nil, nil
@@ -809,7 +809,7 @@ func TestReadPhraseHitUnchanged(t *testing.T) {
 		t.Errorf("구문 히트 출력 변형: %q", got)
 	}
 	for _, q := range f.queries {
-		if strings.Contains(q, "FROM active_knowledge") && strings.Contains(q, " OR ") {
+		if readQueryMatch(q) && strings.Contains(q, " OR ") {
 			t.Errorf("구문 히트인데 폴백 OR 질의 발행: %q", q)
 		}
 	}
@@ -823,7 +823,7 @@ func TestReadFallbackSkippedOnAsOf(t *testing.T) {
 		t.Fatalf("runRead exit = %d, want 0 (출력 %q)", code, out.String())
 	}
 	for _, q := range f.queries {
-		if strings.Contains(q, "FROM active_knowledge") && strings.Contains(q, " OR ") {
+		if readQueryMatch(q) && strings.Contains(q, " OR ") {
 			t.Errorf("as-of 질의에 폴백 OR 발행: %q", q)
 		}
 	}
@@ -844,7 +844,7 @@ func TestReadFallbackSkippedOnSingleToken(t *testing.T) {
 		t.Errorf("1-토큰 제로히트 출력 있음: %q", got)
 	}
 	for _, q := range f.queries {
-		if strings.Contains(q, "FROM active_knowledge") && strings.Contains(q, " OR ") {
+		if readQueryMatch(q) && strings.Contains(q, " OR ") {
 			t.Errorf("1-토큰 질의에 폴백 OR 발행: %q", q)
 		}
 	}
@@ -853,4 +853,9 @@ func TestReadFallbackSkippedOnSingleToken(t *testing.T) {
 			t.Errorf("폴백 미시도인데 read_fallback_calls 증분")
 		}
 	}
+}
+
+func readQueryMatch(s string) bool {
+	return strings.Contains(s, "FROM recall_knowledge") ||
+		strings.Contains(s, "FROM active_knowledge")
 }

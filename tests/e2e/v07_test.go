@@ -166,7 +166,7 @@ func TestV07AutomationChain(t *testing.T) {
 			wm["status"], wm["state"], out)
 	}
 	id := int(wm["id"].(float64))
-	out, code = runFlint(t, bin, env, []string{"approve", "--id", strconv.Itoa(id)}, "")
+	out, code = runFlint(t, bin, env, []string{"approve", "--id", strconv.Itoa(id), "--claim", "lesson"}, "")
 	if code != 0 {
 		t.Fatalf("⑦ approve exit=%d, want 0; out=%s", code, out)
 	}

@@ -235,6 +235,18 @@ func (d *delegatingFake) DiffStat(ctx context.Context, hashes []string) ([]wire.
 func (d *delegatingFake) DiffCommits(ctx context.Context, fromHash, toHash string) ([]wire.DiffCommitSummary, error) {
 	return d.real.DiffCommits(ctx, fromHash, toHash)
 }
+func (d *delegatingFake) OpenWorkState(ctx context.Context, rec map[string]any) (int, string, error) {
+	return d.real.OpenWorkState(ctx, rec)
+}
+func (d *delegatingFake) ResolveWorkState(ctx context.Context, id int, byKnowledgeID int) error {
+	return d.real.ResolveWorkState(ctx, id, byKnowledgeID)
+}
+func (d *delegatingFake) ListOpenWorkState(ctx context.Context, projectID int, limit int) []map[string]any {
+	return d.real.ListOpenWorkState(ctx, projectID, limit)
+}
+func (d *delegatingFake) StaleOpenWorkStates(ctx context.Context, days int) []map[string]any {
+	return d.real.StaleOpenWorkStates(ctx, days)
+}
 func (d *delegatingFake) InsertBatch(ctx context.Context, recs []map[string]any) ([]int, error) {
 	d.fake.inserted = append(d.fake.inserted, recs...)
 	if d.fake.insertErr != nil {
@@ -335,8 +347,8 @@ func TestWriteCommitted(t *testing.T) {
 		t.Fatalf("exit=%d, want 0; out=%s", code, out)
 	}
 	m := decode(t, out)
-	if m["status"] != "committed" || m["state"] != "active" {
-		t.Fatalf("status/state=%v/%v, want committed/active", m["status"], m["state"])
+	if m["status"] != "committed" || m["state"] != "pending" {
+		t.Fatalf("status/state=%v/%v, want committed/pending(claim 없으면 conf 무관 강제)", m["status"], m["state"])
 	}
 	hash, _ := m["hash"].(string)
 	if len(hash) != 64 {
@@ -349,7 +361,7 @@ func TestWriteCommitted(t *testing.T) {
 	if rec["tags"] != ":a:b:" {
 		t.Fatalf("tags=%v, want :a:b:", rec["tags"])
 	}
-	if rec["content_hash"] != hash || rec["kind"] != "knowledge" || rec["status"] != "active" {
+	if rec["content_hash"] != hash || rec["kind"] != "knowledge" || rec["status"] != "pending" {
 		t.Fatalf("레코드 정규화/해시 불일치: %v", rec)
 	}
 	if rec["domain"] != "main" {
@@ -507,8 +519,8 @@ func TestReadOutput(t *testing.T) {
 	if out != "1|topic|summary text\n" {
 		t.Fatalf("출력=%q", out)
 	}
-	if !strings.Contains(f.queries[0], "active_knowledge") {
-		t.Fatalf("뷰 강제 실패: %s", f.queries[0])
+	if !strings.Contains(f.queries[0], "recall_knowledge") {
+		t.Fatalf("뷰 강제 실패(v1.38.0 recall 뷰): %s", f.queries[0])
 	}
 }
 

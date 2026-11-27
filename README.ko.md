@@ -26,7 +26,7 @@
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 하네스">
   <a href="https://github.com/synuns/flint/actions/workflows/ci.yml"><img src="https://github.com/synuns/flint/actions/workflows/ci.yml/badge.svg" alt="CI 상태"></a>
-  <img src="https://img.shields.io/badge/release-v1.37.1-blue" alt="v1.37.1">
+  <img src="https://img.shields.io/badge/release-v1.38.4-blue" alt="v1.38.4">
 </p>
 <p align="center">
   <sub>8종은 자동 등록(A급) 하니스 기준 — 전체 지원 목록은 아래 <a href="#에이전트--어댑터">어댑터 표</a>에 있습니다.</sub>
@@ -48,6 +48,11 @@ flint는 이걸 바꿉니다. 에이전트가 무언가 배우면 — 결정, �
 
 사람은 Obsidian에 노트를 남깁니다. 에이전트는 flint에 기억을 남깁니다 — 불과 도구를 얻기 위해 두드리는 부싯돌처럼.
 
+> v1.38.4 · r143-angle4 패치 — 문서: read projection 서술 교정(10열·status 포함)·work_state 보존 계약(90일 정리·TUNING 행 추가)·QUICKSTART recall 뷰+flint state·README doctor 수 30 · [전체 변경 이력](docs/HISTORY.md)
+> v1.38.3 · r143-angle3 패치 — 성능: resolved work_state 보존 정리(기본 90일)·배치 resolve(단일 UPDATE·resolved_at 기록)·dedup 질의 부분 유니크 인덱스 경로 복원·hot meta 질의 5→2·testengine scratch DROP 엔진다운 즉시 반환 · [전체 변경 이력](docs/HISTORY.md)
+> v1.38.2 · r143-angle2 패치 — 보안: secrets 스캔이 resolved work_state 행까지 커버·work_state 원문 저장 제거(살균 전용 진입 등록)·stale-state 출력 render 경유·빈 --task exit 3(CLI=MCP) · [전체 변경 이력](docs/HISTORY.md)
+> v1.38.1 · r143 패치 — claim 무결성: approve --claim 영속화(승격 행이 recall에서 소멸하지 않음)·write 시 claim 정규화·무효 어휘 거부·hot 스냅샷 예산 불변식(총합 ≤ 예산)·fixture 스키마 게이트 · [전체 변경 이력](docs/HISTORY.md)
+> v1.38.0 · 지식 성장 모델 1단계 — claim 축(decision/procedure/lesson/event·event는 회상 제외)·work_state 테이블(의도는 open→resolve·무조건 기록)·수집 3단(유한 보류→Δ≠0 승격 심사→사후 증명)·approve claim 게이트·flint state CLI+MCP flint_work·hot 상태 스냅샷·testengine scratch 근본 수리 · [전체 변경 이력](docs/HISTORY.md)
 > v1.37.1 · r137 패치 — G5 감사 경화: smoke 훅 실패 시퀀스 정지·demo-DSN·ops-DSN 가드 강화(host·port·db)·회귀 지반 판별력 케이스 추가·restore 살균 예외 문서화·smoke --check 옵트인 전환 · [전체 변경 이력](docs/HISTORY.md)
 > v1.37.0 · 신뢰 기반 — 합성 회귀 지반(정확 일치 도달 판정·엔진 격리)·포이즈닝 회귀 3종 고정·쓰기 경계 계약(드리프트 게이트)·7단계 doctor smoke · [전체 변경 이력](docs/HISTORY.md)
 > v1.36.1 · r136 패치 — G5 감사 경화: 파생 태깅 해시 도메인 정렬(실물 노트에서 불발이던 기능 수리)·계약 게이트 경화(경계값 완전 일치·영역 마커)·태그 충돌 수리·문장 단위 근거 검출 · [전체 변경 이력](docs/HISTORY.md)
@@ -218,6 +223,8 @@ flint setup --mcp
 | **기록** | `flint write`가 해시 dedup으로 JSONL 추가 |
 | **검증** | `flint audit`로 이력 확인 · `flint restore --drill`로 복구 훈련 |
 
+기억이 썩지 않고 복리로 쌓이게 하는 세 가지 규율이 있다. **수집은 유한하다** — 검증 전 후보는 만료가 있는 pending으로 들어오고, 해시 dedup을 거치며, 세션 요약 원문은 절대 그대로 쌓이지 않는다. **승격은 판단이다** — `flint approve`는 세션이 "이것이 무엇을 바꾸는가"를 보일 수 있을 때만 후보를 지식으로 올린다. **가치는 사후에 증명된다** — 아무도 회상하지 않는 지식은 감쇠 점수·dead 점유 감사로 순위에서 빠진다. 손으로 청소하는 게 아니라 대사로 가벼워진다.
+
 한 장으로 보면:
 
 ```
@@ -270,6 +277,8 @@ flint는 여러분의 코딩 세션 안에서 동작하므로, 제약 조건은 
 
 ## 커맨드
 
+두 기록 유형이 나란히 산다: **지식**(세상에 대한 주장 — 게이트 있음: claim 없는 write는 pending으로 강제되고 `flint approve --claim`이 단일 승격 게이트)과 **진행 상태**(의도 — `flint state`로 무조건 기록, 끝나면 resolve, open 동안 hot 스냅샷에 합성). `flint read`의 회상 대상은 지식뿐이다 — event 행은 명시 조회(`--claim event`)로만.
+
 | 커맨드 | 설명 |
 | :--- | :--- |
 | `flint setup` | Doltgres 기동(내장 compose·다이제스트 핀) · 마이그레이션 · 시드/플러그인 안내 — `--port N` · `--engine managed-container\|native\|external`(모드 선택 — 네이티브는 핀 버전 다운로드·플랫폼 서비스 등록·자격증명 초기화) · `--engine-url`(외부 엔진, 루프백 한정) |
@@ -281,11 +290,12 @@ flint는 여러분의 코딩 세션 안에서 동작하므로, 제약 조건은 
 | `flint import [path]` | 규칙 파일(CLAUDE.md 등)을 pending 지식으로 변환(`--commit`); `--format jsonl\|pam` 지식 재이식·수입(jsonl 왕복·PAM v1.0) |
 | `flint export [--format f]` | 지식 export jsonl·md·txt·csv·pam(PAM v1.0 표준 memory-store; `--status`·`--tag`·`--since` 필터, `--out` 파일 + `.sha256` 사이드카, PAM `--sign` Ed25519 서명 — 스펙 §18) |
 | `flint index [--vault p]` | 마크다운 볼트를 `vault_files`에 색인(스냅숏-디프, 디프마다 배치 1커밋; `--vault` 경로 저장, `--limit` 스캔 상한) |
-| `flint read <query>` | 활성 지식 검색 (색인된 볼트 행은 지식 블록 뒤에 추가); TTY 무인수 호출은 대화형 브라우저 진입(쿼리 입력·결과 목록·상세 전환); 옵트인 `--related N`은 무방향 지식 링크 이웃을 뒤에 추가(상한 5)·`--why`는 행별 근거 부록(토큰 tier·RRF 신호·제로히트 사유) — 플래그 모드 출력은 불변 |
+| `flint read <query>` | 회상 뷰로 활성 지식 검색 (claim `event` 행 제외 — 명시 조회는 `--claim <decision\|procedure\|lesson\|event>`; 색인된 볼트 행은 지식 블록 뒤에 추가); TTY 무인수 호출은 대화형 브라우저 진입(쿼리 입력·결과 목록·상세 전환); 옵트인 `--related N`은 무방향 지식 링크 이웃을 뒤에 추가(상한 5)·`--why`는 행별 근거 부록(토큰 tier·RRF 신호·제로히트 사유) — 플래그 모드 출력은 불변 |
 | `flint hot --session <id>` | 세션 시작 맥락 주입 |
 | `flint brief [query]` | 외부 AI에 붙여넣는 마스킹 브리프(읽기 전용) |
 | `flint done --session <id>` | 세션 마무리 기록 |
-| `flint approve --id n` | 대기 중 지식을 활성으로 승격 |
+| `flint approve --id n` | 대기 중 지식을 활성으로 승격 — 단일 claim 게이트: claim 없는 행(backfill `event` 포함)은 `--claim <decision\|procedure\|lesson\|event>` 필수(부재 시 exit 3); claim 없는 write는 confidence와 무관하게 pending |
+| `flint state` | 진행 상태(의도) 접점 — `open --task T [--detail D] [--next A] [--project N]`(서버측 정규화 해시가 같은 open 과업의 재보고 흡수 → 한 줄 JSON `{id, status: open\|updated\|noop}`) · `list [--all]` · `resolve --id N [--by K]`; open 행은 hot 스냅샷에 노출(상한 `state_snapshot_max`)·오래된 행은 `maintain --stale-state`가 승인제 resolve 제안 — 무조건 기록, claim 게이트 없음 |
 | `flint maintain` | 관리: 임계값 확인 · 무효화 · 병합 · `--merge-audit` 중복 쌍 보고(multiset Dice·비용 추정 동반·리스팅만) · `--recall-audit` 나쁜 회상 환류 보고(리스팅만 — 처분은 항상 승인제 서브커맨드로) · `--age-audit` 낡음 보고(suggested_vol 제안 동반) · `--reaffirm` 유효기간 갱신 · `--recheck` 조건 재검토 · `--gc [--shallow] --yes` dolt 가비지 컬렉션(운영자 명령 — 전 세션 접속 단절, 같은 실행 안에서 재연결+스키마 재검증) (`--tui` 대화형 검수, 옵트인) |
 | `flint distill --out DIR` | 회상 점수가 임계 이상인 미출력 활성 지식을 마크다운 파일 1개로 출력(`--min-score`는 distill_min_score 대체; 출력 행은 distilled_at 스탬프 — 재실행은 잔여분만 — ADR-0018) |
 | `flint audit --limit n` | 최근 n개 커밋 조회 |
@@ -294,7 +304,7 @@ flint는 여러분의 코딩 세션 안에서 동작하므로, 제약 조건은 
 | `flint sync` | Doltgres 원격과 지식 동기화 — `remote add/list/remove` (url 마스킹), `push`/`pull [--dry]`; 병합 충돌 시 exit 1과 수동 해결 안내; 원격 url은 어떤 출력·로그에도 남지 않는다 (사람 운영자 명령) |
 | `flint profile` | 프로파일 판정: 근거 지표+추천, `--apply normal\|minimal` |
 | `flint status` | 스키마 버전 · 대기 건수 · hot p95 |
-| `flint mcp` | MCP 서버 (read·write·hot·pending·approve 도구) |
+| `flint mcp` | MCP 서버 (read·write·hot·pending·approve·work 도구) |
 | `flint pending` | 대기 지식 검수 뷰 (승격·병합·만료·보류 판정, `--json`) |
 | `flint compact` | compact 요약을 pending 지식으로 적립 (PostCompact 훅 진입점) |
 | `flint nudge` | compact가 남긴 마커의 세션 종료 증류 리마인더 (`--clear` 종결) |

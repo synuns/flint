@@ -15,6 +15,12 @@ func t4Rec(hash, domain string) map[string]any {
 	return rec
 }
 
+func TestAsOfAllowlistIncludesRecallView(t *testing.T) {
+	if !asOfTables["recall_knowledge"] {
+		t.Error("asof allowlist에 recall_knowledge 부재(v1.38.0 read 기본 뷰)")
+	}
+}
+
 func TestRetryOnce(t *testing.T) {
 	t.Run("첫 실패 후 재시도 성공", func(t *testing.T) {
 		n := 0

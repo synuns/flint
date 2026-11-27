@@ -78,6 +78,8 @@ func maintainModes() []maintainMode {
 
 		{name: "--decay-audit", flags: []string{"--limit"}, run: maintainRunDecayAudit},
 
+		{name: "--stale-state", commit: true, run: maintainRunStaleState},
+
 		{name: "--age-audit", flags: []string{"--limit"}, run: maintainRunAgeAudit},
 
 		{name: "--merge-audit", flags: []string{"--limit"}, run: maintainRunMergeAudit},

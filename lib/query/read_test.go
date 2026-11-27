@@ -32,8 +32,11 @@ func TestClampLimit(t *testing.T) {
 
 func TestBuildReadUsesActiveKnowledge(t *testing.T) {
 	sql, _ := BuildRead("", Filters{})
-	if !strings.Contains(sql, "active_knowledge") {
-		t.Errorf("BuildRead SQL이 active_knowledge 뷰를 사용해야 함: %s", sql)
+	if !strings.Contains(sql, "recall_knowledge") {
+		t.Errorf("BuildRead SQL이 recall_knowledge 뷰를 사용해야 함(v1.38.0): %s", sql)
+	}
+	if strings.Contains(sql, "FROM active_knowledge") {
+		t.Errorf("기본 경로에서 active_knowledge 금지: %s", sql)
 	}
 }
 
@@ -159,9 +162,15 @@ func TestFormatRowsEmpty(t *testing.T) {
 
 func TestBuildReadSelectsAllFields(t *testing.T) {
 	sql, _ := BuildRead("", Filters{})
-	for _, c := range []string{"id", "topic", "summary", "tags", "entity", "domain", "confidence", "status"} {
+	for _, c := range []string{"id", "topic", "summary", "tags", "entity", "domain", "claim", "confidence", "conditions"} {
 		if !strings.Contains(sql, c) {
 			t.Errorf("SELECT에 %q 누락: %s", c, sql)
+		}
+	}
+	sqlClaim, _ := BuildRead("", Filters{Claim: "event"})
+	for _, c := range []string{"status", "read_count"} {
+		if !strings.Contains(sqlClaim, c) {
+			t.Errorf("claim 경로 SELECT에 %q 누락: %s", c, sqlClaim)
 		}
 	}
 }
@@ -193,8 +202,12 @@ func TestRankOrderPlain(t *testing.T) {
 func TestBuildReadUsesRankOrder(t *testing.T) {
 	sql, args := BuildRead("Flint", Filters{})
 
-	if !strings.Contains(sql, RankOrder(len(args)-1)) {
-		t.Errorf("RankOrder 절 미삽입: %s", sql)
+	if !strings.Contains(sql, RecallRankOrder(len(args)-1)) {
+		t.Errorf("RecallRankOrder 절 미삽입: %s", sql)
+	}
+	sqlClaim, argsClaim := BuildRead("Flint", Filters{Claim: "event"})
+	if !strings.Contains(sqlClaim, RankOrder(len(argsClaim)-1)) {
+		t.Errorf("claim 경로 RankOrder 절 미삽입: %s", sqlClaim)
 	}
 }
 
@@ -209,9 +222,9 @@ func TestFormatRowsUnknownFieldPositional(t *testing.T) {
 
 func TestReorderByFallbackCountRRF(t *testing.T) {
 	rows := [][]any{
-		{int32(1), "백업 정책", "매일 자동", "", "", "", 0.9, "active", 0},
-		{int32(2), "백업 절차", "주간 수동 점검", "", "", "", 0.8, "active", 30},
-		{int32(3), "포트", "5433", "", "", "", 0.7, "active", 100},
+		{int32(1), "백업 정책", "매일 자동", "", "", "", "decision", 0.9, "", "active", 0},
+		{int32(2), "백업 절차", "주간 수동 점검", "", "", "", "procedure", 0.8, "", "active", 30},
+		{int32(3), "포트", "5433", "", "", "", "lesson", 0.7, "", "active", 100},
 	}
 	ReorderByFallbackCount(rows, []string{"백업", "자동"})
 	if rows[0][0] != int32(2) {
@@ -348,7 +361,8 @@ func TestReorderByTokenScoreRobustness(t *testing.T) {
 
 func TestReadColumnIndexMap(t *testing.T) {
 	m := ReadColumnIndexMap()
-	if m["topic"] != 1 || m["summary"] != 2 || m["id"] != 0 || m["read_count"] != 8 {
+	if m["topic"] != 1 || m["summary"] != 2 || m["id"] != 0 ||
+		m["claim"] != 6 || m["conditions"] != 8 || m["read_count"] != 10 {
 		t.Errorf("ReadColumnIndexMap 위치 오류: %v", m)
 	}
 }
@@ -639,8 +653,8 @@ func TestRRFWhyEvidenceDirectComparison(t *testing.T) {
 	SetRRFK(60)
 	t.Cleanup(func() { SetRRFK(60) })
 	rows := [][]any{
-		{"1", "backup policy demo", "synthetic note", "", "", "", "", "active", int32(5)},
-		{"2", "demo subject", "backup method synthetic", "", "", "", "", "active", int32(2)},
+		{"1", "backup policy demo", "synthetic note", "", "", "", "decision", "", "", "active", int32(5)},
+		{"2", "demo subject", "backup method synthetic", "", "", "", "decision", "", "", "active", int32(2)},
 	}
 	ev := RRFWhyEvidence(rows, []string{"backup", "policy"})
 	if len(ev) != 2 {

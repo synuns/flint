@@ -51,7 +51,8 @@ flint 메모리 규칙:
 | `flint_write` | `kind`, `payload` | 결정·지식 기록 + 커밋 (멱등) |
 | `flint_hot` | — | 활성 프로젝트·pending·최근 결정 요약 |
 | `flint_pending` | — | 대기 지식 목록+추천(verdict: promote\|merge\|expire\|hold) JSON |
-| `flint_approve` | `id`, `supersede?` | 대기 지식 승격(·구 활성 대체 병합) |
+| `flint_approve` | `id`, `claim?`, `supersede?` | 대기 지식 승격(·구 활성 대체 병합) |
+| `flint_work` | `action`, `task?`, `detail?`, `next?`, `project?`, `id?`, `by?`, `all?` | 진행 과업(work_state) 기록·종결 — action: open(기록·갱신, 서버측 정규화 해시로 재보고 흡수)/update(별칭)/resolve(id로 종결, by로 근거 지식 연결)/list(open 목록, all=true는 resolved 포함) |
 
 - 응답은 모두 한 줄 JSON이며 토큰 예산(limit 상한 50·hot 2,000자)을 준수한다.
 - `flint_write`는 payload 스키마 위반 시 기대 스키마를 반환한다(exit 3 상당).

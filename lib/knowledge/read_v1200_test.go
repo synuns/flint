@@ -39,7 +39,7 @@ func TestReadEventColumns(t *testing.T) {
 	ctx := context.Background()
 	t.Run("히트 — bytes=출력 len·source=cli·zero_reason 공란", func(t *testing.T) {
 		st := &v1200Recorder{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
-			if strings.Contains(sql, "FROM active_knowledge") {
+			if readQueryMatch(sql) {
 				return hitRowsFixture, nil
 			}
 			return nil, nil
@@ -64,7 +64,7 @@ func TestReadEventColumns(t *testing.T) {
 	})
 	t.Run("세션 라벨 — source=hook", func(t *testing.T) {
 		st := &v1200Recorder{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
-			if strings.Contains(sql, "FROM active_knowledge") {
+			if readQueryMatch(sql) {
 				return hitRowsFixture, nil
 			}
 			return nil, nil
@@ -79,7 +79,7 @@ func TestReadEventColumns(t *testing.T) {
 	})
 	t.Run("--source mcp — 명시 라벨 우선", func(t *testing.T) {
 		st := &v1200Recorder{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
-			if strings.Contains(sql, "FROM active_knowledge") {
+			if readQueryMatch(sql) {
 				return hitRowsFixture, nil
 			}
 			return nil, nil
@@ -183,7 +183,7 @@ func TestZeroReasonDecompose(t *testing.T) {
 func TestReadRecordsKnowledgeReads(t *testing.T) {
 	ctx := context.Background()
 	st := &v1200Recorder{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
-		if strings.Contains(sql, "FROM active_knowledge") {
+		if readQueryMatch(sql) {
 			return hitRowsFixture, nil
 		}
 		return nil, nil

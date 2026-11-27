@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"net/url"
 	"os"
 	"testing"
@@ -45,6 +46,7 @@ func Scratch(t *testing.T) string {
 		t.Fatalf("CREATE DATABASE %s: %v", name, err)
 	}
 	RegisterScratch(name)
+	scratchOnTestCleanup(t, name)
 	u, err := url.Parse(ResolveDSN())
 	if err != nil {
 		t.Fatalf("DSN 파싱: %v", err)
@@ -65,10 +67,30 @@ func CloneTarget(t *testing.T) (name, dsn string) {
 		t.Fatalf("스크래치 DB명 생성 실패: %v", err)
 	}
 	RegisterScratch(name)
+	scratchOnTestCleanup(t, name)
 	u, err := url.Parse(ResolveDSN())
 	if err != nil {
 		t.Fatalf("DSN 파싱: %v", err)
 	}
 	u.Path = "/" + name
 	return name, u.String()
+}
+
+func scratchOnTestCleanup(t *testing.T, name string) {
+	t.Cleanup(func() {
+		t.Cleanup(func() {
+			if err := dropScratch(context.Background(), name); err != nil {
+				fmt.Fprintf(os.Stderr, "경고: 스크래치 %s 개별 DROP 실패(%v) — RunCleanup 재시도\n", name, err)
+				return
+			}
+			scratchMu.Lock()
+			for i, n := range scratchDBs {
+				if n == name {
+					scratchDBs = append(scratchDBs[:i], scratchDBs[i+1:]...)
+					break
+				}
+			}
+			scratchMu.Unlock()
+		})
+	})
 }

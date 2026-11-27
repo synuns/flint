@@ -36,7 +36,7 @@ func (f *instrumentedFake) RecordUsage(ctx context.Context, kind, source string)
 }
 
 func readQueryFn(sql string, args []any) ([][]any, error) {
-	if strings.Contains(sql, "FROM active_knowledge") {
+	if strings.Contains(sql, "FROM recall_knowledge") || strings.Contains(sql, "FROM active_knowledge") {
 		return [][]any{{int32(3), "t", "s", ":a:", nil, "main", 0.9, "active"},
 			{int32(5), "t2", "s2", ":b:", nil, "main", 0.8, "active"}}, nil
 	}

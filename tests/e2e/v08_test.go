@@ -81,7 +81,7 @@ func TestV08LifecycleChain(t *testing.T) {
 
 	out, code := runFlint(t, bin, env,
 		[]string{"write", "knowledge", "--session", sessA},
-		fmt.Sprintf(`{"topic":%q,"summary":"v0.8 체인 프로브 1","confidence":0.9}`, topicA))
+		fmt.Sprintf(`{"topic":%q,"summary":"v0.8 체인 프로브 1","confidence":0.9,"claim":"procedure"}`, topicA))
 	if code != 0 {
 		t.Fatalf("① write exit=%d, want 0; out=%s", code, out)
 	}
@@ -94,7 +94,7 @@ func TestV08LifecycleChain(t *testing.T) {
 
 	out, code = runFlint(t, bin, env,
 		[]string{"write", "knowledge", "--session", sessB},
-		fmt.Sprintf(`{"topic":%q,"summary":"v0.8 체인 프로브 2","confidence":0.9}`, topicB))
+		fmt.Sprintf(`{"topic":%q,"summary":"v0.8 체인 프로브 2","confidence":0.9,"claim":"procedure"}`, topicB))
 	if code != 0 {
 		t.Fatalf("② write exit=%d, want 0; out=%s", code, out)
 	}

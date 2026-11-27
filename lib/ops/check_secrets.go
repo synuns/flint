@@ -109,6 +109,33 @@ func checkSecretsTh(ctx context.Context, st wire.Store, th store.Thresholds) Doc
 			}
 		}
 	}
+	wrows, werr := wire.QueryOnce(ctx, st, `
+		SELECT id, task, COALESCE(detail, ''), COALESCE(next_action, '')
+		FROM work_state
+		LIMIT $1`, []any{th.SecretsScanRows})
+	switch {
+	case werr != nil:
+		gap += "· work_state query failed (work_state unscanned)"
+	case len(wrows) >= th.SecretsScanRows:
+		gap += "· work_state row limit reached (partial scan)"
+	}
+	workStateFound := false
+	if werr == nil {
+		for _, r := range wrows {
+			if len(r) < 4 {
+				continue
+			}
+			text := strings.Join([]string{fmt.Sprint(r[1]), fmt.Sprint(r[2]), fmt.Sprint(r[3])}, " ")
+			for _, name := range store.ScanSecrets(text) {
+				key := name + "#work_state:" + fmt.Sprint(r[0])
+				if !seen[key] {
+					seen[key] = true
+					found++
+					workStateFound = true
+				}
+			}
+		}
+	}
 	if found == 0 && gap != "" {
 		c.Status = "warn"
 		c.Detail = "incomplete scan " + gap
@@ -117,7 +144,7 @@ func checkSecretsTh(ctx context.Context, st wire.Store, th store.Thresholds) Doc
 	}
 	if found == 0 {
 		c.Status = "ok"
-		c.Detail = "no secrets found in knowledge, sessions, or projects"
+		c.Detail = "no secrets found in knowledge, sessions, projects, or work_state"
 		return c
 	}
 	c.Status = "warn"
@@ -131,8 +158,8 @@ func checkSecretsTh(ctx context.Context, st wire.Store, th store.Thresholds) Doc
 
 	c.Detail = fmt.Sprintf("%d secret candidates (%s) %s· allowlist %d entries",
 		found, strings.Join(disp, ", "), gapSuffix(gap), store.SecretsAllowlistCount())
-	if sessionFound || projectFound {
-		c.Fix = "fix: for session/project findings (session:N, project:N), re-finalize the agent (done) or clean the sessions/projects rows in the operating DB — for knowledge findings, maintain --invalidate --id N --reason secret"
+	if sessionFound || projectFound || workStateFound {
+		c.Fix = "fix: for session/project/work_state findings (session:N, project:N, work_state:N), re-finalize the agent (done) or clean the sessions/projects/work_state rows in the operating DB — for knowledge findings, maintain --invalidate --id N --reason secret"
 	} else {
 		c.Fix = "fix: flint maintain --invalidate --id N --reason secret (rescan skips invalidated rows)"
 	}

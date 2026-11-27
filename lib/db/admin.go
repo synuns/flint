@@ -893,10 +893,77 @@ func (r *Repo) ensureSchemaV19(ctx context.Context) error {
 	return nil
 }
 
-func (r *Repo) Approve(ctx context.Context, id int) error {
+func (r *Repo) EnsureSchemaV20(ctx context.Context) error {
+	return Retry(ctx, func() error { return r.ensureSchemaV20(ctx) }, gateRetryBackoff)
+}
+
+func (r *Repo) ensureSchemaV20(ctx context.Context) error {
+	var version string
+	err := r.pool.QueryRow(ctx,
+		`SELECT value FROM meta WHERE key = 'schema_version'`).Scan(&version)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) && !isPgCode(err, "42P01") {
+		return fmt.Errorf("schema v20: check version: %w", err)
+	}
+	if isPgCode(err, "42P01") {
+		return nil
+	}
+	if n, perr := strconv.Atoi(version); perr == nil && n >= 20 {
+		return nil
+	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("schema v20: begin: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	for _, stmt := range []string{
+		`ALTER TABLE knowledge ADD COLUMN IF NOT EXISTS claim text NOT NULL DEFAULT ''`,
+		`UPDATE knowledge SET claim = 'event' WHERE claim = ''`,
+		`CREATE INDEX IF NOT EXISTS flint_knowledge_claim_idx ON knowledge (claim)`,
+		`CREATE TABLE IF NOT EXISTS work_state (
+		    id           serial PRIMARY KEY,
+		    project_id   integer REFERENCES projects(id),
+		    agent        text NOT NULL DEFAULT 'claude',
+		    status       text NOT NULL DEFAULT 'open',
+		    task         text NOT NULL,
+		    detail       text NOT NULL DEFAULT '',
+		    next_action  text NOT NULL DEFAULT '',
+		    state_hash   text NOT NULL,
+		    session_id   integer REFERENCES sessions(id),
+		    opened_at    timestamptz NOT NULL DEFAULT now(),
+		    updated_at   timestamptz NOT NULL DEFAULT now(),
+		    resolved_at  timestamptz,
+		    resolved_by  integer
+		)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS flint_work_state_open_idx
+		 ON work_state (project_id, state_hash) WHERE status = 'open'`,
+		`CREATE OR REPLACE VIEW recall_knowledge AS
+		 SELECT id, topic, summary, tags, entity, domain, claim, confidence, conditions, status
+		 FROM knowledge
+		 WHERE invalid_at IS NULL AND claim <> 'event'`,
+		`CREATE OR REPLACE VIEW open_work_state AS
+		 SELECT id, project_id, task, detail, next_action, updated_at
+		 FROM work_state WHERE status = 'open'`,
+	} {
+		if _, err := tx.Exec(ctx, stmt); err != nil {
+			return fmt.Errorf("schema v20: create: %w", err)
+		}
+	}
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO meta (key, value) VALUES ('schema_version', '20')
+		 ON CONFLICT (key) DO UPDATE SET value = excluded.value`); err != nil {
+		return fmt.Errorf("schema v20: meta: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("schema v20: commit: %w", err)
+	}
+	return nil
+}
+
+func (r *Repo) Approve(ctx context.Context, id int, claim string) error {
 	ct, err := r.pool.Exec(ctx,
-		`UPDATE knowledge SET status = 'active', invalid_at = NULL
-		 WHERE id = $1 AND status = 'pending'`, id)
+		`UPDATE knowledge SET status = 'active', invalid_at = NULL,
+			claim = CASE WHEN $2 <> '' THEN $2 ELSE claim END
+		 WHERE id = $1 AND status = 'pending'`, id, claim)
 	if err != nil {
 		return fmt.Errorf("approve: %w", err)
 	}

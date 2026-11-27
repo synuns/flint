@@ -98,6 +98,11 @@ type Thresholds struct {
 
 	CollectionFreshnessH   int
 	PluginVersionGapMinors int
+
+	StateStaleDays   int
+	StateSnapshotMax int
+
+	WorkStateResolvedRetentionD int
 }
 
 type ThresholdMeta struct {
@@ -195,6 +200,11 @@ var thresholdMetas = []ThresholdMeta{
 
 	{"CollectionFreshnessH", "collection_freshness_hours", 72, "int", true, false, "doctor collection-freshness (session_starts recency)", ""},
 	{"PluginVersionGapMinors", "plugin_version_gap_minors", 2, "int", true, false, "doctor plugin-version-gap", ""},
+
+	{"StateStaleDays", "state_stale_days", 14, "days", false, false, "maintain --stale-state", ""},
+	{"StateSnapshotMax", "state_snapshot_max", 3, "count", false, false, "hot", ""},
+
+	{"WorkStateResolvedRetentionD", "work_state_resolved_retention_days", 90, "days", false, false, "maintain --stale-state resolved cleanup", ""},
 }
 
 var thresholdIntRanges = map[string][2]int{
@@ -350,7 +360,7 @@ func applyThresholdValue(f reflect.Value, m ThresholdMeta, val any, ks string) {
 		return
 	}
 	switch m.Type {
-	case "int":
+	case "int", "days", "count":
 		if f.Kind() != reflect.Int {
 			return
 		}

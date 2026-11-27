@@ -98,6 +98,12 @@ var smokeNewStoreFn = func(ctx context.Context, dsn string) (wire.Store, error) 
 		st.Close()
 		return nil, err
 	}
+	for _, g := range db.SchemaGates() {
+		if err := g.Ensure(ctx, repo); err != nil {
+			st.Close()
+			return nil, fmt.Errorf("smoke schema gate v%d: %w", g.Version, err)
+		}
+	}
 	return st, nil
 }
 
@@ -179,9 +185,9 @@ func smokeCountOwnRows(ctx context.Context, st wire.Store) int {
 
 func smokeRecs() []map[string]any {
 	return []map[string]any{
-		{"kind": "knowledge", "topic": smokeTopicPrefix + "onboarding-a", "summary": "smoke 온보딩 점검 행 a", "tags": ":smoke:", "confidence": 0.9, "content_hash": "smoke-rec-a"},
-		{"kind": "knowledge", "topic": smokeTopicPrefix + "onboarding-b", "summary": "smoke 온보딩 점검 행 b", "tags": ":smoke:", "confidence": 0.9, "content_hash": "smoke-rec-b"},
-		{"kind": "knowledge", "topic": smokeTopicPrefix + "onboarding-c", "summary": "smoke 온보딩 점검 행 c", "tags": ":smoke:", "confidence": 0.9, "content_hash": "smoke-rec-c"},
+		{"kind": "knowledge", "topic": smokeTopicPrefix + "onboarding-a", "summary": "smoke 온보딩 점검 행 a", "tags": ":smoke:", "confidence": 0.9, "content_hash": "smoke-rec-a", "claim": "procedure"},
+		{"kind": "knowledge", "topic": smokeTopicPrefix + "onboarding-b", "summary": "smoke 온보딩 점검 행 b", "tags": ":smoke:", "confidence": 0.9, "content_hash": "smoke-rec-b", "claim": "procedure"},
+		{"kind": "knowledge", "topic": smokeTopicPrefix + "onboarding-c", "summary": "smoke 온보딩 점검 행 c", "tags": ":smoke:", "confidence": 0.9, "content_hash": "smoke-rec-c", "claim": "procedure"},
 	}
 }
 
@@ -307,7 +313,7 @@ func smokeSequence(ctx context.Context) ([]SmokeStep, int) {
 
 	var rbuf bytes.Buffer
 	if code := knowledge.RunRead(ctx, st, []string{"smoke"}, bytes.NewReader(nil), &rbuf); code != 0 || !strings.Contains(rbuf.String(), smokeTopicPrefix) {
-		return fail("read", fmt.Sprintf("read did not reach the smoke rows (exit %d)", code))
+		return fail("read", fmt.Sprintf("read did not reach the smoke rows (exit %d): %.200s", code, rbuf.String()))
 	}
 	ok("read", "search reached the demo rows")
 

@@ -18,7 +18,7 @@ func (injectedStore) Close() {}
 
 var (
 	_ interface {
-		Approve(ctx context.Context, id int) error
+		Approve(ctx context.Context, id int, claim string) error
 	} = injectedStore{}
 	_ interface {
 		Supersede(ctx context.Context, oldID, newID int, at time.Time) (int64, error)
@@ -58,11 +58,11 @@ var (
 	_ knowledge.TelemetryCommitter = injectedStore{}
 )
 
-func (s injectedStore) Approve(ctx context.Context, id int) error {
+func (s injectedStore) Approve(ctx context.Context, id int, claim string) error {
 	if a, ok := s.Store.(interface {
-		Approve(ctx context.Context, id int) error
+		Approve(ctx context.Context, id int, claim string) error
 	}); ok {
-		return a.Approve(ctx, id)
+		return a.Approve(ctx, id, claim)
 	}
 
 	return errors.New("approve: injected store does not implement Approve")

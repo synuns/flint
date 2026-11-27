@@ -77,7 +77,7 @@ func TestReadAutoSessionLabel(t *testing.T) {
 	}
 	st := &readEventRecorder{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		switch {
-		case strings.Contains(sql, "FROM active_knowledge"):
+		case readQueryMatch(sql):
 			return hitRowsFixture[:1], nil
 		case strings.Contains(sql, "SELECT value FROM meta"):
 			return [][]any{{`{"calls":1,"zero":0}`}}, nil

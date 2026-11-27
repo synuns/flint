@@ -347,4 +347,20 @@ func (s *realStore) DiffCommits(ctx context.Context, fromHash, toHash string) ([
 	return s.repo.DiffCommits(ctx, fromHash, toHash)
 }
 
+func (s *realStore) OpenWorkState(ctx context.Context, rec map[string]any) (int, string, error) {
+	return s.repo.OpenWorkState(ctx, rec)
+}
+
+func (s *realStore) ResolveWorkState(ctx context.Context, id int, byKnowledgeID int) error {
+	return s.repo.ResolveWorkState(ctx, id, byKnowledgeID)
+}
+
+func (s *realStore) ListOpenWorkState(ctx context.Context, projectID int, limit int) []map[string]any {
+	return s.repo.ListOpenWorkState(ctx, projectID, limit)
+}
+
+func (s *realStore) StaleOpenWorkStates(ctx context.Context, days int) []map[string]any {
+	return s.repo.StaleOpenWorkStates(ctx, days)
+}
+
 var _ wire.Store = (*realStore)(nil)

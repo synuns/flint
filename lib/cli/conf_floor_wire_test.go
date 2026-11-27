@@ -20,7 +20,15 @@ func TestWriteConsumesConfFloor(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit=%d, want 0; out=%s", code, out)
 	}
-	if len(f.inserted) != 1 || f.inserted[0]["status"] != "active" {
+	if len(f.inserted) != 1 || f.inserted[0]["status"] != "pending" {
+		t.Fatalf("claim 없는 write는 conf 무관 pending 강제=%v, want pending", f.inserted)
+	}
+	out, code = mustRun(t, []string{"write", "knowledge"},
+		`{"topic":"`+uniqTopic(t)+`","summary":"s","confidence":0.7,"claim":"decision"}`)
+	if code != 0 {
+		t.Fatalf("exit=%d, want 0; out=%s", code, out)
+	}
+	if len(f.inserted) != 2 || f.inserted[1]["status"] != "active" {
 		t.Fatalf("conf_floor=0.6에서 conf 0.7 판정=%v, want active", f.inserted)
 	}
 }
@@ -42,7 +50,7 @@ func TestWriteConfFloorZeroAccepted(t *testing.T) {
 	f := &fakeStore{rows: [][]any{{"conf_floor", "0"}}}
 	withFake(t, f)
 	out, code := mustRun(t, []string{"write", "knowledge"},
-		`{"topic":"`+uniqTopic(t)+`","summary":"s","confidence":0.5}`)
+		`{"topic":"`+uniqTopic(t)+`","summary":"s","confidence":0.5,"claim":"procedure"}`)
 	if code != 0 {
 		t.Fatalf("exit=%d, want 0; out=%s", code, out)
 	}

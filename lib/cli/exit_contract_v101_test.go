@@ -83,6 +83,14 @@ var exitContractProbes = []exitProbe{
 
 	{"engine", []string{}, 3, "v1.31.0 T5 bare usage"},
 	{"engine", []string{"bogus"}, 3, "v1.31.0 T5 무효 서브커맨드"},
+
+	{"state", []string{}, 3, "v1.38.0 T3 bare usage"},
+	{"state", []string{"bogus"}, 3, "v1.38.0 T3 무효 서브커맨드"},
+	{"state", []string{"open"}, 3, "v1.38.0 T3 --task 필수"},
+	{"state", []string{"open", "--task"}, 3, "v1.38.0 T3 값 누락"},
+	{"state", []string{"open", "--project", "abc"}, 3, "v1.38.0 T3 무효 숫자"},
+	{"state", []string{"resolve"}, 3, "v1.38.0 T3 --id 필수"},
+	{"state", []string{"resolve", "--id", "abc"}, 3, "v1.38.0 T3 무효 숫자"},
 }
 
 var quietAbsorb = map[string]string{

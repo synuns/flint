@@ -66,7 +66,7 @@ type sessionUpdate struct {
 	summary, tasks string
 }
 
-func (f *fakeApprove) Approve(ctx context.Context, id int) error {
+func (f *fakeApprove) Approve(ctx context.Context, id int, claim string) error {
 	f.approveIDs = append(f.approveIDs, id)
 	return f.capErr
 }
@@ -163,6 +163,18 @@ func (f *fakeApprove) UpdatePendingSummary(ctx context.Context, id int, summary 
 	return 1, nil
 }
 
+func (f *fakeApprove) OpenWorkState(ctx context.Context, rec map[string]any) (int, string, error) {
+	return 0, "open", f.capErr
+}
+
+func (f *fakeApprove) ResolveWorkState(ctx context.Context, id int, byKnowledgeID int) error {
+	return f.capErr
+}
+
+func (f *fakeApprove) ListOpenWorkState(ctx context.Context, projectID int, limit int) []map[string]any {
+	return nil
+}
+
 func withApproveFake(t *testing.T, f *fakeApprove) {
 	t.Helper()
 	prev := ApproveFn
@@ -188,7 +200,7 @@ func withApproveFake(t *testing.T, f *fakeApprove) {
 			return err
 		}
 		defer repo.Close()
-		return repo.Approve(ctx, id)
+		return repo.Approve(ctx, id, "")
 	}
 	t.Cleanup(func() { ApproveFn = prev })
 }
@@ -321,7 +333,7 @@ type approveStoreFake struct {
 	approveErr error
 }
 
-func (a *approveStoreFake) Approve(ctx context.Context, id int) error {
+func (a *approveStoreFake) Approve(ctx context.Context, id int, claim string) error {
 	a.approveN++
 	a.gotID = id
 	return a.approveErr

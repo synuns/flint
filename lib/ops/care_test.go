@@ -22,6 +22,10 @@ type fakeMaintStore struct {
 	prunedAt       []time.Time
 	recallPrunedAt []time.Time
 	recallPruneN   int64
+	batchResolve   [][]int
+	batchResolveN  int
+	purgeCutoffs   []time.Time
+	purgeResolvedN int
 }
 
 func (f *fakeMaintStore) Counts(ctx context.Context) (db.Counts, error) {
@@ -57,6 +61,17 @@ func (f *fakeMaintStore) PruneRecallEvents(ctx context.Context, before time.Time
 }
 func (f *fakeMaintStore) ConflictGroups(ctx context.Context, limit int) ([]db.ConflictGroup, error) {
 	return nil, nil
+}
+
+func (f *fakeMaintStore) BatchResolveWorkState(ctx context.Context, ids []int) (int, error) {
+	f.batchResolve = append(f.batchResolve, ids)
+	f.batchResolveN += len(ids)
+	return len(ids), nil
+}
+
+func (f *fakeMaintStore) PurgeResolvedWorkState(ctx context.Context, cutoff time.Time) (int, error) {
+	f.purgeCutoffs = append(f.purgeCutoffs, cutoff)
+	return f.purgeResolvedN, nil
 }
 
 func shortRetry(t *testing.T) {

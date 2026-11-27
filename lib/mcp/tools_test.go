@@ -74,10 +74,10 @@ func equal(a, b []string) bool {
 
 func TestToolsManifest(t *testing.T) {
 	tools := ToolsManifest()
-	if len(tools) != 5 {
-		t.Fatalf("len(ToolsManifest) = %d, want 5", len(tools))
+	if len(tools) != 6 {
+		t.Fatalf("len(ToolsManifest) = %d, want 6", len(tools))
 	}
-	want := []string{"flint_read", "flint_write", "flint_hot", "flint_pending", "flint_approve"}
+	want := []string{"flint_read", "flint_write", "flint_hot", "flint_pending", "flint_approve", "flint_work"}
 	for i, td := range tools {
 		if td.Name != want[i] {
 			t.Errorf("tools[%d].Name = %q, want %q", i, td.Name, want[i])
@@ -493,7 +493,7 @@ func (f *capStore) Query(ctx context.Context, sql string, args ...any) ([][]any,
 }
 func (f *capStore) Close() {}
 
-func (f *capStore) Approve(ctx context.Context, id int) error {
+func (f *capStore) Approve(ctx context.Context, id int, claim string) error {
 	f.approved = append(f.approved, id)
 	return nil
 }

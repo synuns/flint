@@ -53,6 +53,18 @@ type writeQueryCall struct {
 }
 
 func (f *fakeStore) Migrate(ctx context.Context) error { return nil }
+func (f *fakeStore) OpenWorkState(ctx context.Context, rec map[string]any) (int, string, error) {
+	return 0, "", nil
+}
+func (f *fakeStore) ResolveWorkState(ctx context.Context, id int, byKnowledgeID int) error {
+	return nil
+}
+func (f *fakeStore) ListOpenWorkState(ctx context.Context, projectID int, limit int) []map[string]any {
+	return nil
+}
+func (f *fakeStore) StaleOpenWorkStates(ctx context.Context, days int) []map[string]any {
+	return nil
+}
 func (f *fakeStore) InsertBatch(ctx context.Context, recs []map[string]any) ([]int, error) {
 	f.inserted = append(f.inserted, recs...)
 	if f.insertErr != nil {
@@ -193,8 +205,8 @@ func TestWriteJSONLMultiOutputNoFieldMix(t *testing.T) {
 	if len(f.commits) != 1 || len(f.inserted) != 2 {
 		t.Fatalf("커밋=%d·삽입=%d, want 1·2", len(f.commits), len(f.inserted))
 	}
-	if f.inserted[0]["status"] != "pending" || f.inserted[1]["status"] != "active" {
-		t.Fatalf("줄별 판정(pending/active) 유실: %v", f.inserted)
+	if f.inserted[0]["status"] != "pending" || f.inserted[1]["status"] != "pending" {
+		t.Fatalf("claim 없는 knowledge는 conf 무관 pending 강제: %v", f.inserted)
 	}
 }
 
@@ -984,14 +996,14 @@ func TestWriteCorrectionRespectsExplicitConfidence(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit=%d, want 0; out=%s", code, out)
 	}
-	if m := decode(t, out); m["state"] != "active" {
-		t.Fatalf("state=%v, want active(지정 0.95 존중)", m["state"])
+	if m := decode(t, out); m["state"] != "pending" {
+		t.Fatalf("state=%v, want pending(claim 없으면 conf 무관 강제)", m["state"])
 	}
 	if conf, _ := f.inserted[0]["confidence"].(float64); conf != 0.95 {
 		t.Fatalf("confidence=%v, want 0.95(지정값 존중)", f.inserted[0]["confidence"])
 	}
-	if f.inserted[0]["status"] != "active" {
-		t.Fatalf("status=%v, want active", f.inserted[0]["status"])
+	if f.inserted[0]["status"] != "pending" {
+		t.Fatalf("status=%v, want pending", f.inserted[0]["status"])
 	}
 }
 

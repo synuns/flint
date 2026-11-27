@@ -20,6 +20,8 @@ type Filters struct {
 	MinConfidence *float64
 
 	Origin string
+
+	Claim string
 }
 
 const (
@@ -43,9 +45,12 @@ func ClampLimit(n int) int {
 }
 
 var readColumns = []string{
-	"id", "topic", "summary", "tags", "entity", "domain", "confidence", "status",
-	"read_count",
+	"id", "topic", "summary", "tags", "entity", "domain", "claim", "confidence",
+	"conditions", "status", "read_count",
 }
+
+var recallColumns = []string{"id", "topic", "summary", "tags", "entity", "domain",
+	"claim", "confidence", "conditions", "status"}
 
 func tokenizeQuery(q string) []string {
 	fields := strings.Fields(q)
@@ -122,7 +127,23 @@ func appendReadFilters(where []string, args []any, q string, f Filters) ([]strin
 		args = append(args, f.Origin)
 		where = append(where, fmt.Sprintf("origin = $%d", len(args)))
 	}
+	if f.Claim != "" {
+		args = append(args, f.Claim)
+		where = append(where, fmt.Sprintf("claim = $%d", len(args)))
+	}
 	return where, args
+}
+
+func RecallRankOrder(placeholder int) string {
+	return fmt.Sprintf("ORDER BY (lower(topic)=lower($%d)) DESC, confidence DESC",
+		placeholder)
+}
+
+func readSource(f Filters) (cols []string, from string, order func(int) string, liveOnly bool) {
+	if f.Claim == "" {
+		return recallColumns, "recall_knowledge", RecallRankOrder, false
+	}
+	return readColumns, "knowledge", RankOrder, true
 }
 
 func BuildRead(q string, f Filters) (string, []any) {
@@ -131,12 +152,16 @@ func BuildRead(q string, f Filters) (string, []any) {
 
 	where, args = appendReadFilters(where, args, q, f)
 
-	sql := "SELECT " + strings.Join(readColumns, ", ") + " FROM active_knowledge"
+	cols, from, order, liveOnly := readSource(f)
+	if liveOnly {
+		where = append(where, "invalid_at IS NULL")
+	}
+	sql := "SELECT " + strings.Join(cols, ", ") + " FROM " + from
 	if len(where) > 0 {
 		sql += " WHERE " + strings.Join(where, " AND ")
 	}
 	args = append(args, q)
-	sql += " " + RankOrder(len(args))
+	sql += " " + order(len(args))
 	args = append(args, ClampLimit(f.Limit))
 	sql += fmt.Sprintf(" LIMIT $%d", len(args))
 	return sql, args
@@ -196,8 +221,12 @@ func BuildReadFallback(q string, f Filters) (string, []any, bool) {
 		where = append(where, fmt.Sprintf("origin = $%d", len(args)))
 	}
 	args = append(args, q)
-	sql := "SELECT " + strings.Join(readColumns, ", ") + " FROM active_knowledge WHERE " +
-		strings.Join(where, " AND ") + " " + RankOrder(len(args))
+	cols, from, order, liveOnly := readSource(f)
+	if liveOnly {
+		where = append(where, "invalid_at IS NULL")
+	}
+	sql := "SELECT " + strings.Join(cols, ", ") + " FROM " + from + " WHERE " +
+		strings.Join(where, " AND ") + " " + order(len(args))
 	args = append(args, ClampLimit(f.Limit))
 	sql += fmt.Sprintf(" LIMIT $%d", len(args))
 	return sql, args, true

@@ -20,7 +20,6 @@ import (
 	"filippo.io/age"
 
 	"github.com/synuns/flint/lib/backup"
-	"github.com/synuns/flint/lib/db"
 	"github.com/synuns/flint/lib/i18n"
 	"github.com/synuns/flint/lib/render"
 	"github.com/synuns/flint/lib/store"
@@ -53,16 +52,21 @@ type DoneResult struct {
 	Unrecorded int
 
 	Summary string
+	Tasks   string
 }
 
 const sessionEndPrefix = "session end"
 
 func (d *DoneResult) SessionRecord() map[string]any {
+	tasks := strings.TrimSpace(d.Tasks)
+	if tasks == "" {
+		tasks = "[]"
+	}
 	return map[string]any{
 		"kind":    "session",
 		"agent":   d.Agent,
 		"summary": fmt.Sprintf("%s (unrecorded %d)", sessionEndPrefix, d.Unrecorded),
-		"tasks":   "[]",
+		"tasks":   tasks,
 	}
 }
 
@@ -174,7 +178,8 @@ func RunDone(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 		return 0
 	}
 
-	res := &DoneResult{Agent: agent, Unrecorded: runs, Summary: doneStdinSummary(stdin)}
+	payload := parseDoneStdin(stdin)
+	res := &DoneResult{Agent: agent, Unrecorded: runs, Summary: payload.CompactSummary, Tasks: payload.Tasks}
 
 	if runs >= th.StaleSessions {
 		fmt.Fprintf(stdout, `{"status":"stale","runs":%d,"warning":"%d consecutive sessions unrecorded"}`+"\n", runs, runs)
@@ -191,9 +196,7 @@ func RunDone(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 	} else {
 		fmt.Fprintln(stdout, `{"status":"ok"}`)
 	}
-	sessionRowID := writeSessionRecord(ctx, st, res.SessionRecord())
-
-	maybeSessionKnowledge(ctx, st, res.Summary, agent, session, sessionRowID)
+	writeSessionRecord(ctx, st, res.SessionRecord())
 	logPlaybookUse(ctx, st, playbook, playbookOK)
 
 	if _, cerr := st.Commit(ctx, fmt.Sprintf(
@@ -204,102 +207,6 @@ func RunDone(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 
 	commitTelemetry(ctx, st, "done")
 	AutoBackupFn(ctx, st)
-	return 0
-}
-
-func maybeSessionKnowledge(ctx context.Context, st wire.Store, summary, agent, session string, sessionRowID int) {
-
-	summary = render.TruncateRunes(store.SanitizeText(strings.TrimSpace(summary)), 500)
-
-	if summary == "" || len([]rune(summary)) < 12 {
-		return
-	}
-	th := WriteThresholds(ctx, st)
-	if th.SessionKnowledgeDays <= 0 {
-		return
-	}
-
-	getKV, _ := metaKV(ctx, st)
-	if v, err := getKV("session_knowledge_last"); err == nil && v != "" {
-
-		if last, perr := time.Parse(time.RFC3339, v); perr == nil &&
-			time.Since(last) < db.DaysSpan(th.SessionKnowledgeDays, time.Now()) {
-			return
-		}
-	}
-
-	topic := store.SanitizeText(render.TruncateRunes(
-		fmt.Sprintf("session[%s] %s", agentLabel(agent, 24), summaryKeyword(summary)), 80))
-	rec := map[string]any{
-		"kind":       "knowledge",
-		"topic":      topic,
-		"summary":    summary,
-		"tags":       []string{"process"},
-		"domain":     "main",
-		"confidence": 0.5,
-		"status":     "pending",
-		"origin":     "hook",
-	}
-
-	if sessionRowID <= 0 {
-		sessionRowID = sessionRowIDForAgent(ctx, st, agent)
-	}
-	if sessionRowID > 0 {
-		rec["session_id"] = sessionRowID
-	}
-	rec = store.Normalize("knowledge", rec)
-	rec["content_hash"] = store.ContentHash(store.HashCanonical(rec))
-	if exists, err := st.ExistsHash(ctx, rec["content_hash"].(string)); err == nil && exists {
-		return
-	}
-
-	warnSecrets("session knowledge", summary)
-	if _, err := st.InsertBatch(ctx, []map[string]any{rec}); err != nil {
-
-		fmt.Fprintf(os.Stderr, "[flint] session knowledge: %v\n", err)
-		return
-	}
-
-	if session != "" {
-		if merr := writeTypedMarker(markerKindDistill, session, "session-knowledge"); merr != nil {
-			fmt.Fprintf(os.Stderr, "[flint] distill marker: %v\n", merr)
-		}
-	}
-	_, setKV := metaKV(ctx, st)
-	if setKV != nil {
-		_ = setKV("session_knowledge_last", time.Now().UTC().Format(time.RFC3339))
-	}
-}
-
-func summaryKeyword(summary string) string {
-	first := strings.SplitN(summary, "\n", 2)[0]
-
-	cut := -1
-	for _, sep := range []string{"。", "다.", ". ", "— "} {
-		if i := strings.Index(first, sep); i > 4 && (cut < 0 || i < cut) {
-			cut = i + len(sep)
-		}
-	}
-	if cut > 0 {
-		first = first[:cut]
-	}
-	return strings.TrimSpace(render.TruncateRunes(first, 20))
-}
-
-func sessionRowIDForAgent(ctx context.Context, st wire.Store, agent string) int {
-	if agent == "" {
-		return 0
-	}
-	rows, err := wire.QueryOnce(ctx, st,
-		`SELECT id FROM sessions WHERE agent = $1 ORDER BY ts DESC, id DESC LIMIT 1`,
-		[]any{agent})
-	if err != nil || len(rows) == 0 || len(rows[0]) == 0 {
-		return 0
-	}
-	var id int
-	if n, _ := fmt.Sscan(fmt.Sprint(rows[0][0]), &id); n == 1 {
-		return id
-	}
 	return 0
 }
 
@@ -594,19 +501,24 @@ func BumpMetaCounter(ctx context.Context, st wire.Store, key string) {
 	_ = wire.BumpMetaKV(ctx, st, key)
 }
 
-func doneStdinSummary(stdin io.Reader) string {
+type doneStdinPayload struct {
+	CompactSummary string `json:"compact_summary"`
+	Tasks          string `json:"tasks"`
+}
+
+func parseDoneStdin(stdin io.Reader) doneStdinPayload {
 	if stdin == nil {
-		return ""
+		return doneStdinPayload{}
 	}
 	b, err := io.ReadAll(stdin)
 	if err != nil {
-		return ""
+		return doneStdinPayload{}
 	}
-	var h struct {
-		CompactSummary string `json:"compact_summary"`
-	}
+	var h doneStdinPayload
 	if json.Unmarshal(b, &h) != nil {
-		return ""
+		return doneStdinPayload{}
 	}
-	return strings.TrimSpace(h.CompactSummary)
+	h.CompactSummary = strings.TrimSpace(h.CompactSummary)
+	h.Tasks = strings.TrimSpace(h.Tasks)
+	return h
 }

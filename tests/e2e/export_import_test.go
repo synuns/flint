@@ -108,16 +108,16 @@ func TestExportImportRoundtripRealDB(t *testing.T) {
 	t.Cleanup(func() { cleanupTopics(t, pool, run+"-") })
 
 	kA := writeKnowledge(t,
-		`{"topic":"`+ta+`","summary":"왕복 프로브 본문 A — 합성 데모.","confidence":0.9,"tags":["`+run+`"]}`)
+		`{"topic":"`+ta+`","summary":"왕복 프로브 본문 A — 합성 데모.","confidence":0.9,"claim":"procedure","tags":["`+run+`"]}`)
 	kB := writeKnowledge(t,
-		`{"topic":"`+tb+`","summary":"왕복 프로브 본문 B — 합성 데모.","confidence":0.9,"tags":["`+run+`"]}`)
+		`{"topic":"`+tb+`","summary":"왕복 프로브 본문 B — 합성 데모.","confidence":0.9,"claim":"lesson","tags":["`+run+`"]}`)
 	kC := writeKnowledge(t,
 		`{"topic":"`+tc+`","summary":"왕복 프로브 본문 C — 합성 데모(대체 승격).","confidence":0.7,"tags":["`+run+`"]}`)
 	if kB["state"] != "active" || kC["state"] != "pending" {
 		t.Fatalf("seed state kB=%v kC=%v, want active/pending", kB["state"], kC["state"])
 	}
 	idA, idC := int(kA["id"].(float64)), int(kC["id"].(float64))
-	out, code := runCLI(t, []string{"approve", "--id", strconv.Itoa(idC), "--supersede", strconv.Itoa(idA)}, "")
+	out, code := runCLI(t, []string{"approve", "--id", strconv.Itoa(idC), "--supersede", strconv.Itoa(idA), "--claim", "procedure"}, "")
 	if code != 0 {
 		t.Fatalf("approve --supersede exit=%d, want 0; out=%s", code, out)
 	}

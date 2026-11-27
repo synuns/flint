@@ -11,7 +11,7 @@ import (
 var seedCommands = []string{
 	"write", "read", "hot", "brief", "status", "profile", "backup", "restore",
 	"sync",
-	"approve", "pending", "maintain", "doctor", "report", "export",
+	"approve", "pending", "state", "maintain", "doctor", "report", "export",
 	"distill",
 	"done", "compact", "nudge", "seed", "engine", "setup", "teardown", "version", "mcp",
 	"index",

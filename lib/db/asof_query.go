@@ -14,6 +14,7 @@ import (
 var asOfTables = map[string]bool{
 	"knowledge":        true,
 	"active_knowledge": true,
+	"recall_knowledge": true,
 }
 
 var asOfHashReDB = regexp.MustCompile(`^[0-9a-z]{6,64}$`)
@@ -27,7 +28,7 @@ func (r *Repo) QueryAsOf(ctx context.Context, q wire.AsOfQuery) ([][]any, error)
 	if err != nil {
 		if isViewColumnMismatch(err) {
 
-			return nil, fmt.Errorf("%w — the active_knowledge view definition is incompatible with rows at that point in time; try an AS OF query on the base table (knowledge)", err)
+			return nil, fmt.Errorf("%w — the %s view definition is incompatible with rows at that point in time; try an AS OF query on the base table (knowledge)", err, q.Table)
 		}
 		return nil, err
 	}
@@ -36,7 +37,7 @@ func (r *Repo) QueryAsOf(ctx context.Context, q wire.AsOfQuery) ([][]any, error)
 
 func (r *Repo) queryAsOfTable(ctx context.Context, q wire.AsOfQuery, table string) ([][]any, error) {
 	if !asOfTables[table] {
-		return nil, fmt.Errorf("query as of: table %q not allowed (knowledge, active_knowledge)", table)
+		return nil, fmt.Errorf("query as of: table %q not allowed (knowledge, active_knowledge, recall_knowledge)", table)
 	}
 	if !asOfHashReDB.MatchString(q.Hash) {
 

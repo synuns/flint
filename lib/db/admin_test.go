@@ -29,10 +29,10 @@ func slowApproveIdempotent(t *testing.T, r *Repo) {
 		t.Fatalf("InsertBatch: %v", err)
 	}
 	id := ids[0]
-	if err := r.Approve(ctx, id); err != nil {
+	if err := r.Approve(ctx, id, ""); err != nil {
 		t.Fatalf("first Approve: %v", err)
 	}
-	if err := r.Approve(ctx, id); err != nil {
+	if err := r.Approve(ctx, id, ""); err != nil {
 		t.Fatalf("second Approve (want idempotent no-op): %v", err)
 	}
 	var status string
@@ -46,7 +46,7 @@ func slowApproveIdempotent(t *testing.T, r *Repo) {
 }
 
 func slowApproveMissing(t *testing.T, r *Repo) {
-	if err := r.Approve(context.Background(), 99999); !errors.Is(err, ErrNotFound) {
+	if err := r.Approve(context.Background(), 99999, ""); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("want ErrNotFound, got %v", err)
 	}
 }
@@ -831,8 +831,8 @@ func TestV14FreshSchemaDirect(t *testing.T) {
 			t.Fatalf("게이트 체인 v%d: %v", gate.Version, err)
 		}
 	}
-	if v := readVersion(t, r); v != "19" {
-		t.Fatalf("게이트 체인 후 schema_version = %q, want 19 (v1.24.0 상향)", v)
+	if v := readVersion(t, r); v != "20" {
+		t.Fatalf("게이트 체인 후 schema_version = %q, want 20 (v1.38.0 상향)", v)
 	}
 	v14GateArtifacts(t, r, ctx)
 

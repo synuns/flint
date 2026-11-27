@@ -106,6 +106,11 @@ func newTestRepo(t *testing.T) *Repo {
 	if err := r.Migrate(ctx); err != nil {
 		t.Fatalf("Migrate: %v", err)
 	}
+	for _, g := range SchemaGates() {
+		if err := g.Ensure(ctx, r); err != nil {
+			t.Fatalf("schema gate v%d: %v", g.Version, err)
+		}
+	}
 
 	for _, tbl := range []string{"knowledge", "sessions", "projects"} {
 		if _, err := r.pool.Exec(ctx, "DELETE FROM "+tbl); err != nil {
@@ -125,6 +130,11 @@ func newScratchTestRepo(t *testing.T, ctx context.Context) *Repo {
 	t.Cleanup(r.Close)
 	if err := r.Migrate(ctx); err != nil {
 		t.Fatalf("Migrate(scratch): %v", err)
+	}
+	for _, g := range SchemaGates() {
+		if err := g.Ensure(ctx, r); err != nil {
+			t.Fatalf("schema gate v%d(scratch): %v", g.Version, err)
+		}
 	}
 
 	if _, err := r.pool.Exec(ctx, `SELECT dolt_add('-A')`); err != nil {

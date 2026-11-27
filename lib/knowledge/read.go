@@ -224,6 +224,7 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 
 			{Name: "--min-confidence", Value: true},
 			{Name: "--origin", Value: true},
+			{Name: "--claim", Value: true},
 
 			{Name: "--session", Value: true},
 			{Name: "--source", Value: true},
@@ -278,6 +279,17 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 			f.Origin = res.Value("--origin")
 		default:
 			fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{Field: "origin", Expect: "agent|human"}))
+			return 3
+		}
+	}
+
+	if res.Given("--claim") {
+		switch res.Value("--claim") {
+		case "decision", "procedure", "lesson", "event":
+			f.Claim = res.Value("--claim")
+		default:
+			fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{Field: "claim",
+				Expect: "decision|procedure|lesson|event"}))
 			return 3
 		}
 	}
@@ -403,7 +415,7 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 		}
 
 		aq := splitReadAsOf(sql, qargs)
-		aq.Hash, aq.Table = hash, "active_knowledge"
+		aq.Hash = hash
 		asOfHash = hash
 
 		if les, lerr := st.LogEntries(ctx, wire.LogQuery{Hash: hash}); lerr == nil && len(les) == 1 {
@@ -695,9 +707,16 @@ func ValidAsOfHash(hash string) bool {
 }
 
 func splitReadAsOf(sql string, args []any) wire.AsOfQuery {
-	const from = " FROM active_knowledge"
+	from := " FROM active_knowledge"
+	table := "active_knowledge"
+	if i := strings.Index(sql, " FROM recall_knowledge"); i >= 0 {
+		from, table = " FROM recall_knowledge", "recall_knowledge"
+	} else if i := strings.Index(sql, " FROM knowledge "); i >= 0 {
+		from, table = " FROM knowledge", "knowledge"
+	}
 	var q wire.AsOfQuery
 	i := strings.Index(sql, from)
+	q.Table = table
 	head := strings.TrimPrefix(sql[:i], "SELECT ")
 	tail := sql[i+len(from):]
 

@@ -555,6 +555,21 @@ var versionDocContracts = []struct {
 	{name: "TestVersion01371Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.37.1", "g5-smoke-guards",
 	}},
+	{name: "TestVersion01380Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.38.0", "knowledge-growth-model",
+	}},
+	{name: "TestVersion01381Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.38.1", "r143-claim-integrity",
+	}},
+	{name: "TestVersion01382Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.38.2", "r143-angle2-security",
+	}},
+	{name: "TestVersion01383Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.38.3", "r143-angle3-performance",
+	}},
+	{name: "TestVersion01384Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.38.4", "r143-angle4-docs",
+	}},
 	{name: "TestVersion0170Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.7.0", "sync",
 	}},
