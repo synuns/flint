@@ -233,7 +233,7 @@ func TestHotBudgetCoversKnowledgePlusSnapshot(t *testing.T) {
 	}
 	open := []map[string]any{
 		synthState(1, 1, strings.Repeat("가", 60), strings.Repeat("나", 60), now.Add(-time.Hour)),
-		synthState(2, 1, strings.Repeat("다", 60), "", now.Add(-2 * time.Hour)),
+		synthState(2, 1, strings.Repeat("다", 60), "", now.Add(-2*time.Hour)),
 	}
 	f := hotStateStore(t, rows, open)
 	f.queryFn = func(sql string, args []any) ([][]any, error) {
