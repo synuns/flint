@@ -140,6 +140,8 @@ type EffectCost struct {
 	SavingsLabel           string      `json:"savings_label"`
 	HitInjectionCostBytes  int         `json:"hit_injection_cost_bytes"`
 	HitCostLabel           string      `json:"hit_cost_label"`
+
+	summaryAvgBytes int `json:"-"`
 }
 
 type CostSurface struct {
@@ -336,24 +338,23 @@ func RunReport(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 		return runReportHTML(ctx, st, days, htmlOut, stdout)
 	}
 	out := ReportOutput{Days: make([]ReportDay, 0, days)}
-	if err := collectDaily(ctx, st, days, &out); err != nil {
-		fmt.Fprintln(stdout, wire.ErrLine(err))
-		return store.MapExit(err)
-	}
 
 	var g errgroup.Group
-	var statErr, countErr, effectErr error
+	var dailyErr, statErr, countErr, effectErr error
+	var daily dailyAgg
+	g.Go(func() error { daily, dailyErr = collectDailyAgg(ctx, st, days); return nil })
 	g.Go(func() error { collectCuration(ctx, st, days, &out); return nil })
 	g.Go(func() error { statErr = collectStats(ctx, st, &out); return nil })
 	g.Go(func() error { countErr = collectCounts(ctx, st, days, th, &out); return nil })
 	g.Go(func() error { effectErr = collectEffect(ctx, st, days, th, &out); return nil })
 	g.Wait()
-	for _, err := range []error{statErr, countErr, effectErr} {
+	for _, err := range []error{dailyErr, statErr, countErr, effectErr} {
 		if err != nil {
 			fmt.Fprintln(stdout, wire.ErrLine(err))
 			return store.MapExit(err)
 		}
 	}
+	daily.applyTo(&out)
 
 	out.DupPct = DupPct(out.Days)
 
@@ -405,17 +406,27 @@ func printReportText(w io.Writer, out ReportOutput, days int) {
 	}
 }
 
-func collectDaily(ctx context.Context, st wire.Store, days int, out *ReportOutput) error {
+type dailyAgg struct {
+	days         []ReportDay
+	zeroPct      int
+	zeroNearPct  int
+	hitPct       int
+	nearPct      int
+	dupPrevented int
+	bytes        EffectBytes
+}
+
+func collectDailyAgg(ctx context.Context, st wire.Store, days int) (dailyAgg, error) {
 	dayRows, err := WindowedDaily(ctx, st, days)
 	if err != nil {
-		return err
+		return dailyAgg{}, err
 	}
-	out.Days = dayRows
+	a := dailyAgg{days: dayRows}
 
 	var sumRead, sumZero, sumNear, sumDup int
 
 	var sumHot, sumBrief, sumReadB, sumHotB, sumBriefB int
-	for _, d := range out.Days {
+	for _, d := range a.days {
 		sumRead += d.Read
 		sumZero += d.ReadZero
 		sumNear += d.ReadNear
@@ -426,18 +437,44 @@ func collectDaily(ctx context.Context, st wire.Store, days int, out *ReportOutpu
 		sumHotB += d.HotBytes
 		sumBriefB += d.BriefBytes
 	}
-	out.ZeroPct = ReadZeroPct(sumRead, sumZero)
-	out.ZeroNearPct = ReadZeroPct(sumRead, sumNear)
+	a.zeroPct = ReadZeroPct(sumRead, sumZero)
+	a.zeroNearPct = ReadZeroPct(sumRead, sumNear)
 
-	out.Effect.HitPct = PctOf(sumRead-sumZero, sumRead)
-	out.Effect.NearPct = PctOf(sumNear, sumRead)
-	out.Effect.DupPrevented = sumDup
+	a.hitPct = PctOf(sumRead-sumZero, sumRead)
+	a.nearPct = PctOf(sumNear, sumRead)
+	a.dupPrevented = sumDup
 
-	out.Effect.Bytes = EffectBytes{
+	a.bytes = EffectBytes{
 		Read:  SurfaceBytes{Bytes14d: sumReadB, AvgBytes: avgBytes(sumReadB, sumRead)},
 		Hot:   SurfaceBytes{Bytes14d: sumHotB, AvgBytes: avgBytes(sumHotB, sumHot)},
 		Brief: SurfaceBytes{Bytes14d: sumBriefB, AvgBytes: avgBytes(sumBriefB, sumBrief)},
 	}
+	return a, nil
+}
+
+func (a dailyAgg) applyTo(out *ReportOutput) {
+	out.Days = a.days
+	out.ZeroPct = a.zeroPct
+	out.ZeroNearPct = a.zeroNearPct
+	out.Effect.HitPct = a.hitPct
+	out.Effect.NearPct = a.nearPct
+	out.Effect.DupPrevented = a.dupPrevented
+	out.Effect.Bytes = a.bytes
+	out.Effect.Cost.Read.Bytes14d = a.bytes.Read.Bytes14d
+	out.Effect.Cost.Read.AvgBytes = a.bytes.Read.AvgBytes
+	out.Effect.Cost.Hot.Bytes14d = a.bytes.Hot.Bytes14d
+	out.Effect.Cost.Hot.AvgBytes = a.bytes.Hot.AvgBytes
+	out.Effect.Cost.Brief.Bytes14d = a.bytes.Brief.Bytes14d
+	out.Effect.Cost.Brief.AvgBytes = a.bytes.Brief.AvgBytes
+	out.Effect.Cost.SavingsLowerBoundBytes = a.dupPrevented * out.Effect.Cost.summaryAvgBytes
+}
+
+func collectDaily(ctx context.Context, st wire.Store, days int, out *ReportOutput) error {
+	a, err := collectDailyAgg(ctx, st, days)
+	if err != nil {
+		return err
+	}
+	a.applyTo(out)
 	return nil
 }
 
@@ -1235,12 +1272,9 @@ func collectZeroDecompose(out *ReportOutput, inWin []ReadEventRow) {
 
 func collectCost(ctx context.Context, st wire.Store, out *ReportOutput, inWin []ReadEventRow) {
 	c := EffectCost{
-		Read: CostSurface{Mode: costModeOnInvoke,
-			Bytes14d: out.Effect.Bytes.Read.Bytes14d, AvgBytes: out.Effect.Bytes.Read.AvgBytes},
-		Hot: CostSurface{Mode: costModeAlwaysOn,
-			Bytes14d: out.Effect.Bytes.Hot.Bytes14d, AvgBytes: out.Effect.Bytes.Hot.AvgBytes},
-		Brief: CostSurface{Mode: costModeOnInvoke,
-			Bytes14d: out.Effect.Bytes.Brief.Bytes14d, AvgBytes: out.Effect.Bytes.Brief.AvgBytes},
+		Read:         CostSurface{Mode: costModeOnInvoke},
+		Hot:          CostSurface{Mode: costModeAlwaysOn},
+		Brief:        CostSurface{Mode: costModeOnInvoke},
 		SavingsLabel: CostSavingsLabel,
 		HitCostLabel: CostHitLabel,
 	}
@@ -1261,9 +1295,17 @@ func collectCost(ctx context.Context, st wire.Store, out *ReportOutput, inWin []
 			sum += v
 		}
 		avg := sum / len(lens)
+		c.summaryAvgBytes = avg
 		c.SavingsLowerBoundBytes = out.Effect.DupPrevented * avg
 		c.HitInjectionCostBytes = hitSum * avg
 	}
+	prev := out.Effect.Cost
+	c.Read.Bytes14d = prev.Read.Bytes14d
+	c.Read.AvgBytes = prev.Read.AvgBytes
+	c.Hot.Bytes14d = prev.Hot.Bytes14d
+	c.Hot.AvgBytes = prev.Hot.AvgBytes
+	c.Brief.Bytes14d = prev.Brief.Bytes14d
+	c.Brief.AvgBytes = prev.Brief.AvgBytes
 	out.Effect.Cost = c
 }
 

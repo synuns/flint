@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strings"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/synuns/flint/lib/i18n"
 	"github.com/synuns/flint/lib/store"
 	"github.com/synuns/flint/lib/wire"
@@ -74,9 +76,17 @@ func runProfile(ctx context.Context, st Store, args []string, stdin io.Reader, s
 
 	var out reportOutput
 	_ = collectEffect(ctx, st, 14, &out)
-	th := writeThresholds(ctx, st)
-	getKV, _ := metaKV(ctx, st)
-	current := ExposureProfile(getKV)
+
+	var th store.Thresholds
+	var current string
+	var g errgroup.Group
+	g.Go(func() error { th = writeThresholds(ctx, st); return nil })
+	g.Go(func() error {
+		getKV, _ := metaKV(ctx, st)
+		current = ExposureProfile(getKV)
+		return nil
+	})
+	g.Wait()
 	hint := profileHint(th, out.Effect)
 	recommend, reason := "", ""
 	switch {
