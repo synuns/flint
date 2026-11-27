@@ -643,8 +643,7 @@ func TestOpenWorkStateSanitizesAndWarnsSecrets(t *testing.T) {
 	var id int
 	var res string
 	var err error
-	var stderr string
-	stderr = captureStderrWorkState(t, func() {
+	stderr := captureStderrWorkState(t, func() {
 		id, res, err = f.OpenWorkState(ctx, map[string]any{
 			"project_id": 1, "task": "secret check", "detail": detail,
 		})
