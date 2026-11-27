@@ -298,7 +298,7 @@ Two record types live side by side: **knowledge** (claims about the world — ga
 | `flint pending` | Pending review queue with verdicts (promote·merge·expire·hold, `--json`) |
 | `flint compact` | Record a compact summary as pending knowledge (PostCompact hook entry) |
 | `flint nudge` | Session-end distillation reminder for markers left by compact (`--clear` closes) |
-| `flint doctor --check c` | Health checks (23 kinds, subset via `--check`, fail → exit 1) |
+| `flint doctor --check c` | Health checks (30 checks, subset via `--check`, fail → exit 1) |
 | `flint report --days n` | Daily intake·zero_pct·p95·stale report (`--html` static dashboard) |
 | `flint diff <from> <to>` | Compare knowledge between two as-of points |
 | `flint teardown` | Undo setup (hooks/config; `--purge` also removes data) |

@@ -149,6 +149,10 @@ FROM work_state WHERE status = 'open';
 lib/db/admin.go 스키마 게이트 내 인라인 정의다(views_sig 감시망 밖 — 문서·코드
 동일 게이트는 doclint와 감사 루프가 담당). recall_knowledge는 status 열을
 포함한 10열(§5 초안 9열에서 status 추가 — read --fields id,status 계약).
+resolved 행 보존 판정 갱신(2026-11-27 v1.38.3·R143 각도3): 무기한 보존에서
+**보존 기한 정리로 뒤집힘** — `work_state_resolved_retention_days`(기본 90)·
+`maintain --stale-state --commit`이 resolved 행을 DELETE(R143-3호 1: resolved
+누적이 secrets_scan_row_limit를 고갈시키는 결함 수리).
 
 - **scope 신설 없음** — 유효 범위 앵커는 기존 `conditions`(조건 태그,
   K5 실현)를 재사용한다. 회상 시점 조건 평가·자동 탈락은 P1 위반이므로
@@ -184,7 +188,7 @@ lib/db/admin.go 스키마 게이트 내 인라인 정의다(views_sig 감시망 
 | knowledge(event) | 동일 | 없음 | 무기한 보존(회상 제외) |
 | pending 후보 | write(심사 전) | 없음 | expire-pending |
 | work_state(open) | **무조건 기록** | state_hash 흡수 갱신 | resolve(승인)·stale 주입 제외 |
-| work_state(resolved) | — | 없음 | 무기한 보존(주입 제외) |
+| work_state(resolved) | — | 없음 | 주입 제외·보존 기한(90일) 후 stale-state 정리(v1.38.3 갱신) |
 
 ## 8. 단계 편성
 

@@ -238,8 +238,12 @@ Sources: `lib/wire/registry.go` · `lib/wire/run.go` · `lib/store/pipeline.go` 
   symbol folding), so a re-reported open task with the same hash updates
   the existing row (detail · next_action · `updated_at`) instead of adding
   one. `flint state list [--all]` lists open rows project-scoped, latest
-  `updated_at` first (`--all` includes resolved rows — resolved rows are
-  kept indefinitely and stay out of injection). `flint state resolve --id N
+  `updated_at` first (`--all` includes resolved rows — resolved rows stay
+  out of injection and are purged after
+  `work_state_resolved_retention_days`, default 90, by
+  `maintain --stale-state`). `flint state open --task T` requires a
+  non-empty task (empty or whitespace-only is exit 3 — CLI and MCP are
+  the same contract). `flint state resolve --id N
   [--by K]` closes an open row; `--by K` records the resolving knowledge id
   (a soft reference — NULL when omitted). An open row untouched for
   `state_stale_days` leaves the hot snapshot, and `maintain --stale-state`
@@ -252,9 +256,9 @@ Sources: `lib/wire/registry.go` · `lib/wire/run.go` · `lib/store/pipeline.go` 
   knowledge). `flint read --claim <value>` applies the claim filter, so
   `--claim event` reaches event rows through the explicit-lookup path;
   an unrecognized claim value is exit 3. The `--json --fields` allowlist
-  gains `claim`. The default (recall) path projects the 9 view columns —
-  status·read_count are not projected; use `--claim event` to read event
-  rows with the base-table shape.
+  gains `claim`. The default (recall) path projects all 10 view columns
+  (status included); `read_count` is not part of the view — use
+  `--claim event` to read event rows with the base-table shape.
 - Approve claim gate (v1.38.0): `flint approve` is the single claim gate.
   Promoting a row whose claim is empty (or the migration backfill `event`)
   requires `--claim <decision|procedure|lesson|event>` — without it the
