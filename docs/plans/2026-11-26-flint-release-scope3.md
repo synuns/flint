@@ -30,7 +30,7 @@ zero-hit 감소·주입 프로필 확장)·어댑터 확장·마케팅 계열·b
 | 버전 | 상태 | 비고 |
 |---|---|---|
 | v1.38.0 | patch-loop | **발행 완료(2026-11-26 15:53 UTC·Latest)** — release-gate green·태그 v1.38.0(HEAD b923a0c)·CI 전 job green(3회 재판정: gofmt 3파일·e2e 정렬 6종·실코드 결함 2건 수리 과정 포함)·전수 GREEN 20/0/183s | 
-| v1.38.x | building | 패치 루프 R143~ — 독립 감사 4각도 로테이션(각도1=계약·스키마 정합→2=보안·개인데이터→3=성능·자원→4=문서·계약 동기)·발견 0까지·testengine purge 수리 검증·release-gate e2e 편입·heavy 직렬화 |
+| v1.38.x | patch-loop | **v1.38.1 발행(2026-11-27 00:18 UTC·Latest)** — R143 감사 1호 5건 수리(claim 무결성 3·hot 예산 불변식·fixture 게이트)·CI 4차 사이클(gofmt 3파일·noqa 5행·e2e 정렬 6종)·로컬 make ci 패리티 도입. 각도 2~4 감사 진행 중(2=보안·개인데이터→3=성능·자원→4=문서·계약 동기)·**R143 확정 과제: release_gate.sh↔make ci 커버리지 불일치(gofmt·e2e 미포함 — CI 3회 실패 근본)** |
 | v1.39.0 | todo | 착수 전 기획 리뷰 게이트(2단계 설계는 승인된 문서 §8에 존재 — 플랜 신설 필요) |
 | v1.40.0 | todo | |
 | v1.41.0 | todo | |
