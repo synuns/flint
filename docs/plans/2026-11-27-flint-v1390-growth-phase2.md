@@ -12,17 +12,23 @@
 
 1. **프로젝트 연결 축 = work_state.session_id 백필+세션 사슬 해석(스키마 불변 우선)**.
    근거: work_state.session_id·project_id 열이 이미 존재(v20)·hot은 --session 라벨
-   수신(리서치 8)·sessions.project_id는 done 기록분에만 의미(세션 중간 프로젝트
-   전환 미포착). v21 신규 열은 "세션 사슬로 불충분함이 실증될 때" 보류 —
-   additive 판정은 구현 중 G2에서 확정(스키마 버전당 1회 원칙 유지).
-   세부: `flint state open`이 세션 라벨을 수신해 session_id 채움·hot은
-   현재 세션 라벨→최근 work_state 행의 project_id 해석→project 우선 정렬
-   분기(hot.go:420-425) 활성화. 미해석 시 기존 동작(0=무필터·바이트 동일).
+   수신(리서치 8)·**세션→프로젝트 연결 열은 어디에도 없다 — work_state.project_id가
+   유일한 연결 축**(감사 1호 교정: sessions.project_id 열은 존재하지 않음).
+   v21 신규 열은 "세션 사슬로 불충분함이 실증될 때" 보류 — additive 판정은
+   구현 중 G2에서 확정(스키마 버전당 1회 원칙 유지). **v21 미소진 — 완료 시
+   scope3 §1·§3 스키마 칸 갱신**(감사 2호). 세부: `flint state open`이 세션
+   라벨을 수신해 session_id 채움(라벨 수신 경로: wire.ReadSessionLabel 라벨
+   파일 폴백 우선 — ops.SessionLabel --session 플래그 전용 파서와 구분, 감사
+   5호-b)·hot은 현재 세션 라벨→최근 work_state 행의 project_id 해석
+   (project_id NULL 행은 재시도 없음 — 해석 실패·감사 5호-a)→project 우선
+   정렬 분기(hot.go:420-425) 활성화. 미해석 시 기존 동작(0=무필터·바이트 동일).
 2. **recall-audit 권장 처분 필드 신설(decay-audit 패리티)** — recommend:
-   supersede|expire|재확신|hold. 근거: decay-audit만 recommend 보유
+   supersede|expire|hold(재확신은 실행 경로가 v1.40.0 배분 — enum 제외·
+   필요 시 v1.40.0에서 확장, 감사 4호). 근거: decay-audit만 recommend 보유
    (maintain_supersede.go:183)·처분 4경로의 recallAuditDisposed 카운터 연결
    완료(리서치 5)·bad_recall 소비처(recall-active burst) 존재(리서치 6).
-   판정 규칙은 코드 상수(비-L·P1 준수 — 무검증 자동 승격 금지)·처분 실행은
+   **판정 규칙의 수치 컷(bad_recall≥N 등)은 thresholds.go 신설 키 등록 —
+   규칙 구조만 코드 상수**(감사 3호·meta 오버라이드 원칙 준수)·처분 실행은
    기존 유지 관리 경로 경유(승인제).
 3. **read 랭킹 확장은 보수적으로**: read는 read_count를 이미 RRF 신호로 사용
    (리서치 3) — 1단계 신규는 recall_events의 read 경로 확장(횟수 신호·
@@ -38,7 +44,8 @@ P1·P2·K1~K5·비간섭 5원칙·work_state 수명 계약(open 무조건 기록
 
 ## 3. 수용 기준(요지)
 
-1. recall 신호가 read 순위에 반영되고 제로히트·회귀 없음(전수 GREEN).
+1. recall 신호가 read 순위에 반영되고 제로히트·회귀 없음(전수 GREEN)·
+   **read p95 무악화(최다 빈도 경로 — recall_events 결합은 additive 융합만)**.
 2. recall-audit 출력에 recommend 필드·처분 카운터 전환율(D4) 계량 가능.
 3. 세션 라벨로 project 해석 성공 시 hot 스냅샷이 프로젝트 우선 정렬·
    미해석 시 바이트 동일(1단계 회귀 유지).
