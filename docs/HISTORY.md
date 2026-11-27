@@ -6,6 +6,26 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.38.4 patch (2026-11-27) — r143-angle4-docs
+
+6 documentation corrections from the R143 audit angle 4 (docs · contract
+sync) — no code changes.
+
+- **[docs] cli.md read projection**: the default path projects all 10 view
+  columns (status included) — the "9 columns, status not projected"
+  wording contradicted the shipped recallColumns.
+- **[docs] work_state retention**: cli.md and TUNING.md said resolved rows
+  are kept indefinitely — v1.38.3 purges them after 90 days
+  (work_state_resolved_retention_days, now in the TUNING §2 table).
+- **[docs] design doc retention flip**: growth-model §4·§7 updated for the
+  90-day purge judgment (R143-3 finding 1).
+- **[docs] QUICKSTART**: the read example names the recall_knowledge view
+  and `flint state open` joins the verification list.
+- **[docs] README doctor count**: 23 → 30 (doclint-gated value).
+- **[docs] minor gaps**: cli.md states the empty --task exit 3 contract;
+  SKILL.md read line lists --claim.
+Design: docs/plans/2026-11-25-flint-knowledge-growth-model.md
+
 ### v1.38.3 patch (2026-11-27) — r143-angle3-performance
 
 5 findings from the R143 audit angle 3 (performance · resources), all

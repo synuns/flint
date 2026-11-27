@@ -26,7 +26,7 @@
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 하네스">
   <a href="https://github.com/synuns/flint/actions/workflows/ci.yml"><img src="https://github.com/synuns/flint/actions/workflows/ci.yml/badge.svg" alt="CI 상태"></a>
-  <img src="https://img.shields.io/badge/release-v1.38.3-blue" alt="v1.38.3">
+  <img src="https://img.shields.io/badge/release-v1.38.4-blue" alt="v1.38.4">
 </p>
 <p align="center">
   <sub>8종은 자동 등록(A급) 하니스 기준 — 전체 지원 목록은 아래 <a href="#에이전트--어댑터">어댑터 표</a>에 있습니다.</sub>
@@ -48,6 +48,7 @@ flint는 이걸 바꿉니다. 에이전트가 무언가 배우면 — 결정, �
 
 사람은 Obsidian에 노트를 남깁니다. 에이전트는 flint에 기억을 남깁니다 — 불과 도구를 얻기 위해 두드리는 부싯돌처럼.
 
+> v1.38.4 · r143-angle4 패치 — 문서: read projection 서술 교정(10열·status 포함)·work_state 보존 계약(90일 정리·TUNING 행 추가)·QUICKSTART recall 뷰+flint state·README doctor 수 30 · [전체 변경 이력](docs/HISTORY.md)
 > v1.38.3 · r143-angle3 패치 — 성능: resolved work_state 보존 정리(기본 90일)·배치 resolve(단일 UPDATE·resolved_at 기록)·dedup 질의 부분 유니크 인덱스 경로 복원·hot meta 질의 5→2·testengine scratch DROP 엔진다운 즉시 반환 · [전체 변경 이력](docs/HISTORY.md)
 > v1.38.2 · r143-angle2 패치 — 보안: secrets 스캔이 resolved work_state 행까지 커버·work_state 원문 저장 제거(살균 전용 진입 등록)·stale-state 출력 render 경유·빈 --task exit 3(CLI=MCP) · [전체 변경 이력](docs/HISTORY.md)
 > v1.38.1 · r143 패치 — claim 무결성: approve --claim 영속화(승격 행이 recall에서 소멸하지 않음)·write 시 claim 정규화·무효 어휘 거부·hot 스냅샷 예산 불변식(총합 ≤ 예산)·fixture 스키마 게이트 · [전체 변경 이력](docs/HISTORY.md)
