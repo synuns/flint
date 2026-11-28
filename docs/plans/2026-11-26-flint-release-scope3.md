@@ -23,7 +23,9 @@
 ## 2. 트리거 대기 (루프 밖)
 
 census 잔여 청소·D5 계측(echo·재점검 정착 후)·토큰 최적화 3종(summary-only 회상·
-zero-hit 감소·주입 프로필 확장)·어댑터 확장·마케팅 계열·brew tap 개설(사용자 요청 시).
+zero-hit 감소·주입 프로필 확장)·어댑터 확장·마케팅 계열. brew tap은 2026-11-28
+개설 완료(synuns/homebrew-tap·소스 빌드 formula — cask·사전빌드 경로는 macOS 26
+quarantine 전파로 Gatekeeper 봉쇄 실증·전환 사유 HISTORY v1.42.1 참조).
 
 ## 3. 상태 표 (재개 지점)
 
@@ -37,7 +39,7 @@ zero-hit 감소·주입 프로필 확장)·어댑터 확장·마케팅 계열·b
 | v1.41.0 | done | **발행 완료(2026-11-27 17:49 UTC·Latest)** — 테스트 4도메인 통합(36파일→4·함수명·수 불변·카운트 단언)·report 병렬 잔여(collectDaily 5-way·profile 메타 2-way·골든 무변화)·read LIKE 이월(확장 프로브 전제) — 리서치(10사실)→기획(감사 APPROVED)→5태스크 |
 | v1.41.x | done | **v1.41.1(quality-consolidation-patch·18:02 UTC·Latest) 발행.** 패치 감사 3건(LOW 2 수리·이력 이탈 기록): TUNING/slowlock 낡은 참조 갱신 |
 | v1.42.0 | done | **발행 완료(2026-11-28 00:45 UTC·Latest·첫 시도 CI 통과) — 패치 루프 4각도 감사 APPROVED(발견 0·LOW 위생 1건 기록).** 게이트 서명 검증(cosign verify-blob·직전 태그·미설치 스킵)·BRAND 스윕 갱신(flint-fyi 관측)·관측 e2e(read_events_n ≥200/<200 데이터 경로) |
-| v1.42.x | done | **감사 APPROVED — v1.42.1 불필요.** LOW 1건(임시 디렉터리 위생·차단 아님)은 차기 스윕 반영 |
+| v1.42.x | done | **v1.42.1(cellint-pointer-patch·2026-11-28 04:52 UTC·Latest) 발행** — 코드 리뷰 5건 수리(692e109)·CellToInt *int 케이스(hotRowProjectID 제거·회귀 가드)·brew tap 개설. CI 1회 플레이크(native asof prefix — 교차 세션 dolt_log 가시성 경합 추정·재실행 green) |
 | v1.27.0 | gating | **조건 미충족 확인(2026-11-28 판정) — shadow 라운드 관측 미축족** (v1.23.0 도입 이후 shadow 라운드 데이터 확인 결과 축족 조건 미달). 스코프3기 종결 시점에 gating으로 확정 — 별도 착수는 관측 축족 후 |
 
 종료 시점: 위 전 행 done 또는 gating/closed 전환 + 완료 보고(스코프 대비 실적·
