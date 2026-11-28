@@ -6,6 +6,24 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.42.0 minor (2026-11-28) — surface-deploy
+
+Surface and deploy verification (technical items only — brew/marketing
+deferred by user decision):
+
+- **[feat] release gate sign verification**: the local release gate now
+  verifies the previous release's checksums signature via cosign
+  verify-blob against the embedded public key (skip-with-warning when
+  cosign is absent — not a blocker). Closes the gap between CI's
+  per-release automatic verification and local gate coverage.
+- **[docs] brand name re-sweep**: BRAND.md sweep table refreshed for
+  GitHub+brew surfaces (new observation: flint-fyi/flint; no verdict
+  changes).
+- **[test] observation threshold e2e**: read_events_n ≥200/<200 paths
+  verified end-to-end on the isolated engine (data-path assertion —
+  the threshold itself is a METRICS ruling, not code).
+Design: docs/plans/2026-11-28-flint-v1420-surface.md
+
 ### v1.41.1 patch (2026-11-28) — quality-consolidation-patch
 
 2 documentation/pointer fixes from the v1.41.0 audit (no code changes).
