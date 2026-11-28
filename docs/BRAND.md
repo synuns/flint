@@ -51,14 +51,16 @@
   별도 레이어 분리. 렌더 검증 완료(코너 alpha 0, 눈 픽셀 순백).
 - README 이중언어 헤더 적용(`07d8ddf`).
 
-## 외부 동향 회수 (2026-11-24)
+## 외부 동향 회수 (2026-11-24 · 2026-11-28 갱신)
 
-v1.28.0 R6 이름 재스윕 — 동일명 외부 프로젝트 회수 기록(GitHub
-실측). 충돌 평가와 ADR-0009(이름 확정·재론 금지) 유지 근거:
+v1.28.0 R6 이름 재스윕 — 동일명 외부 프로젝트 회수 기록. v1.42.0 T2
+재스윕(2026-11-28): GitHub 검색·brew 2표면 실측 확인, 관측만 갱신하고
+판정 불변. 충돌 평가와 ADR-0009(이름 확정·재론 금지) 유지 근거:
 
-| 프로젝트 | 실체(2026-11-24 확인) | 충돌 평가 | 유지 근거(1줄) |
+| 프로젝트 | 실체(2026-11-28 확인) | 충돌 평가 | 유지 근거(1줄) |
 | :--- | :--- | :--- | :--- |
-| grafana/flint | Grafana의 AI 코딩용 린터("Fast, simple linting that doesn't slow down your AI coding") | 검색 결과 경합뿐 — 에이전트 메모리 CLI와 범주·생태계 무교집합 | 도메인 상이(린터 vs 기억 DB) — 이름 변경 사유 미충족 |
-| shenghsi/flint | Zed의 터미널 우선 포크(Claude Code·Codex 등 CLI 도구 사용자 겨냥, 소규모) | 사용자층은 인접하나 산출물 범주 상이(에디터 vs CLI) — 패키지 네임스페이스 무충돌 | 개인 규모 포크 — 충돌 표면 없음, 유지 |
-| flint-lang | Flint 프로그래밍 언어 툴체인(flintc 등, 활동 중) | 언어·컴파일러 vs CLI — 범주 상이 | 존재 확인 기록으로 족함 — 유지 |
-| FLINT (flintlib/flint) | 수론 고속 C 라이브러리(flintlib.org, 장수·고스타) | 유일한 실질 경합면: `flint` 명령명·패키지명 중복(homebrew core `flint` formula) | 언어·빌드 생태계 상이(C 라이브러리) — brew는 전용 탭(synuns/flint) 경로로 회피(BREW.md) |
+| grafana/flint | Grafana의 AI 코딩용 린터("Fast, simple linting that doesn't slow down your AI coding"), 45스타·활동 중 | 검색 결과 경합뿐 — 에이전트 메모리 CLI와 범주·생태계 무교집합 | 도메인 상이(린터 vs 기억 DB) — 이름 변경 사유 미충족 |
+| flint-fyi/flint | JS/TS용 실험적 린터("A fast, friendly linter for JavaScript, TypeScript, and more"), 317스타·활동 중 — 2026-11-28 신규 회수 | 린터 vs 기억 DB — grafana/flint와 동일 범주 상이 | 도메인 상이 — 이름 변경 사유 미충족 |
+| shenghsi/flint | Zed의 터미널 우선 포크(Claude Code·Codex 등 CLI 도구 사용자 겨냥, 21스타) | 사용자층은 인접하나 산출물 범주 상이(에디터 vs CLI) — 패키지 네임스페이스 무충돌 | 개인 규모 포크 — 충돌 표면 없음, 유지 |
+| flint-lang | Flint 프로그래밍 언어 툴체인(flintc 등, 위키 flint-lang.github.io 운영) | 언어·컴파일러 vs CLI — 범주 상이 | 존재 확인 기록으로 족함 — 유지 |
+| FLINT (flintlib/flint) | 수론 고속 C 라이브러리(flintlib.org, 장수·고스타) — brew core `flint` formula 3.6.0 확인(2026-11-28) | 유일한 실질 경합면: `flint` 명령명·패키지명 중복(homebrew core `flint` formula) | 언어·빌드 생태계 상이(C 라이브러리) — brew는 전용 탭(synuns/flint) 경로로 회피(BREW.md) |
