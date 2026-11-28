@@ -38,7 +38,7 @@ zero-hit 감소·주입 프로필 확장)·어댑터 확장·마케팅 계열·b
 | v1.41.x | done | **v1.41.1(quality-consolidation-patch·18:02 UTC·Latest) 발행.** 패치 감사 3건(LOW 2 수리·이력 이탈 기록): TUNING/slowlock 낡은 참조 갱신 |
 | v1.42.0 | done | **발행 완료(2026-11-28 00:45 UTC·Latest·첫 시도 CI 통과) — 패치 루프 4각도 감사 APPROVED(발견 0·LOW 위생 1건 기록).** 게이트 서명 검증(cosign verify-blob·직전 태그·미설치 스킵)·BRAND 스윕 갱신(flint-fyi 관측)·관측 e2e(read_events_n ≥200/<200 데이터 경로) |
 | v1.42.x | done | **감사 APPROVED — v1.42.1 불필요.** LOW 1건(임시 디렉터리 위생·차단 아님)은 차기 스윕 반영 |
-| v1.27.0 | gating | 조건 미충족 — 충족 시 별도 착수 |
+| v1.27.0 | gating | **조건 미충족 확인(2026-11-28 판정) — shadow 라운드 관측 미축족** (v1.23.0 도입 이후 shadow 라운드 데이터 확인 결과 축족 조건 미달). 스코프3기 종결 시점에 gating으로 확정 — 별도 착수는 관측 축족 후 |
 
 종료 시점: 위 전 행 done 또는 gating/closed 전환 + 완료 보고(스코프 대비 실적·
 패치 통계·이월 잔여 목록) — 1기 §3 계약 승계.
