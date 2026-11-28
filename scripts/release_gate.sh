@@ -20,6 +20,23 @@ else
   echo "e2e skipped (engine down)"
 fi
 
+if ! command -v cosign >/dev/null 2>&1; then
+  echo "sign-verify skipped (cosign 미설치)"
+elif [ ! -s lib/cli/cosign.pub ]; then
+  echo "sign-verify skipped (lib/cli/cosign.pub 공백)"
+else
+  prev_tag="$(gh release list --limit 1 | awk '{print $1}')"
+  sv_dir="$(mktemp -d)"
+  if gh release download "$prev_tag" -p 'checksums.txt*' --dir "$sv_dir" >/dev/null 2>&1 \
+     && cosign verify-blob --key lib/cli/cosign.pub --insecure-ignore-tlog \
+          --signature "$sv_dir/checksums.txt.sig" "$sv_dir/checksums.txt" >/dev/null 2>&1; then
+    echo "sign-verify OK (${prev_tag})"
+  else
+    fail "sign-verify red (${prev_tag})"
+  fi
+  rm -rf "$sv_dir"
+fi
+
 pj="$(python3 -c 'import json;print(json.load(open("flint-plugin/.claude-plugin/plugin.json"))["version"])')"
 [ "$pj" = "$ver" ] || fail "plugin.json=${pj}"
 
