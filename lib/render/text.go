@@ -18,6 +18,11 @@ func CellToInt(v any) (int, bool) {
 	switch n := v.(type) {
 	case int:
 		return n, true
+	case *int:
+		if n == nil {
+			return 0, false
+		}
+		return *n, true
 	case int32:
 		return int(n), true
 	case int64:

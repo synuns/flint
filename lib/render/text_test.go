@@ -7,6 +7,8 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+func intPtr(n int) *int { return &n }
+
 func TestTruncateRunesSingleSource(t *testing.T) {
 	long := strings.Repeat("한", 60)
 	if got := TruncateRunes(long, 40); len([]rune(got)) != 40 || got != strings.Repeat("한", 40) {
@@ -47,6 +49,8 @@ func TestCellToIntSingleSource(t *testing.T) {
 		{7.9, 7, true},
 		{validNum, 4242, true},
 		{pgtype.Numeric{}, 0, false},
+		{intPtr(7), 7, true},
+		{(*int)(nil), 0, false},
 	}
 	for _, tc := range cases {
 		got, ok := CellToInt(tc.in)

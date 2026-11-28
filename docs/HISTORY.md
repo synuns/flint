@@ -6,6 +6,25 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.42.1 patch (2026-11-28) — cellint-pointer-patch
+
+The v1.42.0 code-review follow-ups plus the CellToInt pointer robustness
+fix; the Homebrew cask tap goes live with this release.
+
+- **[fix] CellToInt `*int` case**: `*int` now coerces directly (nil →
+  (0, false)). The v1.38.0 hot-snapshot ordering dead branch routed
+  around this gap with a local helper — the helper is gone and the sort
+  calls `render.CellToInt` itself (regression guarded by
+  TestHotProjectPriorityIntPointerRows).
+- **[fix] release gate sign-verify hardening** (5 review findings): a
+  previous release without checksums.txt.sig skips verification with a
+  transition note instead of failing · gh failures carry a diagnostic ·
+  temp dirs cleaned via trap · observation e2e error text corrected ·
+  int-coercion helpers unified (v1420Int).
+- **[infra] Homebrew cask tap**: synuns/homebrew-tap opens with the
+  flint cask — README install path 4 flips from "tap in preparation"
+  to live (`brew install --cask synuns/tap/flint`).
+
 ### v1.42.0 minor (2026-11-28) — surface-deploy
 
 Surface and deploy verification (technical items only — brew/marketing

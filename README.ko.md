@@ -26,7 +26,7 @@
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 하네스">
   <a href="https://github.com/synuns/flint/actions/workflows/ci.yml"><img src="https://github.com/synuns/flint/actions/workflows/ci.yml/badge.svg" alt="CI 상태"></a>
-  <img src="https://img.shields.io/badge/release-v1.42.0-blue" alt="v1.42.0">
+  <img src="https://img.shields.io/badge/release-v1.42.1-blue" alt="v1.42.1">
 </p>
 <p align="center">
   <sub>8종은 자동 등록(A급) 하니스 기준 — 전체 지원 목록은 아래 <a href="#에이전트--어댑터">어댑터 표</a>에 있습니다.</sub>
@@ -48,6 +48,7 @@ flint는 이걸 바꿉니다. 에이전트가 무언가 배우면 — 결정, �
 
 사람은 Obsidian에 노트를 남깁니다. 에이전트는 flint에 기억을 남깁니다 — 불과 도구를 얻기 위해 두드리는 부싯돌처럼.
 
+> v1.42.1 · CellToInt 포인터 패치 — CellToInt *int 강제 변환(hot 스냅샷 정렬 헬퍼 제거)·release-gate 서명 검증 강화(리뷰 5건: .sig 부재 전환 스킵·gh 진단·trap 청소·e2e 문구·헬퍼 통합)·Homebrew cask tap 개설(brew install --cask synuns/tap/flint) · [전체 변경 이력](docs/HISTORY.md)
 > v1.42.0 · 표면·배포 — release gate 서명 검증(cosign verify-blob·임베드 공개키·미설치 시 스킵)·브랜드 이름 재스윕(GitHub+brew·flint-fyi 관측)·관측 임계값 e2e(read_events_n ≥200/<200 데이터 경로 단언) · [전체 변경 이력](docs/HISTORY.md)
 > v1.41.1 · 품질 청산 패치 — 감사 수리: TUNING·slowlock 낡은 파일 참조 통합 파일명으로 갱신 · [전체 변경 이력](docs/HISTORY.md)
 > v1.41.0 · 품질 청산 — 버전 접미 테스트 4도메인 단일 파일 통합(36개 제거·함수명·수 불변)·report 병렬 잔여: collectDaily errgroup 합류(5-way)·profile 메타 병렬(골든 출력 무변화)·read LIKE 이월(pg_trgm 미지원) · [전체 변경 이력](docs/HISTORY.md)
@@ -177,7 +178,13 @@ line=$(grep " $asset\$" checksums.txt) && [ -n "$line" ] && echo "$line" | shasu
 tar -xzf "$asset" && install flint ~/.local/bin
 ```
 
-**4 · Homebrew(cask — tap 준비 중)**: flint는 사전 빌드 바이너리만 배포하므로 Homebrew 경로는 **formula가 아니라 cask**입니다 — goreleaser가 바이너리 릴리스의 formula 기반 배포를 폐기(deprecation, 2026)했고, cask는 릴리스 자산 그대로를 sha256 검증과 함께 설치하므로 수동 경로와 동일한 신뢰 사슬이 됩니다. tap이 열리면 `brew install --cask synuns/tap/flint` 형태가 되고, 준비는 릴리스마다 Cask 하나(`url` = 릴리스 자산, `sha256` = `checksums.txt`의 값)를 담은 `homebrew-tap` 저장소로 이뤄집니다. 그 전까지는 1·2번 경로를 이용하세요.
+**4 · Homebrew(cask)**: flint는 사전 빌드 바이너리만 배포하므로 Homebrew 경로는 **formula가 아니라 cask**입니다 — cask는 릴리스 자산 그대로를 sha256 검증과 함께 설치하므로 수동 경로와 동일한 신뢰 사슬이 됩니다:
+
+```bash
+brew install --cask synuns/tap/flint
+```
+
+tap([synuns/homebrew-tap](https://github.com/synuns/homebrew-tap))은 릴리스마다 Cask 하나(`url` = 릴리스 자산, `sha256` = `checksums.txt`의 값)를 유지합니다. macOS 전용 — Linux에서는 1·2번 경로를 이용하세요.
 
 ### Claude Code
 
