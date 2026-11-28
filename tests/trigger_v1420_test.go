@@ -58,26 +58,27 @@ func v1420RunReport(t *testing.T) map[string]any {
 	return m
 }
 
+func v1420Int(t *testing.T, m map[string]any, prefix, key string) int {
+	t.Helper()
+	v, ok := m[key].(float64)
+	if !ok {
+		t.Fatalf("%s%s 누락 또는 숫자 아님: %v", prefix, key, m[key])
+	}
+	return int(v)
+}
+
 func v1420EffectInt(t *testing.T, rep map[string]any, key string) int {
 	t.Helper()
 	effect, ok := rep["effect"].(map[string]any)
 	if !ok {
 		t.Fatalf("report에 effect 섹션 없음: %v", rep)
 	}
-	v, ok := effect[key].(float64)
-	if !ok {
-		t.Fatalf("effect.%s 누락 또는 숫자 아님: %v", key, effect[key])
-	}
-	return int(v)
+	return v1420Int(t, effect, "effect.", key)
 }
 
 func v1420TopInt(t *testing.T, rep map[string]any, key string) int {
 	t.Helper()
-	v, ok := rep[key].(float64)
-	if !ok {
-		t.Fatalf("%s 누락 또는 숫자 아님: %v", key, rep[key])
-	}
-	return int(v)
+	return v1420Int(t, rep, "", key)
 }
 
 func TestReadEventsNThresholdPaths(t *testing.T) {
@@ -150,7 +151,7 @@ func TestReadEventsNThresholdPaths(t *testing.T) {
 
 	rep = v1420RunReport(t)
 	if n := v1420EffectInt(t, rep, "read_events_n"); n != 150 {
-		t.Errorf("read_events_n = %d, want 150(<200 경로·창 외 30건 제외)", n)
+		t.Errorf("read_events_n = %d, want 150(<200 경로·창 외 12건 제외)", n)
 	}
 	if p := v1420EffectInt(t, rep, "hit_pct"); p != 70 {
 		t.Errorf("effect.hit_pct = %d, want 70(150 중 zero 45)", p)

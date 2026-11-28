@@ -25,16 +25,23 @@ if ! command -v cosign >/dev/null 2>&1; then
 elif [ ! -s lib/cli/cosign.pub ]; then
   echo "sign-verify skipped (lib/cli/cosign.pub 공백)"
 else
-  prev_tag="$(gh release list --limit 1 | awk '{print $1}')"
+  prev_tag="$(gh release list --limit 1 2>/dev/null | awk '{print $1}')" \
+    || fail "sign-verify gh 실패 (gh release list)"
+  [ -n "$prev_tag" ] || fail "sign-verify 직전 태그 부재"
   sv_dir="$(mktemp -d)"
-  if gh release download "$prev_tag" -p 'checksums.txt*' --dir "$sv_dir" >/dev/null 2>&1 \
-     && cosign verify-blob --key lib/cli/cosign.pub --insecure-ignore-tlog \
-          --signature "$sv_dir/checksums.txt.sig" "$sv_dir/checksums.txt" >/dev/null 2>&1; then
+  trap 'rm -rf "$sv_dir"' EXIT
+  gh release download "$prev_tag" -p 'checksums.txt*' --dir "$sv_dir" >/dev/null 2>&1 \
+    || fail "sign-verify 자산 다운로드 실패 (${prev_tag})"
+  if [ ! -f "$sv_dir/checksums.txt.sig" ]; then
+    echo "sign-verify skipped (직전 릴리스 .sig 부재 — 전환 모드)"
+  elif cosign verify-blob --key lib/cli/cosign.pub --insecure-ignore-tlog \
+       --signature "$sv_dir/checksums.txt.sig" "$sv_dir/checksums.txt" >/dev/null 2>&1; then
     echo "sign-verify OK (${prev_tag})"
   else
     fail "sign-verify red (${prev_tag})"
   fi
   rm -rf "$sv_dir"
+  trap - EXIT
 fi
 
 pj="$(python3 -c 'import json;print(json.load(open("flint-plugin/.claude-plugin/plugin.json"))["version"])')"
