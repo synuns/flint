@@ -16,6 +16,8 @@ const AsofMinPrefix = 3
 
 const maxRelativeAsOfHours = int(math.MaxInt64 / int64(time.Hour))
 
+const asofZeroRetryDelay = 100 * time.Millisecond
+
 func ParseRelative(spec string) (time.Time, error) {
 	fail := fmt.Errorf("invalid relative as-of spec %q (only integer Nh·Nd form allowed): %w", spec, ErrInvalidAsOf)
 	if len(spec) < 2 {
@@ -110,6 +112,13 @@ func ParseAsOfSpec(ctx context.Context, st Store, spec string) (string, error) {
 		entries, err := st.LogEntries(ctx, LogQuery{Prefix: spec})
 		if err != nil {
 			return "", err
+		}
+		for attempt := 0; len(entries) == 0 && attempt < 2; attempt++ {
+			time.Sleep(asofZeroRetryDelay)
+			entries, err = st.LogEntries(ctx, LogQuery{Prefix: spec})
+			if err != nil {
+				return "", err
+			}
 		}
 		switch len(entries) {
 		case 1:

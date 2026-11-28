@@ -6,10 +6,26 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.42.2 patch (2026-11-28) — asof-zero-retry-patch
+
+The v1.42.1 audit follow-ups: one doc sentence, one flake root-cause fix.
+
+- **[fix] as-of prefix zero-row bounded retry**: a hash prefix that
+  matches nothing is re-queried up to 2 more times (100ms apart) before
+  "no commit matches" is returned. Doltgres `dolt_log` visibility can
+  lag a just-succeeded commit across pool connections — the observed CI
+  flake (TestParseAsOfSpecRealPrefix, native job, passed on rerun) and
+  the production commit-then-as-of path both cross that window.
+  Ambiguous (2+) matches still fail fast. Natural-language rejection
+  tests updated to the new call count (1 → 3).
+- **[docs] v1.42.1 summary sentence**: "Homebrew cask tap" residue
+  replaced with the source-build formula wording, matching the [infra]
+  bullet (audit finding, MED).
+
 ### v1.42.1 patch (2026-11-28) — cellint-pointer-patch
 
 The v1.42.0 code-review follow-ups plus the CellToInt pointer robustness
-fix; the Homebrew cask tap goes live with this release.
+fix; the Homebrew tap opens with a source-build formula in this release.
 
 - **[fix] CellToInt `*int` case**: `*int` now coerces directly (nil →
   (0, false)). The v1.38.0 hot-snapshot ordering dead branch routed

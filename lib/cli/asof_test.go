@@ -171,8 +171,8 @@ func TestAsOfSpecNaturalLanguageRejected(t *testing.T) {
 		}
 	}
 
-	if len(f.queries) != 1 {
-		t.Fatalf("질의 수=%d, want 1(yesterday 접두어 질의만): %v", len(f.queries), f.queries)
+	if len(f.queries) != 3 {
+		t.Fatalf("질의 수=%d, want 3(yesterday 접두어 질의·0행 재시도 포함): %v", len(f.queries), f.queries)
 	}
 }
 

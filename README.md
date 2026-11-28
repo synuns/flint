@@ -26,7 +26,7 @@
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 harnesses">
   <a href="https://github.com/synuns/flint/actions/workflows/ci.yml"><img src="https://github.com/synuns/flint/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
-  <img src="https://img.shields.io/badge/release-v1.42.1-blue" alt="v1.42.1">
+  <img src="https://img.shields.io/badge/release-v1.42.2-blue" alt="v1.42.2">
 </p>
 <p align="center">
   <sub>8 counts the auto-registration (tier A) harnesses — the full support list is in the <a href="#agents--adapters">adapter table</a> below.</sub>
@@ -48,6 +48,7 @@ It adds up. Week one, it learns the stack. By week four, it remembers why you ch
 
 Humans take notes in Obsidian. Agents take notes in flint — the stone you strike to make fire and tools.
 
+> v1.42.2 · asof-zero-retry-patch — as-of hash-prefix zero-row bounded retry (2×100ms·cross-connection dolt_log visibility lag·ambiguous still fails fast) · v1.42.1 audit doc fix · [full changelog](docs/HISTORY.md)
 > v1.42.1 · cellint-pointer-patch — CellToInt *int coercion (hot-snapshot ordering helper removed) · release-gate sign-verify hardening (5 review findings: .sig-absent transition skip·gh diagnostics·trap cleanup·e2e text·helper unification) · Homebrew source-build tap live (brew install synuns/tap/flint) · [full changelog](docs/HISTORY.md)
 > v1.42.0 · surface-deploy — release gate sign verification (cosign verify-blob against embedded public key·skip when absent) · brand name re-sweep refreshed (GitHub+brew·flint-fyi observed) · observation threshold e2e (read_events_n ≥200/<200 data-path assertion) · [full changelog](docs/HISTORY.md)
 > v1.41.1 · quality-consolidation-patch — audit fixes: TUNING and slowlock stale file references updated to consolidated filenames · [full changelog](docs/HISTORY.md)

@@ -17,9 +17,10 @@ func asofLogEntries() []LogEntry {
 }
 
 type asofFakeStore struct {
-	entries  []LogEntry
-	calls    []LogQuery
-	noSchema map[string]bool
+	entries         []LogEntry
+	calls           []LogQuery
+	noSchema        map[string]bool
+	hidePrefixCalls int
 }
 
 func (f *asofFakeStore) Migrate(ctx context.Context) error { return nil }
@@ -76,6 +77,10 @@ func (f *asofFakeStore) LogEntries(ctx context.Context, q LogQuery) ([]LogEntry,
 	f.calls = append(f.calls, q)
 	switch {
 	case q.Prefix != "":
+		if f.hidePrefixCalls > 0 {
+			f.hidePrefixCalls--
+			return nil, nil
+		}
 		var out []LogEntry
 		for _, e := range f.entries {
 			if strings.HasPrefix(e.Hash, q.Prefix) {
@@ -215,6 +220,29 @@ func TestWirePrefixUniqueAmbiguousZero(t *testing.T) {
 	}
 }
 
+func TestWirePrefixZeroRetryEventual(t *testing.T) {
+	f := &asofFakeStore{entries: asofLogEntries()}
+	f.hidePrefixCalls = 2
+	hash, err := ParseAsOfSpec(context.Background(), f, "he0")
+	if err != nil || hash != "he08irluq000000000000000000000z" {
+		t.Fatalf("0행 연속 후 회복 → (%q,%v), want 전체 해시", hash, err)
+	}
+	if len(f.calls) < 3 {
+		t.Fatalf("재시도 미발생: calls=%d", len(f.calls))
+	}
+}
+
+func TestWirePrefixZeroRetryExhausted(t *testing.T) {
+	f := &asofFakeStore{}
+	_, err := ParseAsOfSpec(context.Background(), f, "he0")
+	if !errors.Is(err, ErrInvalidAsOf) || !strings.Contains(err.Error(), "no commit matches") {
+		t.Fatalf("재시도 소진 후 오류 아님: %v", err)
+	}
+	if len(f.calls) != 3 {
+		t.Fatalf("재시도 상한 초과·미달: calls=%d, want 3", len(f.calls))
+	}
+}
+
 func TestWireIsoBeforeFirst(t *testing.T) {
 	f := &asofFakeStore{entries: asofLogEntries()}
 	ctx := context.Background()
@@ -341,7 +369,7 @@ func TestWireAsOfSpecNaturalLanguageRejected(t *testing.T) {
 			t.Fatalf("%q err=%v, want ErrInvalidAsOf", bad, err)
 		}
 	}
-	if len(f.calls) != 1 {
-		t.Fatalf("질의 수=%d, want 1(yesterday 접두어 질의만): %+v", len(f.calls), f.calls)
+	if len(f.calls) != 3 {
+		t.Fatalf("질의 수=%d, want 3(yesterday 접두어 질의·0행 재시도 포함): %+v", len(f.calls), f.calls)
 	}
 }

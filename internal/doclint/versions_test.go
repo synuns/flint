@@ -591,6 +591,9 @@ var versionDocContracts = []struct {
 	{name: "TestVersion01421Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.42.1", "cellint-pointer-patch",
 	}},
+	{name: "TestVersion01422Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.42.2", "asof-zero-retry-patch",
+	}},
 	{name: "TestVersion0170Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.7.0", "sync",
 	}},
