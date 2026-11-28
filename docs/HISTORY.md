@@ -21,9 +21,13 @@ fix; the Homebrew cask tap goes live with this release.
   transition note instead of failing · gh failures carry a diagnostic ·
   temp dirs cleaned via trap · observation e2e error text corrected ·
   int-coercion helpers unified (v1420Int).
-- **[infra] Homebrew cask tap**: synuns/homebrew-tap opens with the
-  flint cask — README install path 4 flips from "tap in preparation"
-  to live (`brew install --cask synuns/tap/flint`).
+- **[infra] Homebrew tap**: synuns/homebrew-tap opens with a
+  source-build formula (`brew install synuns/tap/flint`) — README
+  install path 4 flips from "tap in preparation" to live. A cask/
+  prebuilt-formula design was tested first and rejected empirically:
+  Homebrew downloads carry quarantine that propagates on extraction
+  (macOS 26) and Gatekeeper blocks the unsigned binary at first run;
+  a local source build never passes through quarantine.
 
 ### v1.42.0 minor (2026-11-28) — surface-deploy
 

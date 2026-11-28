@@ -48,7 +48,7 @@ flint는 이걸 바꿉니다. 에이전트가 무언가 배우면 — 결정, �
 
 사람은 Obsidian에 노트를 남깁니다. 에이전트는 flint에 기억을 남깁니다 — 불과 도구를 얻기 위해 두드리는 부싯돌처럼.
 
-> v1.42.1 · CellToInt 포인터 패치 — CellToInt *int 강제 변환(hot 스냅샷 정렬 헬퍼 제거)·release-gate 서명 검증 강화(리뷰 5건: .sig 부재 전환 스킵·gh 진단·trap 청소·e2e 문구·헬퍼 통합)·Homebrew cask tap 개설(brew install --cask synuns/tap/flint) · [전체 변경 이력](docs/HISTORY.md)
+> v1.42.1 · CellToInt 포인터 패치 — CellToInt *int 강제 변환(hot 스냅샷 정렬 헬퍼 제거)·release-gate 서명 검증 강화(리뷰 5건: .sig 부재 전환 스킵·gh 진단·trap 청소·e2e 문구·헬퍼 통합)·Homebrew 소스 빌드 tap 개설(brew install synuns/tap/flint) · [전체 변경 이력](docs/HISTORY.md)
 > v1.42.0 · 표면·배포 — release gate 서명 검증(cosign verify-blob·임베드 공개키·미설치 시 스킵)·브랜드 이름 재스윕(GitHub+brew·flint-fyi 관측)·관측 임계값 e2e(read_events_n ≥200/<200 데이터 경로 단언) · [전체 변경 이력](docs/HISTORY.md)
 > v1.41.1 · 품질 청산 패치 — 감사 수리: TUNING·slowlock 낡은 파일 참조 통합 파일명으로 갱신 · [전체 변경 이력](docs/HISTORY.md)
 > v1.41.0 · 품질 청산 — 버전 접미 테스트 4도메인 단일 파일 통합(36개 제거·함수명·수 불변)·report 병렬 잔여: collectDaily errgroup 합류(5-way)·profile 메타 병렬(골든 출력 무변화)·read LIKE 이월(pg_trgm 미지원) · [전체 변경 이력](docs/HISTORY.md)
@@ -178,13 +178,13 @@ line=$(grep " $asset\$" checksums.txt) && [ -n "$line" ] && echo "$line" | shasu
 tar -xzf "$asset" && install flint ~/.local/bin
 ```
 
-**4 · Homebrew(cask)**: flint는 사전 빌드 바이너리만 배포하므로 Homebrew 경로는 **formula가 아니라 cask**입니다 — cask는 릴리스 자산 그대로를 sha256 검증과 함께 설치하므로 수동 경로와 동일한 신뢰 사슬이 됩니다:
+**4 · Homebrew(소스 빌드)**:
 
 ```bash
-brew install --cask synuns/tap/flint
+brew install synuns/tap/flint
 ```
 
-tap([synuns/homebrew-tap](https://github.com/synuns/homebrew-tap))은 릴리스마다 Cask 하나(`url` = 릴리스 자산, `sha256` = `checksums.txt`의 값)를 유지합니다. macOS 전용 — Linux에서는 1·2번 경로를 이용하세요.
+tap([synuns/homebrew-tap](https://github.com/synuns/homebrew-tap))은 릴리스마다 formula 하나를 유지하며, 릴리스 태그 소스에서 Go로 직접 빌드합니다(`go` 의존성은 brew가 설치). 릴리스 바이너리는 미서명인데 최신 macOS에서 Homebrew 다운로드의 quarantine이 압축 해제 시 전파되어 첫 실행이 Gatekeeper에 막히므로, 로컬 빌드가 검증 가능한 Homebrew 경로입니다. macOS 전용 — Linux에서는 1·2번 경로를 이용하세요.
 
 ### Claude Code
 
